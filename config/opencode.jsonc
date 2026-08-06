@@ -1,0 +1,17 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  // Server-side plugins. Paths are relative to ~/.config/opencode/.
+  "plugin": [
+    "./opencode-zh-bundle/plugins/opencode-quota-zh/dist/index.js",
+    "./opencode-zh-bundle/plugins/gpt-reset-credits/index.ts",
+    [
+      "./opencode-zh-bundle/plugins/opencode-matt-workshop/dist/src/index.js",
+      {
+        // Set false if you want to keep OpenCode's built-in build/plan agents.
+        "replace_builtin_agents": true,
+        "max_parallel_makers": 3
+      }
+    ]
+  ]
+}
