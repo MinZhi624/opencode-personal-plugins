@@ -1,0 +1,23 @@
+{
+  "name": "opencode-zh-bundle",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Minimal local distribution bundle for Chinese OpenCode quota, sidebar, Matt Workshop, and GPT reset-card plugins.",
+  "engines": {
+    "node": ">=22.6.0"
+  },
+  "dependencies": {
+    "@clack/prompts": "1.7.0",
+    "@opencode-ai/plugin": "1.18.12",
+    "@opentelemetry/api": "1.9.1",
+    "@opentui/core": "0.4.5",
+    "@opentui/keymap": "0.4.5",
+    "@opentui/solid": "0.4.5",
+    "comment-json": "5.0.0",
+    "jsonc-parser": "3.3.1",
+    "solid-js": "1.9.12",
+    "xdg-basedir": "5.1.0",
+    "zod": "4.1.8"
+  }
+}
