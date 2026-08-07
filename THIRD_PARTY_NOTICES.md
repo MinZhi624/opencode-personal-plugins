@@ -16,7 +16,7 @@
 
 ## opencode-matt-workshop
 
-- `skills/` 是 Matt Pocock promoted engineering skills 的适配版本。
+- `skills/` 是 Matt Pocock 全部 promoted engineering 与 productivity skills 的适配版本（上游 v1.2.2）。
 - 上游 skills 使用 MIT 许可证。
 - 许可证：`plugins/opencode-matt-workshop/licenses/MATT-POCOCK-SKILLS-LICENSE`。
 - Workshop 适配层原目录未声明独立许可证；本包不替其补充或推定许可证。

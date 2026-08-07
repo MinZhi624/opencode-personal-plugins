@@ -86,21 +86,15 @@ if [ "$SOURCE_DIR" != "$BUNDLE_DIR" ]; then
       ;;
   esac
 
+  node "$SOURCE_DIR/scripts/stage-runtime.mjs"
+  RUNTIME_DIR="$SOURCE_DIR/runtime-stage"
   mkdir -p "$BUNDLE_DIR"
   rm -rf \
     "$BUNDLE_DIR/plugins" \
     "$BUNDLE_DIR/scripts" \
     "$BUNDLE_DIR/config" \
     "$BUNDLE_DIR/docs"
-  cp -R "$SOURCE_DIR/plugins" "$BUNDLE_DIR/plugins"
-  cp -R "$SOURCE_DIR/scripts" "$BUNDLE_DIR/scripts"
-  cp -R "$SOURCE_DIR/config" "$BUNDLE_DIR/config"
-  cp -R "$SOURCE_DIR/docs" "$BUNDLE_DIR/docs"
-  cp "$SOURCE_DIR/package.json" "$BUNDLE_DIR/package.json"
-  cp "$SOURCE_DIR/package-lock.json" "$BUNDLE_DIR/package-lock.json"
-  cp "$SOURCE_DIR/README.md" "$BUNDLE_DIR/README.md"
-  cp "$SOURCE_DIR/LICENSE" "$BUNDLE_DIR/LICENSE"
-  cp "$SOURCE_DIR/THIRD_PARTY_NOTICES.md" "$BUNDLE_DIR/THIRD_PARTY_NOTICES.md"
+  cp -R "$RUNTIME_DIR/." "$BUNDLE_DIR"
 fi
 
 echo "安装运行依赖（单一 node_modules）……"

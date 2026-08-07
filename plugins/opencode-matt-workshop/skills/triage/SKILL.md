@@ -5,9 +5,7 @@ description: "Use ONLY when the user explicitly invokes /triage. Move issues and
 
 ## OpenCode Adapter
 
-References such as `/tdd` name Workflow Skills. Agents load those methods through OpenCode's skill tool; slash commands are the user-facing entry points. Use OpenCode's task tool for delegated agents.
-
-Drafter owns categorization and tracker state. Use Surveyor for static code facts. When verification requires checking out code or running commands unavailable to Drafter, create a handoff to Foreman and resume triage with Foreman's evidence.
+References such as `/tdd` name Workflow Skills. Agents load those methods through OpenCode's skill tool; slash commands are the user-facing entries. Use OpenCode's task tool for delegated agents.
 
 # Triage
 
@@ -76,9 +74,9 @@ Show counts and a one-line summary per item. Let the maintainer pick.
 
 2. **Recommend.** Tell the maintainer your category and state recommendation with reasoning, plus a brief codebase summary relevant to the request — including whether it's already implemented. Wait for direction.
 
-3. **Verify the claim.** Before any grilling, use Surveyor to check static code facts. For a bug reproduction or PR verification that requires checking out code or running tests, write a handoff document, tell the user to switch to Foreman and reference that path, then resume Drafter's `/triage` with Foreman's returned evidence. Drafter never checks out or executes the change directly. Report what happened: confirmed (with code path and command evidence), failed, or insufficient detail (a strong `needs-info` signal).
+3. **Verify the claim.** Before any grilling, check that the claim holds up. For a bug, reproduce it from the reporter's steps. For a PR, confirm the diff does what it claims — check it out, run the relevant tests or commands. Report what happened: confirmed (with code path), failed, or insufficient detail (a strong `needs-info` signal). A confirmed verification makes a much stronger agent brief.
 
-4. **Grill (if needed).** If the request needs fleshing out, run the `/grilling` and `/domain-modeling` skills together — grill it into shape one question at a time, sharpening domain terms and updating `CONTEXT.md`/ADRs inline as decisions land.
+4. **Grill (if needed).** If the request needs fleshing out, run the `/grilling` and `/domain-modeling` skills together — grill it into shape a round of questions at a time, sharpening domain terms and updating `CONTEXT.md`/ADRs inline as decisions land.
 
 5. **Apply the outcome:**
    - `ready-for-agent` — post an agent brief comment ([AGENT-BRIEF.md](AGENT-BRIEF.md)).

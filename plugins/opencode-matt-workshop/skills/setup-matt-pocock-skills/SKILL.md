@@ -5,7 +5,7 @@ description: "Use ONLY when the user explicitly invokes /setup-matt-pocock-skill
 
 ## OpenCode Adapter
 
-References such as `/tdd` name Workflow Skills. Agents load those methods through OpenCode's skill tool; slash commands are the user-facing entry points. Use OpenCode's task tool for delegated agents.
+References such as `/tdd` name Workflow Skills. Agents load those methods through OpenCode's skill tool; slash commands are the user-facing entries. Use OpenCode's task tool for delegated agents.
 
 # Setup Matt Pocock's Skills
 
@@ -40,7 +40,7 @@ Lead each section with the recommended answer so the user can accept it in a wor
 
 **Section A — Issue tracker.**
 
-> Explainer: The "issue tracker" is where issues live for this repo. Skills like `to-issues`, `triage`, `to-spec`, and `qa` read from and write to it — they need to know whether to call `gh issue create`, write a markdown file under `.scratch/`, or follow some other workflow you describe. Pick the place you actually track work for this repo.
+> Explainer: The "issue tracker" is where issues live for this repo. Skills like `to-tickets`, `triage`, and `to-spec` read from and write to it — they need to know whether to call `gh issue create`, write a markdown file under `.scratch/`, or follow some other workflow you describe. Pick the place you actually track work for this repo.
 
 Default posture: these skills were designed for GitHub. If a `git remote` points at GitHub, propose that. If a `git remote` points at GitLab (`gitlab.com` or a self-hosted host), propose GitLab. Otherwise (or if the user prefers), offer:
 
@@ -76,9 +76,11 @@ Let them edit before writing.
 
 **Pick the file to edit:**
 
-- Use `AGENTS.md`, OpenCode's canonical project instruction file.
-- If `AGENTS.md` exists, update it in place.
-- If only `CLAUDE.md` exists, leave it untouched and create `AGENTS.md`; tell the user why the OpenCode adapter keeps a separate instruction entry point.
+- If `AGENTS.md` exists, edit it.
+- Else if `CLAUDE.md` exists, edit it.
+- If neither exists, ask the user which one to create — don't pick for them.
+
+Never create a second instruction file when one already exists — OpenCode reads `AGENTS.md` before falling back to `CLAUDE.md`.
 
 If an `## Agent skills` block already exists in the chosen file, update its contents in-place rather than appending a duplicate. Don't overwrite user edits to the surrounding sections.
 

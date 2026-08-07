@@ -69,14 +69,16 @@ if ($SourceFull -ne $BundleFull) {
     throw "不能从目标 bundle 的子目录运行安装器：$SourceDir"
   }
 
+  & node (Join-Path $SourceDir "scripts/stage-runtime.mjs")
+  if ($LASTEXITCODE -ne 0) { throw "运行时发行包构建失败。" }
+  $RuntimeDir = Join-Path $SourceDir "runtime-stage"
   New-Item -ItemType Directory -Force -Path $BundleDir | Out-Null
   foreach ($Name in @("plugins", "scripts", "config", "docs")) {
     $Target = Join-Path $BundleDir $Name
     if (Test-Path $Target) { Remove-Item -Recurse -Force $Target }
-    Copy-Item -Recurse -Force (Join-Path $SourceDir $Name) $Target
   }
-  foreach ($Name in @("package.json", "package-lock.json", "README.md", "THIRD_PARTY_NOTICES.md")) {
-    Copy-Item -Force (Join-Path $SourceDir $Name) (Join-Path $BundleDir $Name)
+  foreach ($Item in Get-ChildItem -Force $RuntimeDir) {
+    Copy-Item -Recurse -Force $Item.FullName (Join-Path $BundleDir $Item.Name)
   }
 }
 
