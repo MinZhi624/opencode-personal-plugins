@@ -51,7 +51,7 @@ export function calculateUsdFromTokenBuckets(
  * - `partial = true` means at least one message carried tokens that could not be
  *   priced (unknown model or unpriced model); the trailing `+` marks it.
  * - A session that has usage but zero priced amount and some unpriced messages
- *   renders as `$0.0000+` (all unpriced).
+ *   renders as `未定价` instead of implying a free request.
  * - No usage at all → returns null so the caller hides the row.
  */
 export function formatCostUsd(
@@ -59,6 +59,7 @@ export function formatCostUsd(
   opts: { hasUsage: boolean; partial: boolean },
 ): string | null {
   if (!opts.hasUsage) return null
+  if (opts.partial && usd === 0) return "未定价"
   const base = `$${usd.toFixed(4)}`
   return opts.partial ? `${base}+` : base
 }

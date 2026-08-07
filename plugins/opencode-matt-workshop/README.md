@@ -1,6 +1,6 @@
 # OpenCode Matt Workshop
 
-A local OpenCode adapter for Matt Pocock's promoted engineering skills. It provides three user-facing Primary Agents and four hidden Worker Agents without adding a durable orchestration runtime.
+A local OpenCode adapter for [Matt Pocock's promoted engineering skills](https://github.com/mattpocock/skills). It provides three user-facing Primary Agents and four hidden Worker Agents without adding a durable orchestration runtime.
 
 ## Roles
 
@@ -79,3 +79,7 @@ The sync fails when a compatibility patch no longer matches its expected upstrea
 - [Architecture decisions](./docs/adr/)
 
 This is an unofficial OpenCode adapter. Matt Pocock's vendored skills retain their upstream MIT license and recorded provenance.
+
+## Related
+
+- [Bundle main README](../../README.md) — OpenCode 中文插件整合包（本插件是其中一部分）

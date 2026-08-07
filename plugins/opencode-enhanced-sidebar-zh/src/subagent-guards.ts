@@ -41,6 +41,7 @@ export function applyCostInfo<T extends CostCarrier>(entry: T, info: CostInfo | 
 export function entryCostText(entry: CostCarrier): string | null {
   if (entry.cost === undefined) return null
   if (entry.costComplete === false) return null
+  if (entry.costPartial === true && entry.cost === 0) return "未定价"
   const base = `$${entry.cost.toFixed(4)}`
   return entry.costPartial === true ? `${base}+` : base
 }

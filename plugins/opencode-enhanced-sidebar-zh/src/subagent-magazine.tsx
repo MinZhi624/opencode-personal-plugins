@@ -57,6 +57,13 @@ interface SubEntry {
   todoDone?: number
 }
 
+export interface SubAgentCostSummary {
+  usd: number
+  hasUsage: boolean
+  partial: boolean
+  complete: boolean
+}
+
 type Lang = "zh" | "en"
 type SortOrder = "desc" | "asc"
 type ScrollMode = "wheel" | "click"
@@ -239,6 +246,7 @@ export function SubAgentPanel(props: {
   sessionId: string
   /** Shared session metrics service: source of every sub-agent cost. */
   metrics: SessionMetricsService
+  onCostSummary?: (summary: SubAgentCostSummary) => void
 }): JSX.Element {
   const t = (key: string) => I18N[props.lang()][key] ?? key
 
@@ -493,6 +501,49 @@ export function SubAgentPanel(props: {
     if (!sid) return
     try { props.metrics.refresh(sid, delayMs !== undefined ? { delayMs } : undefined) } catch {}
   }
+
+  // Cost aggregation is asynchronous. Subscribe every tracked child instead
+  // of relying on the old fixed 400/1200ms backfill window. This also applies
+  // late results to entries that have already transitioned to done, including
+  // entries restored from KV on a later parent-session view.
+  let metricUnsubscribers: Array<() => void> = []
+  createEffect(() => {
+    const trackedSessionIds = new Set(
+      [...entryMap().values()]
+        .map((entry) => entry.sessionId)
+        .filter((sid): sid is string => Boolean(sid)),
+    )
+    for (const unsubscribe of metricUnsubscribers) unsubscribe()
+    metricUnsubscribers = []
+    for (const childSid of trackedSessionIds) {
+      metricUnsubscribers.push(props.metrics.subscribe(childSid, () => {
+        const costInfo = readSessionCostFromMetrics(childSid)
+        if (!costInfo?.complete) return
+        setEntryMap((prev) => {
+          let changed = false
+          const next = new Map(prev)
+          for (const [id, entry] of next) {
+            if (entry.sessionId !== childSid) continue
+            const applied = applyCostInfo(entry, costInfo)
+            if (
+              applied.cost !== entry.cost ||
+              applied.costPartial !== entry.costPartial ||
+              applied.costComplete !== entry.costComplete
+            ) {
+              next.set(id, applied)
+              changed = true
+            }
+          }
+          return changed ? next : prev
+        })
+        bump()
+      }))
+    }
+    onCleanup(() => {
+      for (const unsubscribe of metricUnsubscribers) unsubscribe()
+      metricUnsubscribers = []
+    })
+  })
 
   /** Last assistant message's modelID for a sub-agent session. */
   const readSessionModel = (sid: string): string | undefined => {
@@ -958,6 +1009,8 @@ export function SubAgentPanel(props: {
 
     onCleanup(() => {
       disposed = true
+      for (const unsubscribe of metricUnsubscribers) unsubscribe()
+      metricUnsubscribers = []
       clearInterval(clock)
       clearInterval(tokenTimer)
       clearTimeout(persistTimer)
@@ -1253,6 +1306,17 @@ export function SubAgentPanel(props: {
     entryList().some((e) => e.cost !== undefined && e.costComplete !== false && e.costPartial === true),
   )
 
+  createEffect(() => {
+    const list = entryList()
+    const withCost = list.filter((entry) => entry.cost !== undefined && entry.costComplete !== false)
+    props.onCostSummary?.({
+      usd: withCost.reduce((sum, entry) => sum + (entry.cost ?? 0), 0),
+      hasUsage: withCost.length > 0,
+      partial: withCost.some((entry) => entry.costPartial === true),
+      complete: list.every((entry) => !entry.sessionId || entry.costComplete === true),
+    })
+  })
+
   const toggleExpand = (id: string) => {
     setExpanded((prev) => {
       const next = prev === id ? undefined : id
@@ -1277,15 +1341,14 @@ export function SubAgentPanel(props: {
   // ── header parts for colored spans ──
   const summaryParts = createMemo(() => {
     if (!anyEntry()) return null
-    const dot = "\u25cf"
     const cost = totalCostUsd()
     const costPartial = totalCostPartial()
     return {
-      done: `${dot}${doneCount()}`,
-      running: runningCount() > 0 ? `${dot}${runningCount()}` : null,
-      err: errCount() > 0 ? `${dot}${errCount()}` : null,
+      done: `${doneCount()}`,
+      running: runningCount() > 0 ? `${runningCount()}` : null,
+      err: errCount() > 0 ? `${errCount()}` : null,
       duration: totalTokens() > 0 ? fmtTokens(totalTokens()) : "",
-      costText: cost > 0 || costPartial ? `$${cost.toFixed(2)}${costPartial ? "+" : ""}` : "",
+      costText: costPartial && cost === 0 ? "未定价" : cost > 0 || costPartial ? `$${cost.toFixed(2)}${costPartial ? "+" : ""}` : "",
     }
   })
 
@@ -1319,12 +1382,12 @@ export function SubAgentPanel(props: {
         <text fg={pal().text}>{open() ? "▼" : "▶"}</text>
         <text fg={pal().text}><b>{t("panel.title")}</b></text>
         {anyEntry() ? (
-          <text fg={pal().muted}>
-            {summaryParts()!.done}
-            {runningCount() > 0 ? ` ${summaryParts()!.running}` : ""}
-            {errCount() > 0 ? ` ${summaryParts()!.err}` : ""}
-            {summaryParts()!.duration ? ` ${summaryParts()!.duration}` : ""}
-            {summaryParts()!.costText ? ` ${summaryParts()!.costText}` : ""}
+          <text>
+            <span style={{ fg: pal().success }}>✓{summaryParts()!.done}</span>
+            {runningCount() > 0 ? <span style={{ fg: pal().warning }}> ●{summaryParts()!.running}</span> : ""}
+            {errCount() > 0 ? <span style={{ fg: pal().error }}> ✕{summaryParts()!.err}</span> : ""}
+            {summaryParts()!.duration ? <span style={{ fg: pal().muted }}> {summaryParts()!.duration}</span> : ""}
+            {summaryParts()!.costText ? <span style={{ fg: pal().primary }}> {summaryParts()!.costText}</span> : ""}
           </text>
         ) : null}
       </box>
