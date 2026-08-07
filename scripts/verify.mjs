@@ -14,6 +14,7 @@ const requiredFiles = [
   "plugins/opencode-enhanced-sidebar-zh/src/data/modelsdev-pricing.min.json",
   "plugins/opencode-matt-workshop/dist/src/index.js",
   "plugins/opencode-matt-workshop/skills/ask-matt/SKILL.md",
+  "plugins/opencode-matt-workshop/skill-manifest.json",
   "plugins/gpt-reset-credits/index.ts",
   "plugins/gpt-reset-credits/reset_credits.py",
 ]

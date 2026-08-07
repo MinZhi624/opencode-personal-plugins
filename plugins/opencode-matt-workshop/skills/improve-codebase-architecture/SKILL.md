@@ -5,9 +5,7 @@ description: "Use ONLY when the user explicitly invokes /improve-codebase-archit
 
 ## OpenCode Adapter
 
-References such as `/tdd` name Workflow Skills. Agents load those methods through OpenCode's skill tool; slash commands are the user-facing entry points. Use OpenCode's task tool for delegated agents.
-
-Use Surveyor for delegated codebase exploration. Drafter owns the report and the subsequent grilling flow.
+References such as `/tdd` name Workflow Skills. Agents load those methods through OpenCode's skill tool; slash commands are the user-facing entries. Use OpenCode's task tool for delegated agents.
 
 # Improve Codebase Architecture
 

@@ -1,0 +1,201 @@
+{
+  "upstream": {
+    "version": "1.2.2",
+    "tag": "v1.2.2",
+    "commit": "8b36d4fb2635b3c21998dcd8144439c9e5ba7302"
+  },
+  "skills": [
+    {
+      "name": "ask-matt",
+      "implicitInvocation": false,
+      "command": true,
+      "guardedBy": null
+    },
+    {
+      "name": "diagnosing-bugs",
+      "implicitInvocation": true,
+      "command": true,
+      "guardedBy": "foreman"
+    },
+    {
+      "name": "grill-with-docs",
+      "implicitInvocation": false,
+      "command": true,
+      "guardedBy": null
+    },
+    {
+      "name": "triage",
+      "implicitInvocation": false,
+      "command": true,
+      "guardedBy": "drafter"
+    },
+    {
+      "name": "improve-codebase-architecture",
+      "implicitInvocation": false,
+      "command": true,
+      "guardedBy": null
+    },
+    {
+      "name": "setup-matt-pocock-skills",
+      "implicitInvocation": false,
+      "command": true,
+      "guardedBy": null
+    },
+    {
+      "name": "tdd",
+      "implicitInvocation": true,
+      "command": true,
+      "guardedBy": "foreman"
+    },
+    {
+      "name": "to-spec",
+      "implicitInvocation": false,
+      "command": true,
+      "guardedBy": "drafter"
+    },
+    {
+      "name": "to-tickets",
+      "implicitInvocation": false,
+      "command": true,
+      "guardedBy": "drafter"
+    },
+    {
+      "name": "wayfinder",
+      "implicitInvocation": false,
+      "command": true,
+      "guardedBy": "drafter"
+    },
+    {
+      "name": "implement",
+      "implicitInvocation": false,
+      "command": true,
+      "guardedBy": "foreman"
+    },
+    {
+      "name": "prototype",
+      "implicitInvocation": true,
+      "command": true,
+      "guardedBy": "foreman"
+    },
+    {
+      "name": "research",
+      "implicitInvocation": true,
+      "command": true,
+      "guardedBy": null
+    },
+    {
+      "name": "domain-modeling",
+      "implicitInvocation": true,
+      "command": true,
+      "guardedBy": null
+    },
+    {
+      "name": "codebase-design",
+      "implicitInvocation": true,
+      "command": true,
+      "guardedBy": null
+    },
+    {
+      "name": "code-review",
+      "implicitInvocation": true,
+      "command": true,
+      "guardedBy": null
+    },
+    {
+      "name": "resolving-merge-conflicts",
+      "implicitInvocation": true,
+      "command": true,
+      "guardedBy": "foreman"
+    },
+    {
+      "name": "wizard",
+      "implicitInvocation": true,
+      "command": true,
+      "guardedBy": "foreman"
+    },
+    {
+      "name": "grill-me",
+      "implicitInvocation": false,
+      "command": true,
+      "guardedBy": null
+    },
+    {
+      "name": "grilling",
+      "implicitInvocation": true,
+      "command": true,
+      "guardedBy": null
+    },
+    {
+      "name": "handoff",
+      "implicitInvocation": false,
+      "command": true,
+      "guardedBy": null
+    },
+    {
+      "name": "teach",
+      "implicitInvocation": false,
+      "command": true,
+      "guardedBy": null
+    },
+    {
+      "name": "to-questionnaire",
+      "implicitInvocation": false,
+      "command": true,
+      "guardedBy": null
+    },
+    {
+      "name": "wait-what",
+      "implicitInvocation": false,
+      "command": true,
+      "guardedBy": null
+    },
+    {
+      "name": "writing-for-agents",
+      "implicitInvocation": true,
+      "command": true,
+      "guardedBy": null
+    }
+  ],
+  "agentSkills": {
+    "drafter": [
+      "ask-matt",
+      "grill-me",
+      "grilling",
+      "grill-with-docs",
+      "triage",
+      "improve-codebase-architecture",
+      "setup-matt-pocock-skills",
+      "to-spec",
+      "to-tickets",
+      "wayfinder",
+      "research",
+      "domain-modeling",
+      "codebase-design",
+      "handoff",
+      "teach",
+      "wait-what",
+      "to-questionnaire",
+      "writing-for-agents"
+    ],
+    "foreman": [
+      "implement",
+      "tdd",
+      "diagnosing-bugs",
+      "prototype",
+      "code-review",
+      "resolving-merge-conflicts",
+      "research",
+      "domain-modeling",
+      "codebase-design",
+      "handoff",
+      "writing-for-agents",
+      "wizard"
+    ],
+    "maker": [
+      "tdd",
+      "diagnosing-bugs",
+      "prototype",
+      "codebase-design"
+    ]
+  }
+}

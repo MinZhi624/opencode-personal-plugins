@@ -1,0 +1,1 @@
+/home/minzhi/Desktop/Project/opencode/mz_opencode_plugin/skills-1.2.2/CLAUDE.md

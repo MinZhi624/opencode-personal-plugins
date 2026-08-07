@@ -1,6 +1,6 @@
 {
   "name": "opencode-zh-bundle",
-  "version": "1.0.1",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "description": "Minimal local distribution bundle for Chinese OpenCode quota, sidebar, Matt Workshop, and GPT reset-card plugins.",
@@ -19,5 +19,16 @@
     "solid-js": "1.9.12",
     "xdg-basedir": "5.1.0",
     "zod": "4.1.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "typescript": "^5.8.3"
+  },
+  "scripts": {
+    "build:matt-workshop": "tsc --project plugins/opencode-matt-workshop/tsconfig.json",
+    "check:matt-workshop": "node scripts/sync-matt-skills.mjs --check && npm run build:matt-workshop -- --noEmit && node scripts/check-matt-build.mjs && node scripts/verify-matt-workshop.mjs && node scripts/stage-runtime.mjs --check",
+    "sync:matt-skills": "node scripts/sync-matt-skills.mjs",
+    "stage:runtime": "node scripts/stage-runtime.mjs",
+    "check": "npm run check:matt-workshop && node scripts/verify.mjs"
   }
 }

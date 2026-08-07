@@ -132,6 +132,12 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 ## 版本记录
 
+### v2.0.0
+
+- Matt Workshop 对齐 Matt Pocock Skills `v1.2.2` 的全部 25 个 promoted Skills，并将适配器恢复为可构建的 TypeScript 源码。
+- 引入可重复同步、统一 Skill manifest、运行时发行白名单与 GitHub Actions 核心验收门槛。
+- 移除旧 `/writing-great-skills` 命令；使用 `/writing-for-agents`。
+
 ### v1.0.1（2026-08-07）
 
 - 统一 API 标价估算：quota-zh 与增强侧边栏共享同一价格快照与逐消息估算规则，界面分别展示“本会话”“子代理”“任务树合计”，“未定价”不再伪装成零费用。

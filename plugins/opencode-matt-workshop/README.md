@@ -1,6 +1,6 @@
 # OpenCode Matt Workshop
 
-A local OpenCode adapter for [Matt Pocock's promoted engineering skills](https://github.com/mattpocock/skills). It provides three user-facing Primary Agents and four hidden Worker Agents without adding a durable orchestration runtime.
+A local OpenCode adapter for all [Matt Pocock promoted Skills](https://github.com/mattpocock/skills), pinned to upstream `v1.2.2`. It provides three user-facing Primary Agents and four hidden Worker Agents without adding a durable orchestration runtime.
 
 ## Roles
 
@@ -56,17 +56,17 @@ Quit and restart OpenCode after changing plugin configuration. OpenCode loads co
 
 ## Commands
 
-The Workshop registers the upstream user-invoked workflows as same-name commands. Planning commands route to Drafter, `/implement` routes to Foreman, `/teach` routes to Tinker, and context utilities such as `/handoff` stay with the current Primary Agent.
+The Workshop registers all 25 promoted Skills as same-name commands. Ten guarded commands persistently switch to the responsible Primary Agent: Drafter owns `/triage`, `/to-spec`, `/to-tickets`, and `/wayfinder`; Foreman owns `/implement`, `/tdd`, `/diagnosing-bugs`, `/prototype`, `/resolving-merge-conflicts`, and `/wizard`. The other commands run in the current Primary Agent. Tinker can load every Skill; other Primary Agents retain responsibility-specific permissions.
 
 Run `/setup-matt-pocock-skills` only when a workflow needs Issue tracker, triage, or domain-layout configuration. Quick Changes and ordinary code exploration do not require repository setup.
 
 ## Upstream Sync
 
-The raw promoted snapshot is stored under `vendor/matt-pocock-skills/`; OpenCode loads the generated adapter output under `skills/`.
+The complete raw upstream `v1.2.2` snapshot is stored under `vendor/mattpocock-skills/`; OpenCode loads generated adapter output under `skills/`. The snapshot and development records are tracked in Git but excluded from the installed Runtime Distribution.
 
 ```bash
-npm run sync-skills
-npm run check
+npm run sync:matt-skills
+npm run check:matt-workshop
 ```
 
 The sync fails when a compatibility patch no longer matches its expected upstream anchor. Review upstream changes rather than weakening the check.
@@ -74,8 +74,7 @@ The sync fails when a compatibility patch no longer matches its expected upstrea
 ## Architecture
 
 - [Domain language](./CONTEXT.md)
-- [Implementation plan](./docs/IMPLEMENTATION_PLAN.md)
-- [Manual acceptance evidence](./docs/MANUAL_ACCEPTANCE.md)
+- [2.0 implementation handoff](./docs/implementation/2.0-foreman-handoff.md)
 - [Architecture decisions](./docs/adr/)
 
 This is an unofficial OpenCode adapter. Matt Pocock's vendored skills retain their upstream MIT license and recorded provenance.
