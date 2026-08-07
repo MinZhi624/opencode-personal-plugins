@@ -87,6 +87,14 @@ export const QUOTA_DIALOG_COMMANDS = [
         requiresSession: true,
         acceptsArguments: true,
     },
+    {
+        id: "pricing_refresh",
+        slashName: "pricing_refresh",
+        title: "刷新模型价格",
+        description: "强制刷新 models.dev 模型 API 价格快照。",
+        dialogSize: "large",
+        requiresSession: false,
+    },
     ...TOKEN_REPORT_COMMANDS.map((spec) => ({
         id: spec.id,
         slashName: spec.id,

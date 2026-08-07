@@ -5,8 +5,7 @@ import { writeJsonAtomic } from "./atomic-json.js";
 import { fetchWithTimeout } from "./http.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 const SOURCE_URL = "https://models.dev/api.json";
-const DEFAULT_MODELSDEV_PROVIDERS = ["anthropic", "google", "moonshotai", "openai", "xai", "zai"];
-const COST_KEYS = ["input", "output", "cache_read", "cache_write"];
+const COST_KEYS = ["input", "output", "cache_read", "cache_write", "reasoning"];
 const RUNTIME_SNAPSHOT_FILENAME = "modelsdev-pricing.runtime.min.json";
 const RUNTIME_REFRESH_STATE_FILENAME = "modelsdev-pricing.refresh-state.json";
 const DEFAULT_REFRESH_MIN_ATTEMPT_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -283,7 +282,7 @@ function pickCostBuckets(rawCost) {
 function buildSnapshotFromApi(apiRaw, providerIDs, generatedAt) {
     const api = asRecord(apiRaw) ?? {};
     const providers = {};
-    for (const providerID of providerIDs) {
+    for (const providerID of providerIDs ?? Object.keys(api)) {
         const providerNode = asRecord(api[providerID]);
         const models = asRecord(providerNode?.models);
         if (!models)
@@ -479,7 +478,7 @@ export async function maybeRefreshPricingSnapshot(opts = {}) {
                     state: nextState,
                 };
             }
-            const snapshot = buildSnapshotFromApi(fetchResult.api, opts.providerAllowlist ?? DEFAULT_MODELSDEV_PROVIDERS, nowMs);
+            const snapshot = buildSnapshotFromApi(fetchResult.api, opts.providerAllowlist, nowMs);
             if (countPricedModels(snapshot) === 0) {
                 throw new Error("Refusing to persist empty pricing snapshot from models.dev");
             }

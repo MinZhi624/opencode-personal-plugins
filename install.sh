@@ -99,6 +99,7 @@ if [ "$SOURCE_DIR" != "$BUNDLE_DIR" ]; then
   cp "$SOURCE_DIR/package.json" "$BUNDLE_DIR/package.json"
   cp "$SOURCE_DIR/package-lock.json" "$BUNDLE_DIR/package-lock.json"
   cp "$SOURCE_DIR/README.md" "$BUNDLE_DIR/README.md"
+  cp "$SOURCE_DIR/LICENSE" "$BUNDLE_DIR/LICENSE"
   cp "$SOURCE_DIR/THIRD_PARTY_NOTICES.md" "$BUNDLE_DIR/THIRD_PARTY_NOTICES.md"
 fi
 

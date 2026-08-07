@@ -7,8 +7,8 @@
  *
  * Responsibilities:
  * - Load the bundled fallback snapshot (src/data/modelsdev-pricing.min.json).
- * - Optionally overlay a runtime snapshot cached under the plugin's own
- *   namespace `opencode-enhanced-sidebar-zh/` (independent of the quota plugin).
+ * - Overlay the shared runtime snapshot cached under the quota plugin's
+ *   `opencode-quota/` namespace so all cost surfaces use one catalog.
  * - Refresh models.dev pricing in the background with timeout, throttle,
  *   staleness policy, atomic writes and safe fallback to the bundled snapshot.
  * - Resolve OpenCode provider/model ids to a pricing key
@@ -101,16 +101,10 @@ export type RuntimeDirs = { cacheDir: string }
 // ---------------------------------------------------------------------------
 
 const SOURCE_URL = "https://models.dev/api.json"
-const DEFAULT_MODELSDEV_PROVIDERS = [
-  "anthropic",
-  "google",
-  "moonshotai",
-  "openai",
-  "xai",
-  "zai",
-]
-const COST_KEYS = ["input", "output", "cache_read", "cache_write"] as const
-const RUNTIME_NAMESPACE = "opencode-enhanced-sidebar-zh"
+const COST_KEYS = ["input", "output", "cache_read", "cache_write", "reasoning"] as const
+// Share quota-zh's runtime snapshot so every cost surface uses the same
+// provider/model catalog and refresh timestamp.
+const RUNTIME_NAMESPACE = "opencode-quota"
 const RUNTIME_SNAPSHOT_FILENAME = "modelsdev-pricing.runtime.min.json"
 const RUNTIME_REFRESH_STATE_FILENAME = "modelsdev-pricing.refresh-state.json"
 const DEFAULT_REFRESH_MIN_ATTEMPT_INTERVAL_MS = 6 * 60 * 60 * 1000
@@ -681,12 +675,12 @@ function pickCostBuckets(rawCost: unknown): CostBuckets | null {
 
 function buildSnapshotFromApi(
   apiRaw: unknown,
-  providerIDs: string[],
+  providerIDs: string[] | undefined,
   generatedAt: number,
 ): PricingSnapshot {
   const api = asRecord(apiRaw) ?? {}
   const providers: Record<string, Record<string, CostBuckets>> = {}
-  for (const providerID of providerIDs) {
+  for (const providerID of providerIDs ?? Object.keys(api)) {
     const providerNode = asRecord(api[providerID])
     const models = asRecord(providerNode?.models)
     if (!models) continue
@@ -893,11 +887,7 @@ export async function maybeRefreshPricingSnapshot(
         return { attempted: true, updated: true, state: nextState }
       }
 
-      const snapshot = buildSnapshotFromApi(
-        fetchResult.api,
-        opts.providerAllowlist ?? DEFAULT_MODELSDEV_PROVIDERS,
-        nowMs,
-      )
+      const snapshot = buildSnapshotFromApi(fetchResult.api, opts.providerAllowlist, nowMs)
       if (countPricedModels(snapshot) === 0) {
         throw new Error("Refusing to persist empty pricing snapshot from models.dev")
       }

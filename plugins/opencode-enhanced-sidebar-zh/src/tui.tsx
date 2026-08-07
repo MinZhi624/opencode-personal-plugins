@@ -1,6 +1,6 @@
 import type { TuiPlugin, TuiPluginApi, TuiPluginModule } from "@opencode-ai/plugin/tui"
 import { createMemo, createSignal, createEffect, Show, onCleanup } from "solid-js"
-import { SubAgentPanel, createSubAgentSignals } from "./subagent-magazine"
+import { SubAgentPanel, createSubAgentSignals, type SubAgentCostSummary } from "./subagent-magazine"
 import {
   SessionMetricsService,
   createClientPageFetcher,
@@ -92,6 +92,12 @@ function View(props: ViewProps) {
 
   // ——— session cost (shared metrics service; full paginated session) ———
   const [costTick, setCostTick] = createSignal(0)
+  const [subagentCost, setSubagentCost] = createSignal<SubAgentCostSummary>({
+    usd: 0,
+    hasUsage: false,
+    partial: false,
+    complete: true,
+  })
   createEffect(() => {
     const sid = props.session_id
     const unsub = props.metrics.subscribe(sid, () => setCostTick((v) => v + 1))
@@ -104,11 +110,29 @@ function View(props: ViewProps) {
   createEffect(() => {
     props.metrics.refresh(props.session_id, { delayMs: 0 })
   })
-  const sessionCost = createMemo(() => {
+  const sessionCostResult = createMemo(() => {
     void costTick()
     const res = props.metrics.get(props.session_id)
-    if (!res || !res.complete || !res.hasUsage) return null
+    return res && res.complete && res.hasUsage ? res : null
+  })
+  const sessionCost = createMemo(() => {
+    const res = sessionCostResult()
+    if (!res) return null
     return formatCostUsd(res.usd, { hasUsage: res.hasUsage, partial: res.partial })
+  })
+  const subagentCostText = createMemo(() => {
+    const summary = subagentCost()
+    if (!summary.complete || !summary.hasUsage) return null
+    return formatCostUsd(summary.usd, { hasUsage: summary.hasUsage, partial: summary.partial })
+  })
+  const taskTreeCost = createMemo(() => {
+    const own = sessionCostResult()
+    const children = subagentCost()
+    if (!own || !children.complete || !children.hasUsage) return null
+    return formatCostUsd(own.usd + children.usd, {
+      hasUsage: true,
+      partial: own.partial || children.partial,
+    })
   })
 
   // ——— step TPS (shared realtime tracker; latest fully observed step) ———
@@ -177,8 +201,20 @@ function View(props: ViewProps) {
           </box>
           <Show when={sessionCost() !== null}>
             <box flexDirection="row" justifyContent="space-between">
-              <text fg={t.textMuted}>花费</text>
+              <text fg={t.textMuted}>花费（本会话）</text>
               <text fg={t.text}>{sessionCost()}</text>
+            </box>
+          </Show>
+          <Show when={subagentCostText() !== null}>
+            <box flexDirection="row" justifyContent="space-between">
+              <text fg={t.textMuted}>花费（子代理）</text>
+              <text fg={t.text}>{subagentCostText()}</text>
+            </box>
+          </Show>
+          <Show when={taskTreeCost() !== null}>
+            <box flexDirection="row" justifyContent="space-between">
+              <text fg={t.textMuted}>花费（任务树合计）</text>
+              <text fg={t.text}>{taskTreeCost()}</text>
             </box>
           </Show>
         </Show>
@@ -193,6 +229,7 @@ function View(props: ViewProps) {
         scrollMode={subagentSignals.scrollMode}
         sessionId={props.session_id}
         metrics={props.metrics}
+        onCostSummary={setSubagentCost}
       />
 
     </box>
