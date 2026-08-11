@@ -1,0 +1,31 @@
+{
+  "repository": "https://github.com/slkiser/opencode-quota.git",
+  "version": "4.4.1",
+  "tag": "v4.4.1",
+  "commit": "73dfcf1a4c4c6214f73993de5c81b22d394ff0a5",
+  "versionMismatch": {
+    "tag": "v4.4.1",
+    "packageJsonVersion": "4.4.0",
+    "note": "Known upstream mismatch: the v4.4.1 tag ships a package.json whose internal version field is 4.4.0. The baseline preserves the upstream value verbatim; it is not a fork edit."
+  },
+  "source": "https://github.com/slkiser/opencode-quota/archive/refs/tags/v4.4.1.tar.gz",
+  "sha256": "d936af7c36b97f0284b2ad9e46ba7f17d86baf2242e3ff3f14549008c28b17b7",
+  "license": "MIT",
+  "snapshot": "src/, tests/ (offline baseline), scripts/ (dev-build/offline-check subset only; upstream plugin-reference sync/review tooling removed, see excluded), docs/, contributing/, references/upstream-quota/CONTRIBUTING.md, README.md, LICENSE.upstream, package.upstream.json, tsconfig.upstream.json, vitest.config.upstream.ts",
+  "adaptations": [
+    "tsconfig.json: upstream tsconfig with outDir redirected to ./dev-dist (dev-only output)",
+    "vitest.config.ts: offline baseline with documented exclusions (see UPSTREAM-PROVENANCE.md)",
+    "tests/setup.ts: offline network guard blocking global fetch and node:http/https/net/tls/dns entry points",
+    "scripts/lib/cross-platform-command.mjs: cross-platform child-process invocation helper ({command, shell}; Windows runs bare npm/tsc via cmd.exe, POSIX no shell)",
+    "scripts/build-dev.mjs: dev-only build entry (tsc via cross-platform-command helper + data copy), never writes dist/",
+    "scripts/stage-runtime.mjs: quota-zh runtime staging restricted to dist/, package.json, LICENSE, README.zh.md"
+  ],
+  "excluded": [
+    "pnpm-lock.yaml, pnpm-workspace.yaml (repo uses npm single lockfile)",
+    ".husky, .lintstagedrc (repo dev tooling not part of the baseline)",
+    ".git",
+    "references/upstream-plugins/ (third-party plugin reference snapshots incl. dist artifacts and lock.json: not part of runtime/source validation or the offline baseline)",
+    "scripts/sync-upstream-plugin-references.mjs, scripts/check-upstream-plugin-updates.mjs, scripts/prepare-upstream-plugin-review.mjs and scripts/lib/upstream-plugin-*.mjs (upstream plugin-reference sync/check/review tooling that only targets the removed references/upstream-plugins/ tree; removed so no command can rebuild a tree that is not in the baseline)",
+    "tests/upstream-plugin-identity/issues/lock/reference-integrity/registry/review/sanitization/specs/sync.test.ts and tests/upstream.cursor-oauth.reference.test.ts (retained byte-for-byte as upstream history originals but excluded from the local offline baseline because their tooling and reference tree are absent; see vitest.config.ts and UPSTREAM-PROVENANCE.md)"
+  ]
+}
