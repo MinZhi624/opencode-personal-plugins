@@ -29,14 +29,14 @@ export class GitWorkspace {
     return value
   }
 
-  async createSlice(parentSessionId: string, sliceId: string, directory: string, checkpoint: string) {
+  async createSlice(parentSessionId: string, sliceId: string, directory: string, checkpoint?: string) {
     const integration = await this.integration(parentSessionId, directory)
     const actual = await git(integration.directory, ["rev-parse", "HEAD"])
-    if (actual !== checkpoint) throw new Error(`Stale integration checkpoint: expected ${actual}`)
+    if (checkpoint && actual !== checkpoint) throw new Error(`Stale integration checkpoint: expected ${checkpoint}, found ${actual}`)
     const branch = `workshop/slice-${safeId(parentSessionId)}-${safeId(sliceId)}`
     const target = join(tmpdir(), "opencode", "workshop", safeId(parentSessionId), "slices", safeId(sliceId))
     await mkdir(resolve(target, ".."), { recursive: true })
-    await git(integration.root, ["worktree", "add", "-b", branch, target, checkpoint])
+    await git(integration.root, ["worktree", "add", "-b", branch, target, actual])
     return { integration, branch, directory: target }
   }
 

@@ -27,14 +27,16 @@ export class OrchestrationManager {
   async submitSlice(raw: unknown, parentSessionId: string, directory: string) {
     const spec = sliceSpecSchema.parse(raw)
     const taskId = `slice:${parentSessionId}:${spec.sliceId}`
-    if (this.tasks.has(taskId)) throw new Error(`Duplicate Slice identity: ${spec.sliceId}`)
+    const existing = this.tasks.get(taskId)
+    if (existing && !["failed", "cancelled"].includes(existing.runStatus)) throw new Error(`Duplicate Slice identity: ${spec.sliceId}`)
     const unresolved = spec.blockers.filter((blocker) => !this.acceptedSlices.has(blocker))
     if (unresolved.length) throw new Error(`Unresolved Slice blockers: ${unresolved.join(", ")}`)
-    for (const task of this.tasks.values()) if (task.kind === "slice" && !["failed", "cancelled"].includes(task.runStatus) && task.acceptanceStatus === "not_evaluated") {
+    for (const task of this.tasks.values()) if (task.kind === "slice" && task.taskId !== taskId && !["failed", "cancelled"].includes(task.runStatus) && task.acceptanceStatus === "not_evaluated") {
       const other = (task.spec as SliceSpec).writeSet
       if (spec.writeSet.some((left) => other.some((right) => pathMatches(left, right) || pathMatches(right, left)))) throw new Error(`Write Set overlaps active Slice ${task.taskId}`)
     }
-    const workspace = await this.git.createSlice(parentSessionId, spec.sliceId, directory, spec.integrationCheckpoint)
+    if (existing) { this.tasks.delete(taskId); if (existing.sessionId) this.sessionTasks.delete(existing.sessionId) }
+    const workspace = existing?.directory ? { directory: existing.directory, integration: existing.integration } : await this.git.createSlice(parentSessionId, spec.sliceId, directory, spec.integrationCheckpoint)
     const task = this.makeTask(taskId, "slice", "maker", spec.objective, workspace.directory, parentSessionId, spec)
     task.integration = workspace.integration
     this.tasks.set(task.taskId, task)
@@ -72,17 +74,44 @@ export class OrchestrationManager {
     try {
       const externalReadRoots = task.kind === "assignment" ? (task.spec as AssignmentSpec).externalReadRoots : []
       const permission = { question: "deny", task: "deny", bash: "deny", external_directory: Object.fromEntries([["*", "deny"], ...externalReadRoots.map((root) => [`${resolve(root)}/**`, "allow"])]) }
-      const created = await this.client.session.create({ body: { parentID: task.parentSessionId, title: `${task.kind === "slice" ? "Slice" : "Assignment"}: ${task.taskId}`, permission } as Record<string, unknown>, query: { directory: task.directory } })
-      if (!created.data?.id) throw new Error(`Failed to create Worker session: ${created.error ?? "missing session"}`)
-      const session = await this.client.session.get({ path: { id: created.data.id }, query: { directory: task.directory } })
+      const created = await this.createWorkerSession(task, permission)
+      if (!created?.id) throw new Error("Failed to create Worker session")
+      const session = await this.client.session.get({ path: { id: created.id }, query: { directory: task.directory } })
       if (session.data?.parentID !== task.parentSessionId || resolve(session.data?.directory ?? "") !== resolve(task.directory)) throw new Error("Worker session identity or directory mismatch")
-      const sessionId = created.data.id as string
+      const sessionId = created.id as string
       task.sessionId = sessionId; this.sessionTasks.set(sessionId, task)
       task.runStatus = "running"; task.progress.phase = task.kind === "slice" ? "implementation" : "investigation"; task.progress.lastProgressAt = Date.now(); task.activeSince = Date.now()
       const prompt = JSON.stringify({ contract: task.spec, resultProtocol: "Call workshop_submit_result exactly once with a structured outcome. Do not claim Acceptance Status." }, null, 2)
       await this.client.session.promptAsync({ path: { id: sessionId }, query: { directory: task.directory }, body: { agent: task.role, system: `Workshop permission template ${this.options.permissionTemplateVersion}. Follow the structured contract.`, tools: { task: false, bash: false }, parts: [{ type: "text", text: prompt }] } })
       this.armLimits(task)
-    } catch (error) { this.fail(task, error instanceof Error ? error.message : String(error)) }
+    } catch (error) { this.fail(task, this.formatError(error)) }
+  }
+
+  private async createWorkerSession(task: InternalTask, permission: Record<string, unknown>) {
+    const body = { parentID: task.parentSessionId, title: `${task.kind === "slice" ? "Slice" : "Assignment"}: ${task.taskId}` }
+    try {
+      const withPermission = await this.client.session.create({ body: { ...body, permission } as Record<string, unknown>, query: { directory: task.directory } })
+      if (withPermission.data?.id) return withPermission.data
+      const error = this.formatError(withPermission.error)
+      if (error.includes("permission")) throw new Error(`Worker session create rejected permission field: ${error}`)
+    } catch (error) {
+      const message = this.formatError(error)
+      if (message.includes("permission")) {
+        const fallback = await this.client.session.create({ body, query: { directory: task.directory } })
+        if (fallback.data?.id) return fallback.data
+        throw new Error(`Failed to create Worker session without permission: ${this.formatError(fallback.error ?? fallback.data)}`)
+      }
+      throw error
+    }
+    const retried = await this.client.session.create({ body, query: { directory: task.directory } })
+    if (retried.data?.id) return retried.data
+    throw new Error(`Failed to create Worker session: ${this.formatError(retried.error ?? retried.data)}`)
+  }
+
+  private formatError(value: unknown) {
+    if (value instanceof Error) return value.message
+    if (typeof value === "string") return value
+    try { return JSON.stringify(value) } catch { return String(value) }
   }
 
   private armLimits(task: InternalTask) {
