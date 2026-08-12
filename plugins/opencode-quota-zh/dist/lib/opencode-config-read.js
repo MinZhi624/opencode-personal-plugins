@@ -27,4 +27,3 @@ export async function readOpenCodeConfigCandidate(candidate) {
         return { state: "invalid", candidate };
     }
 }
-//# sourceMappingURL=opencode-config-read.js.map

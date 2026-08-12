@@ -1,8 +1,8 @@
 import { readFile } from "fs/promises";
 import { dedupeNonEmptyStrings, extractPluginSpecsFromParsedConfig, extractProviderIdsFromParsedConfig, resolveEditableConfigPath, resolveExistingConfigPath, } from "./config-file-utils.js";
-import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
-import { buildOpenCodeConfigCandidates, readOpenCodeConfigCandidate, selectFirstExistingOpenCodeConfigCandidate, } from "./opencode-config-read.js";
 import { applyConfigDocumentEdit, ConfigDocumentError, parseConfigDocument, planConfigDocumentEdit, } from "./opencode-config-editor.js";
+import { buildOpenCodeConfigCandidates, readOpenCodeConfigCandidate, selectFirstExistingOpenCodeConfigCandidate, } from "./opencode-config-read.js";
+import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
 import { getQuotaProviderRuntimeIds, getQuotaProviderShape, normalizeQuotaProviderId, } from "./provider-metadata.js";
 function isRecord(value) {
     return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -144,4 +144,3 @@ export async function reconcileDetectedProvidersInGlobalConfig(options) {
         changed: edit.changed,
     };
 }
-//# sourceMappingURL=opencode-config-providers.js.map

@@ -19,4 +19,3 @@ export const zaiProvider = createGlmCodingPlanProvider({
         return lower.includes("glm");
     },
 });
-//# sourceMappingURL=zai.js.map

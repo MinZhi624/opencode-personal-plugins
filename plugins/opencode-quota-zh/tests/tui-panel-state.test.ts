@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  type CompactStatusState,
   getCompactStatusText,
   getSidebarPanelLines,
+  type HomeBottomState,
+  type SidebarPanelState,
   shouldRenderCompactStatus,
   shouldRenderHomeBottom,
   shouldRenderSidebarPanel,
-  type CompactStatusState,
-  type HomeBottomState,
-  type SidebarPanelState,
 } from "../src/lib/tui-panel-state.js";
 
 describe("tui panel state helpers", () => {

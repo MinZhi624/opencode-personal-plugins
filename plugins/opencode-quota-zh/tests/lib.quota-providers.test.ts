@@ -1,17 +1,17 @@
 import { describe, expect, it } from "vitest";
-
-import {
-  QUOTA_PROVIDER_MODES,
-  QUOTA_PROVIDER_REMOTE_FORMATS,
-  cloneQuotaProviders,
-  normalizeJsonV1Timestamp,
-  validateQuotaProviders,
-} from "../src/lib/quota-providers.js";
 import {
   listModelsForProvider,
   listProviders,
   listProvidersForModelId,
 } from "../src/lib/modelsdev-pricing.js";
+import {
+  cloneQuotaProviders,
+  normalizeJsonV1Timestamp,
+  QUOTA_PROVIDER_MODES,
+  QUOTA_PROVIDER_REMOTE_FORMATS,
+  selectEligibleQuotaProviderDefinitions,
+  validateQuotaProviders,
+} from "../src/lib/quota-providers.js";
 import {
   localQuotaProvider,
   quotaProvider,
@@ -20,6 +20,26 @@ import {
 } from "./fixtures/quota-providers.js";
 
 describe("quotaProviders schema", () => {
+  it("keeps provider-wide definitions context-sensitive when no current model is selected", () => {
+    const definitions = [quotaProvider({ id: "provider-wide", providerId: "provider-one" })];
+    const availableProviderIds = new Set(["provider-one"]);
+
+    expect(
+      selectEligibleQuotaProviderDefinitions({
+        definitions,
+        availableProviderIds,
+        onlyCurrentModel: true,
+      }),
+    ).toEqual([]);
+    expect(
+      selectEligibleQuotaProviderDefinitions({
+        definitions,
+        availableProviderIds,
+        onlyCurrentModel: false,
+      }).map((definition) => definition.id),
+    ).toEqual(["provider-wide"]);
+  });
+
   it("accepts and normalizes the exact ordered remote schema", () => {
     expect(QUOTA_PROVIDER_MODES).toEqual(["remote-api", "local-estimate"]);
     expect(QUOTA_PROVIDER_REMOTE_FORMATS).toEqual(["quota-v1", "openrouter-key-v1", "json-v1"]);
@@ -656,60 +676,57 @@ describe("quotaProviders schema", () => {
     ["Cf", "\u202e"],
     ["Zl", "\u2028"],
     ["Zp", "\u2029"],
-  ])(
-    "rejects Unicode %s characters in every json-v1 static display field",
-    (_category, character) => {
-      const cases = [
-        {
-          mapping: {
-            resultType: "usage",
-            name: `Us${character}age`,
-            metric: { type: "value", valueType: "used", value: { literal: 1 } },
-          },
-          key: "quotaProviders[0].adapter.mappings[0].name",
+  ])("rejects Unicode %s characters in every json-v1 static display field", (_category, character) => {
+    const cases = [
+      {
+        mapping: {
+          resultType: "usage",
+          name: `Us${character}age`,
+          metric: { type: "value", valueType: "used", value: { literal: 1 } },
         },
-        {
-          mapping: {
-            resultType: "usage",
-            name: "Usage",
-            label: `Us${character}ed:`,
-            metric: { type: "value", valueType: "used", value: { literal: 1 } },
-          },
-          key: "quotaProviders[0].adapter.mappings[0].label",
+        key: "quotaProviders[0].adapter.mappings[0].name",
+      },
+      {
+        mapping: {
+          resultType: "usage",
+          name: "Usage",
+          label: `Us${character}ed:`,
+          metric: { type: "value", valueType: "used", value: { literal: 1 } },
         },
-        {
-          mapping: {
-            resultType: "usage",
-            name: "Usage",
-            unit: `to${character}kens`,
-            unitPosition: "suffix",
-            metric: { type: "value", valueType: "used", value: { literal: 1 } },
-          },
-          key: "quotaProviders[0].adapter.mappings[0].unit",
+        key: "quotaProviders[0].adapter.mappings[0].label",
+      },
+      {
+        mapping: {
+          resultType: "usage",
+          name: "Usage",
+          unit: `to${character}kens`,
+          unitPosition: "suffix",
+          metric: { type: "value", valueType: "used", value: { literal: 1 } },
         },
-        {
-          mapping: {
-            resultType: "status",
-            name: "Status",
-            metric: { type: "status", value: { literal: `Re${character}ady` } },
-          },
-          key: "quotaProviders[0].adapter.mappings[0].metric.value.literal",
+        key: "quotaProviders[0].adapter.mappings[0].unit",
+      },
+      {
+        mapping: {
+          resultType: "status",
+          name: "Status",
+          metric: { type: "status", value: { literal: `Re${character}ady` } },
         },
-      ];
+        key: "quotaProviders[0].adapter.mappings[0].metric.value.literal",
+      },
+    ];
 
-      for (const item of cases) {
-        const result = validateQuotaProviders([
-          quotaProvider({
-            format: "json-v1",
-            adapter: { mappings: [item.mapping] },
-          }),
-        ]);
+    for (const item of cases) {
+      const result = validateQuotaProviders([
+        quotaProvider({
+          format: "json-v1",
+          adapter: { mappings: [item.mapping] },
+        }),
+      ]);
 
-        expect(result.value).toBeUndefined();
-        expect(result.issues).toContainEqual(expect.objectContaining({ key: item.key }));
-      }
-    },
-  );
+      expect(result.value).toBeUndefined();
+      expect(result.issues).toContainEqual(expect.objectContaining({ key: item.key }));
+    }
+  });
 
   it("rejects a provider-prefixed json-v1 entry name above 160 code points", () => {
     const result = validateQuotaProviders([

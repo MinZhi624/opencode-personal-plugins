@@ -3,23 +3,22 @@
  */
 
 import { stat } from "fs/promises";
-
+import { sanitizeDisplayText } from "../lib/display-sanitize.js";
 import type {
   QuotaProvider,
   QuotaProviderContext,
   QuotaProviderResult,
   QuotaToastEntry,
 } from "../lib/entries.js";
-import type { GoogleModelId } from "../lib/types.js";
-import { sanitizeDisplayText } from "../lib/display-sanitize.js";
-import { inspectAntigravityCompanionPresence } from "../lib/google-antigravity-companion.js";
-import { getGoogleTokenCachePath } from "../lib/google-token-cache.js";
 import {
   hasAntigravityQuotaRuntimeAvailable,
   inspectAntigravityAccountsPresence,
   queryGoogleQuota,
 } from "../lib/google.js";
+import { inspectAntigravityCompanionPresence } from "../lib/google-antigravity-companion.js";
+import { getGoogleTokenCachePath } from "../lib/google-token-cache.js";
 import { parseProviderModelRef } from "../lib/provider-model-matching.js";
+import type { GoogleModelId } from "../lib/types.js";
 import {
   createGoogleAccountLabelMap,
   formatGoogleAccountErrors,

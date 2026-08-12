@@ -6,6 +6,7 @@ import {
   formatMaintainerAnnouncementHomeCountLine,
   getActiveMaintainerAnnouncements,
   getMaintainerAnnouncementsSummary,
+  getMaintainerAnnouncementTargetProviderIds,
   type MaintainerAnnouncement,
 } from "../src/lib/maintainer-announcements.js";
 
@@ -55,6 +56,67 @@ describe("maintainer announcements", () => {
       "copilot-credits",
       "targeted",
     ]);
+  });
+
+  it("discovers the ordered union of valid canonical targets from every announcement", () => {
+    const announcements: readonly MaintainerAnnouncement[] = [
+      { ...BASE_ANNOUNCEMENT, id: "untargeted" },
+      {
+        ...BASE_ANNOUNCEMENT,
+        id: "future-alias",
+        startsAt: "2026-06-01T00:00:00.000Z",
+        providerIds: ["gemini-cli" as never, "unknown-provider" as never],
+      },
+      {
+        ...BASE_ANNOUNCEMENT,
+        id: "expired",
+        endsAt: "2026-05-01T00:00:00.000Z",
+        providerIds: ["copilot"],
+      },
+      {
+        ...BASE_ANNOUNCEMENT,
+        id: "invalid-message",
+        message: "",
+        providerIds: ["openai", "google-gemini-cli"],
+      },
+      {
+        ...BASE_ANNOUNCEMENT,
+        id: "invalid-only",
+        providerIds: ["unknown-provider" as never],
+      },
+    ];
+
+    expect(getMaintainerAnnouncementTargetProviderIds({ announcements })).toEqual([
+      "google-gemini-cli",
+      "copilot",
+      "openai",
+    ]);
+
+    const reasonsById = Object.fromEntries(
+      evaluateMaintainerAnnouncements({
+        announcements,
+        enabledProviders: [],
+        nowMs: NOW_MS,
+      }).map((evaluation) => [evaluation.announcement.id, evaluation.reasons]),
+    );
+    expect(reasonsById).toMatchObject({
+      "future-alias": ["not_started", "provider_mismatch"],
+      expired: ["ended", "provider_mismatch"],
+      "invalid-message": ["invalid_message", "provider_mismatch"],
+      "invalid-only": ["invalid_provider_ids"],
+    });
+  });
+
+  it("uses bundled targets by default and returns no target for untargeted or invalid-only input", () => {
+    expect(getMaintainerAnnouncementTargetProviderIds()).toEqual(["google-gemini-cli"]);
+    expect(
+      getMaintainerAnnouncementTargetProviderIds({
+        announcements: [
+          BASE_ANNOUNCEMENT,
+          { ...BASE_ANNOUNCEMENT, id: "invalid-only", providerIds: ["invalid" as never] },
+        ],
+      }),
+    ).toEqual([]);
   });
 
   it("requires concrete provider ids for provider-targeted announcements", () => {

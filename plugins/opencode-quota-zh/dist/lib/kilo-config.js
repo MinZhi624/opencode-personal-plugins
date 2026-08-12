@@ -1,5 +1,5 @@
-import { getAuthPaths, readAuthFile } from "./opencode-auth.js";
 import { createProviderApiKeyResolver, getGlobalOpencodeConfigCandidatePaths, } from "./api-key-resolver.js";
+import { getAuthPaths, readAuthFile } from "./opencode-auth.js";
 export { getGlobalOpencodeConfigCandidatePaths as getOpencodeConfigCandidatePaths } from "./api-key-resolver.js";
 const kiloApiKeyResolver = createProviderApiKeyResolver({
     envVars: [{ name: "KILO_API_KEY", source: "env:KILO_API_KEY" }],
@@ -23,4 +23,3 @@ export async function hasKiloApiKey() {
 export async function getKiloKeyDiagnostics() {
     return kiloApiKeyResolver.diagnostics();
 }
-//# sourceMappingURL=kilo-config.js.map

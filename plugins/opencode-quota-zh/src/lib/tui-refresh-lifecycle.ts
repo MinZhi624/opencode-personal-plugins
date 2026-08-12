@@ -30,7 +30,6 @@ export function createTuiRefreshLifecycle<T>(
 
     if (inFlight) {
       queued = true;
-      loadVersion += 1;
       return;
     }
 

@@ -45,6 +45,21 @@ export const DEFAULT_CONFIG = {
         suppressWhenNativeProviderQuota: true,
         maxWidth: 96,
     },
+    tuiPromptBar: {
+        enabled: false,
+    },
+    startupHint: {
+        enabled: true,
+    },
+    promptBar: {
+        enabled: false,
+    },
+    alerts: {
+        enabled: true,
+        percentRemainingThreshold: 0,
+        repeatAfterMinutes: null,
+        balanceThresholds: {},
+    },
     maintainerAnnouncements: {
         enabled: true,
         home: true,
@@ -89,4 +104,3 @@ export const GOOGLE_MODEL_KEYS = {
         display: "GPT-OSS",
     },
 };
-//# sourceMappingURL=types.js.map

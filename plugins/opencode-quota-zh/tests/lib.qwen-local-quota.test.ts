@@ -41,8 +41,9 @@ describe("maintained local quota storage derivation", () => {
 
   it("counts a normal completed Qwen response and never counts unfinished rows", async () => {
     const writes: unknown[] = [];
-    const { computeQwenQuota, readQwenLocalQuotaState } =
-      await import("../src/lib/qwen-local-quota.js");
+    const { computeQwenQuota, readQwenLocalQuotaState } = await import(
+      "../src/lib/qwen-local-quota.js"
+    );
     const state = await readQwenLocalQuotaState({
       nowMs: NOW,
       readMessages: async () => [
@@ -145,8 +146,9 @@ describe("maintained local quota storage derivation", () => {
   });
 
   it("derives and computes Alibaba rolling windows from completed rows", async () => {
-    const { computeAlibabaCodingPlanQuota, readAlibabaCodingPlanQuotaState } =
-      await import("../src/lib/qwen-local-quota.js");
+    const { computeAlibabaCodingPlanQuota, readAlibabaCodingPlanQuotaState } = await import(
+      "../src/lib/qwen-local-quota.js"
+    );
     const state = await readAlibabaCodingPlanQuotaState({
       nowMs: NOW,
       readMessages: async () => [

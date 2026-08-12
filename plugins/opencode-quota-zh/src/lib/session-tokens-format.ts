@@ -9,7 +9,7 @@ import type { SessionTokensData } from "./entries.js";
 import { formatTokenCount, padLeft, padRight, shortenModelName } from "./format-utils.js";
 
 export const WIDE_SESSION_TOKEN_LINE_WIDTH = 45;
-export const SESSION_TOKEN_SECTION_HEADING = "Session input/output tokens";
+export const SESSION_TOKEN_SECTION_HEADING = "会话 token（输入/输出）";
 export type SessionTokenSectionModel = {
   heading: string;
   lines: string[];
@@ -44,7 +44,7 @@ function buildWideSessionTokenSectionModel(
     const shortName = shortenModelName(model.modelID, 20);
     const inStr = formatInputCell(model.input, model.cachedInput);
     const outStr = formatTokenCount(model.output);
-    lines.push(`  ${padRight(shortName, 20)}  ${inStr} in  ${padLeft(outStr, 6)} out`);
+    lines.push(`  ${padRight(shortName, 20)}  ${inStr} 输入  ${padLeft(outStr, 6)} 输出`);
   }
 
   return {
@@ -66,7 +66,7 @@ function buildCompactSessionTokenSectionModel(
     const detailIndent = width > 4 ? "    " : width > 2 ? "  " : "";
     const inStr = formatInputWithCache(model.input, model.cachedInput);
     const outStr = formatTokenCount(model.output);
-    const compactCounts = `${inStr} in  ${outStr} out`;
+    const compactCounts = `${inStr} 输入  ${outStr} 输出`;
 
     lines.push(`${modelIndent}${shortenModelName(model.modelID, modelLineWidth)}`.slice(0, width));
 
@@ -75,8 +75,8 @@ function buildCompactSessionTokenSectionModel(
       continue;
     }
 
-    lines.push(`${detailIndent}${inStr} in`.slice(0, width));
-    lines.push(`${detailIndent}${outStr} out`.slice(0, width));
+    lines.push(`${detailIndent}${inStr} 输入`.slice(0, width));
+    lines.push(`${detailIndent}${outStr} 输出`.slice(0, width));
   }
 
   return {
@@ -90,7 +90,7 @@ function buildSidebarSessionTokenSummaryModel(
   options?: { maxWidth?: number },
 ): SessionTokenSectionModel {
   const totalCached = sessionTokens.totalCachedInput ?? 0;
-  const summaryLine = `  ${formatInputWithCache(sessionTokens.totalInput, totalCached)} in  ${formatTokenCount(sessionTokens.totalOutput)} out`;
+  const summaryLine = `  ${formatInputWithCache(sessionTokens.totalInput, totalCached)} 输入  ${formatTokenCount(sessionTokens.totalOutput)} 输出`;
   return {
     heading: clampRenderedLine(SESSION_TOKEN_SECTION_HEADING, options?.maxWidth),
     lines: [clampRenderedLine(summaryLine, options?.maxWidth)],

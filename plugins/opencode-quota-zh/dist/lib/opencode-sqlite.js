@@ -120,4 +120,3 @@ export async function openOpenCodeSqliteReadOnly(dbPath) {
     }
     return openWithNodeRuntimeSqlite(dbPath);
 }
-//# sourceMappingURL=opencode-sqlite.js.map

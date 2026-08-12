@@ -39,4 +39,3 @@ export async function resolveQwenLocalPlanCached(params) {
 export function isQwenCodeModelId(model) {
     return typeof model === "string" && model.toLowerCase().startsWith("qwen-code/");
 }
-//# sourceMappingURL=qwen-auth.js.map

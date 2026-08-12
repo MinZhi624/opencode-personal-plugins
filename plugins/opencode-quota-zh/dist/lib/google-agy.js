@@ -1,9 +1,9 @@
 import crypto from "node:crypto";
-import { readAuthFileCached } from "./opencode-auth.js";
+import { clearAgyCompanionCacheForTests, inspectAgyCompanionPresence, resolveAgyClientCredentials, } from "./google-agy-companion.js";
+import { getCachedAccessToken, makeAccountCacheKey, setCachedAccessToken, } from "./google-token-cache.js";
 import { fetchWithTimeout } from "./http.js";
 import { mapWithConcurrency } from "./map-with-concurrency.js";
-import { getCachedAccessToken, makeAccountCacheKey, setCachedAccessToken, } from "./google-token-cache.js";
-import { clearAgyCompanionCacheForTests, inspectAgyCompanionPresence, resolveAgyClientCredentials, } from "./google-agy-companion.js";
+import { readAuthFileCached } from "./opencode-auth.js";
 export const DEFAULT_AGY_AUTH_CACHE_MAX_AGE_MS = 5_000;
 export const AGY_AUTH_KEYS = [
     "google-agy",
@@ -551,4 +551,3 @@ export async function queryGoogleAgyQuota(client, options = {}) {
 export function clearAgyRuntimeCacheForTests() {
     clearAgyCompanionCacheForTests();
 }
-//# sourceMappingURL=google-agy.js.map

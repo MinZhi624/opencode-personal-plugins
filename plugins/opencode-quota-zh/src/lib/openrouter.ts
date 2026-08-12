@@ -8,9 +8,9 @@
 import type { RemoteApiQuotaProviderDefinition } from "./quota-providers.js";
 import {
   fetchRemoteQuotaProvider,
-  resolveQuotaProviderApiKey,
   type QuotaProviderAuthResolution,
   type RemoteQuotaProviderResult,
+  resolveQuotaProviderApiKey,
 } from "./quota-providers-remote.js";
 
 const OPENROUTER_KEY_SOURCE = {

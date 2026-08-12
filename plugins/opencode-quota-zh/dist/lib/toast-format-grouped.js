@@ -6,10 +6,10 @@
  */
 import { isValueEntry } from "./entries.js";
 import { bar, DISPLAYED_PERCENT_LABEL_WIDTH, formatDisplayedPercentLabel, formatResetCountdown, isResetTimeDecimals, padLeft, padRight, resolveDisplayedPercent, } from "./format-utils.js";
-import { formatGroupedHeader } from "./grouped-header-format.js";
 import { normalizeGroupedQuotaEntries } from "./grouped-entry-normalization.js";
-import { renderSessionTokensLines } from "./session-tokens-format.js";
+import { formatGroupedHeader } from "./grouped-header-format.js";
 import { classifyQuotaWindowText } from "./quota-entry-display.js";
+import { renderSessionTokensLines } from "./session-tokens-format.js";
 function normalizeLabelText(value) {
     return value?.trim().replace(/:+$/u, "").trim() ?? "";
 }
@@ -163,4 +163,3 @@ export function formatQuotaRowsGrouped(params) {
     }
     return lines.join("\n");
 }
-//# sourceMappingURL=toast-format-grouped.js.map

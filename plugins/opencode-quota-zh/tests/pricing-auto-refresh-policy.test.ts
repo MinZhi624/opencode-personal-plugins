@@ -167,6 +167,9 @@ describe("pricing runtime refresh policy", () => {
       output: 0.456,
       cache_read: 0.01,
       cache_write: 0.02,
+      // Chinese runtime pricing semantics: the models.dev reasoning cost
+      // bucket is picked (v1.0.1 replay), while unknown keys stay ignored.
+      reasoning: 999,
     });
   });
 

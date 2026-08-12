@@ -8,8 +8,8 @@
  *
  * The scraper tries SolidJS SSR first, then falls back to data-slot parsing.
  */
-import { fetchWithTimeout } from "./http.js";
 import { sanitizeDisplayText } from "./display-sanitize.js";
+import { fetchWithTimeout } from "./http.js";
 const DASHBOARD_URL_PREFIX = "https://opencode.ai/workspace/";
 const DASHBOARD_URL_SUFFIX = "/go";
 const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Gecko/20100101 Firefox/148.0";
@@ -187,4 +187,3 @@ export async function queryOpenCodeGoQuota(workspaceId, authCookie, options = {}
     }
 }
 export { parseWindowUsage as _parseWindowUsage, parseDataSlotFormat as _parseDataSlotFormat };
-//# sourceMappingURL=opencode-go.js.map

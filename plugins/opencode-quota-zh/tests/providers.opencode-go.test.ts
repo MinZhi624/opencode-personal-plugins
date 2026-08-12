@@ -1,11 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
 import {
   expectAttemptedWithErrorLabel,
   expectAttemptedWithNoErrors,
   expectNotAttempted,
+  visibleEntries,
 } from "./helpers/provider-assertions.js";
-import { visibleEntries } from "./helpers/provider-assertions.js";
 
 const mocks = vi.hoisted(() => {
   const fetchResponse = vi.fn();
@@ -42,8 +41,8 @@ vi.mock("../src/lib/http.js", () => ({
   fetchWithTimeout: mocks.fetchWithTimeout,
 }));
 
+import { _parseDataSlotFormat, _parseWindowUsage } from "../src/lib/opencode-go.js";
 import { opencodeGoProvider } from "../src/providers/opencode-go.js";
-import { _parseWindowUsage, _parseDataSlotFormat } from "../src/lib/opencode-go.js";
 
 function mockConfigNone() {
   mocks.resolveOpenCodeGoConfigCached.mockResolvedValueOnce({ state: "none" });

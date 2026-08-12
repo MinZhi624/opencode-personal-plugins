@@ -1,21 +1,22 @@
-import type {
-  QuotaProvider,
-  QuotaProviderContext,
-  QuotaProviderResult,
-  QuotaToastEntry,
-} from "../lib/entries.js";
-import {
-  ALIBABA_CODING_PLAN_STATE_VERSION,
-  computeAlibabaCodingPlanQuota,
-  getAlibabaCodingPlanQuotaPath,
-  readAlibabaCodingPlanQuotaState,
-} from "../lib/qwen-local-quota.js";
 import {
   DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS,
   getAlibabaCodingPlanAuthDiagnostics,
   isAlibabaModelId,
   resolveAlibabaCodingPlanAuthCached,
 } from "../lib/alibaba-auth.js";
+import type {
+  QuotaProvider,
+  QuotaProviderContext,
+  QuotaProviderResult,
+  QuotaToastEntry,
+} from "../lib/entries.js";
+import { findQuotaProviderDefinition } from "../lib/quota-providers.js";
+import {
+  ALIBABA_CODING_PLAN_STATE_VERSION,
+  computeAlibabaCodingPlanQuota,
+  getAlibabaCodingPlanQuotaPath,
+  readAlibabaCodingPlanQuotaState,
+} from "../lib/qwen-local-quota.js";
 import {
   attemptedErrorResult,
   attemptedResult,
@@ -24,7 +25,6 @@ import {
   statusDetailsFromRecord,
   withStatusDetails,
 } from "./result-helpers.js";
-import { findQuotaProviderDefinition } from "../lib/quota-providers.js";
 
 function tierLabel(tier: "lite" | "pro"): string {
   return tier === "pro" ? "Pro" : "Lite";

@@ -14,11 +14,15 @@
   "snapshot": "src/, tests/ (offline baseline), scripts/ (dev-build/offline-check subset only; upstream plugin-reference sync/review tooling removed, see excluded), docs/, contributing/, references/upstream-quota/CONTRIBUTING.md, README.md, LICENSE.upstream, package.upstream.json, tsconfig.upstream.json, vitest.config.upstream.ts",
   "adaptations": [
     "tsconfig.json: upstream tsconfig with outDir redirected to ./dev-dist (dev-only output)",
+    "tsconfig.runtime.json: runtime build config (outDir ./dist; excludes src/tui.tsx and src/quota-zh-sidebar.tsx, which are copied byte-for-byte as the single supported raw-TSX TUI entry pair)",
+    "scripts/build-runtime.mjs: reproducible runtime build from src/ into dist/ (tsc + data copy + TUI entry copy; --check compares a clean build byte-for-byte with the committed dist)",
     "vitest.config.ts: offline baseline with documented exclusions (see UPSTREAM-PROVENANCE.md)",
     "tests/setup.ts: offline network guard blocking global fetch and node:http/https/net/tls/dns entry points",
     "scripts/lib/cross-platform-command.mjs: cross-platform child-process invocation helper ({command, shell}; Windows runs bare npm/tsc via cmd.exe, POSIX no shell)",
     "scripts/build-dev.mjs: dev-only build entry (tsc via cross-platform-command helper + data copy), never writes dist/",
-    "scripts/stage-runtime.mjs: quota-zh runtime staging restricted to dist/, package.json, LICENSE, README.zh.md"
+    "scripts/capture-runtime-golden.mjs + tests/fixtures/runtime-golden/: pre-Ticket-01 Chinese runtime golden capture (quota-command-format, quota-dialog-commands, quota-stats-format, format-utils, session-tokens-format, tui-compact-format, modelsdev-pricing, tui.tsx/quota-zh-sidebar.tsx byte snapshots)",
+    "scripts/stage-runtime.mjs: quota-zh runtime staging restricted to dist/, package.json, LICENSE, README.zh.md",
+    "prepare-tui-dist.mjs: upstream babel TUI bundle pipeline retained verbatim as upstream history only; superseded by scripts/build-runtime.mjs raw-TSX entry copies"
   ],
   "excluded": [
     "pnpm-lock.yaml, pnpm-workspace.yaml (repo uses npm single lockfile)",

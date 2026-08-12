@@ -1,8 +1,8 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { applyConfigDocumentEdit, parseConfigDocument, planConfigDocumentEdit, validateConfigDocumentEdit, } from "./opencode-config-editor.js";
 import { resolveEditableConfigPath } from "./config-file-utils.js";
+import { applyConfigDocumentEdit, parseConfigDocument, planConfigDocumentEdit, validateConfigDocumentEdit, } from "./opencode-config-editor.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 import { MAINTAINED_LOCAL_ESTIMATE_IDS, QUOTA_PROVIDERS_AGGREGATE_ID, validateQuotaProviders, } from "./quota-providers.js";
 const LEGACY_REMOTE_FORMAT_COMMENT = "// Safe response contract: accounting-v1 or openrouter-key-v1.";
@@ -216,4 +216,3 @@ export async function applyProviderAddPlan(plan) {
         await applyConfigDocumentEdit(edit);
     }
 }
-//# sourceMappingURL=provider-add.js.map

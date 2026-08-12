@@ -1,10 +1,8 @@
 import { createHash } from "crypto";
-import { readFile, readdir, rm, stat } from "fs/promises";
+import { readdir, readFile, rm, stat } from "fs/promises";
 import { join } from "path";
-
-import type { QuotaProvider, QuotaProviderContext, QuotaProviderResult } from "./entries.js";
-
 import { writeJsonAtomic } from "./atomic-json.js";
+import type { QuotaProvider, QuotaProviderContext, QuotaProviderResult } from "./entries.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 import { getQuotaProviderDisplayLabel, isLiveLocalUsageProviderId } from "./provider-metadata.js";
 import type { QuotaProviderDefinition } from "./quota-providers.js";
@@ -12,8 +10,8 @@ import {
   QUOTA_PROVIDERS_AGGREGATE_ID,
   selectEligibleQuotaProviderDefinitions,
 } from "./quota-providers.js";
-import { getPackageVersion } from "./version.js";
 import { updateQuotaTelemetrySnapshot } from "./quota-telemetry.js";
+import { getPackageVersion } from "./version.js";
 
 const QUOTA_PROVIDER_CACHE_VERSION = 2 as const;
 const QUOTA_PROVIDER_CACHE_PACKAGE_VERSION_FALLBACK = "unknown";
@@ -54,6 +52,9 @@ export function cloneQuotaProviderResult(result: QuotaProviderResult): QuotaProv
       : {}),
     ...(result.statusDetails
       ? { statusDetails: result.statusDetails.map((detail) => ({ ...detail })) }
+      : {}),
+    ...(result.rawDetails
+      ? { rawDetails: result.rawDetails.map((detail) => ({ ...detail })) }
       : {}),
     ...(result.presentation ? { presentation: { ...result.presentation } } : {}),
   };
@@ -328,6 +329,7 @@ function isQuotaProviderResult(value: unknown): value is QuotaProviderResult {
       "errors",
       "diagnostics",
       "statusDetails",
+      "rawDetails",
       "presentation",
     ]) &&
     typeof result.attempted === "boolean" &&
@@ -340,6 +342,8 @@ function isQuotaProviderResult(value: unknown): value is QuotaProviderResult {
     (result.statusDetails === undefined ||
       (Array.isArray(result.statusDetails) &&
         result.statusDetails.every(isQuotaProviderStatusDetail))) &&
+    (result.rawDetails === undefined ||
+      (Array.isArray(result.rawDetails) && result.rawDetails.every(isQuotaProviderStatusDetail))) &&
     (result.presentation === undefined || isQuotaProviderPresentation(result.presentation))
   );
 }

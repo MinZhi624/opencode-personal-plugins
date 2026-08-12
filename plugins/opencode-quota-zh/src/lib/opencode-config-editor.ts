@@ -6,9 +6,9 @@ import {
   createScanner,
   findNodeAtLocation,
   modify,
+  type ParseError,
   parse,
   parseTree,
-  type ParseError,
 } from "jsonc-parser";
 
 import { writeTextAtomic } from "./atomic-json.js";
@@ -127,7 +127,7 @@ function collectValueEdits(
         const currentValue = current[index] as Record<string, unknown>;
         const desiredValue = desired[index] as Record<string, unknown>;
         for (const key of Object.keys(currentValue)) {
-          if (!Object.prototype.hasOwnProperty.call(desiredValue, key)) {
+          if (!Object.hasOwn(desiredValue, key)) {
             edits.push({ path: [...path, index, key], value: undefined });
           }
         }

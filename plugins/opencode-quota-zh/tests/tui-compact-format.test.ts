@@ -231,7 +231,7 @@ describe("buildCompactQuotaStatusLine", () => {
       },
     });
 
-    expect(line).toBe("Copilot 82% | Cursor API - $2.40 | tok 12.4K (5.6K) in / 3.1K out");
+    expect(line).toBe("Copilot 82% | Cursor API - $2.40 | token 12.4K (5.6K) 输入 / 3.1K 输出");
   });
 
   it("summarizes errors as issue counts when quota segments exist and the count fits", () => {
@@ -252,7 +252,7 @@ describe("buildCompactQuotaStatusLine", () => {
       },
     });
 
-    expect(line).toBe("Copilot 75% | +2 issues");
+    expect(line).toBe("Copilot 75% | +2 个问题");
   });
 
   it("renders the first error with a remaining count when no quota segments exist", () => {

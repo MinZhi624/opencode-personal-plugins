@@ -23,7 +23,7 @@ describe("formatQuotaRows", () => {
     });
 
     expect(out).toContain("Copilot");
-    expect(out).toContain("75% left");
+    expect(out).toContain("75% 剩余");
     expect(out).not.toContain("Quota (remaining)");
     expect(out).not.toContain("Quota (used)");
   });
@@ -62,8 +62,8 @@ describe("formatQuotaRows", () => {
 
     const lines = out.split("\n");
     const barLine = lines[1] ?? "";
-    expect(barLine).toContain("19% used");
-    expect(barLine).not.toContain("81% left");
+    expect(barLine).toContain("19% 已用");
+    expect(barLine).not.toContain("81% 剩余");
     expect(out).not.toContain("Quota (remaining)");
     expect(out).not.toContain("Quota (used)");
     expect(barLine.match(/█/g) ?? []).toHaveLength(2);
@@ -85,7 +85,7 @@ describe("formatQuotaRows", () => {
 
     const lines = out.split("\n");
     const barLine = lines[1] ?? "";
-    expect(barLine).toContain("125% used");
+    expect(barLine).toContain("125% 已用");
     expect(barLine.match(/░/g) ?? []).toHaveLength(0);
   });
 
@@ -105,7 +105,7 @@ describe("formatQuotaRows", () => {
 
     const lines = out.split("\n");
     const barLine = lines[1] ?? "";
-    expect(barLine).toContain("0% left");
+    expect(barLine).toContain("0% 剩余");
     expect(barLine.match(/█/g) ?? []).toHaveLength(0);
   });
 
@@ -132,7 +132,7 @@ describe("formatQuotaRows", () => {
     expect(out).toContain("0/135");
     expect(out).toContain("Qwen RPM");
     expect(out).toContain("5/60");
-    expect(out).toContain("92% left");
+    expect(out).toContain("92% 剩余");
   });
 
   it("shows reset countdown when quota is partially used", () => {
@@ -149,7 +149,7 @@ describe("formatQuotaRows", () => {
     });
 
     // We don't assert exact time math; just that some countdown marker appears.
-    expect(out).toMatch(/([\d.]+[dhms]|reset)/);
+    expect(out).toMatch(/([\d.]+(?:天|小时|分钟|秒)|已重置)/);
   });
 
   it("does not show reset countdown when quota is fully available", () => {
@@ -184,8 +184,8 @@ describe("formatQuotaRows", () => {
       ],
     });
 
-    expect(out).toContain("2.5h");
-    expect(out).not.toContain("2h 14m");
+    expect(out).toContain("2.5小时");
+    expect(out).not.toContain("2小时14分钟");
   });
 
   it("uses compact rounded reset labels for grouped rows", () => {
@@ -207,8 +207,8 @@ describe("formatQuotaRows", () => {
       ],
     });
 
-    expect(out).toContain("0.5h");
-    expect(out).not.toContain("0h 14m");
+    expect(out).toContain("0.5小时");
+    expect(out).not.toContain("0小时14分钟");
   });
 
   it("renders fractional reset countdowns when resetTimeDecimals is set (single-window)", () => {
@@ -233,9 +233,9 @@ describe("formatQuotaRows", () => {
       ],
     });
 
-    expect(out).toContain("5.7d");
-    expect(out).toContain("1.4h");
-    expect(out).not.toContain("0.5h");
+    expect(out).toContain("5.7天");
+    expect(out).toContain("1.4小时");
+    expect(out).not.toContain("0.5小时");
   });
 
   it("renders fractional reset countdowns when resetTimeDecimals is set (grouped)", () => {
@@ -258,8 +258,8 @@ describe("formatQuotaRows", () => {
       ],
     });
 
-    expect(out).toContain("0.2h");
-    expect(out).not.toContain("0.5h");
+    expect(out).toContain("0.2小时");
+    expect(out).not.toContain("0.5小时");
   });
 
   it("uses minutes instead of textual zero for configured sub-hour boundaries", () => {
@@ -289,9 +289,9 @@ describe("formatQuotaRows", () => {
       ],
     });
 
-    expect(decimalsZero).toContain("14m");
-    expect(decimalsZero).not.toContain("0h");
-    expect(decimalsOne).toContain("2m");
+    expect(decimalsZero).toContain("14分钟");
+    expect(decimalsZero).not.toContain("0小时");
+    expect(decimalsOne).toContain("2分钟");
     expect(decimalsOne).not.toContain("0.0h");
   });
 
@@ -339,8 +339,8 @@ describe("formatQuotaRows", () => {
     ];
 
     for (const output of outputs) {
-      expect(output).toContain("1.4000h");
-      expect(output).not.toMatch(/(?:^|\s)\.4000h/u);
+      expect(output).toContain("1.4000小时");
+      expect(output).not.toMatch(/(?:^|\s)\.4000小时/u);
     }
   });
 
@@ -360,8 +360,8 @@ describe("formatQuotaRows", () => {
       ],
     });
 
-    expect(out).toContain("5d");
-    expect(out).not.toContain("5.7d");
+    expect(out).toContain("5天");
+    expect(out).not.toContain("5.7天");
   });
 
   it("normalizes grouped headers in all-window toast output", () => {
@@ -522,7 +522,7 @@ describe("formatQuotaRows", () => {
 
     const lines = out.split("\n");
     expect(lines[0]).toContain("[Copilot] (personal)");
-    expect(lines[1]).toContain("75% left");
+    expect(lines[1]).toContain("75% 剩余");
     expect(lines.every((line) => line.length <= 36)).toBe(true);
   });
 
@@ -632,8 +632,8 @@ describe("formatQuotaRows", () => {
     });
 
     const barLine = out.split("\n").find((line) => line.includes("%"));
-    expect(barLine).toContain("19% used");
-    expect(barLine).not.toContain("81% left");
+    expect(barLine).toContain("19% 已用");
+    expect(barLine).not.toContain("81% 剩余");
     expect(out).not.toContain("Quota (remaining)");
     expect(out).not.toContain("Quota (used)");
     expect(barLine?.match(/█/g) ?? []).toHaveLength(2);
@@ -657,7 +657,7 @@ describe("formatQuotaRows", () => {
 
     expect(out).toContain("Five-hour");
     expect(out).not.toContain("0/135");
-    expect(out).toContain("100% left");
+    expect(out).toContain("100% 剩余");
   });
 
   it("locks rendered all-window toast ordering for Qwen and OpenAI provider groups", () => {
@@ -744,7 +744,7 @@ describe("formatQuotaRows", () => {
       },
     });
 
-    expect(out.split("\n")).toEqual([SESSION_TOKEN_SECTION_HEADING, "  372 in  41 out"]);
+    expect(out.split("\n")).toEqual([SESSION_TOKEN_SECTION_HEADING, "  372 输入  41 输出"]);
     expect(out).not.toContain("openai/gpt-5.4-mini");
   });
 
@@ -771,7 +771,7 @@ describe("formatQuotaRows", () => {
       },
     });
 
-    expect(out.split("\n")).toEqual([SESSION_TOKEN_SECTION_HEADING, "  372 (120) in  41 out"]);
+    expect(out.split("\n")).toEqual([SESSION_TOKEN_SECTION_HEADING, "  372 (120) 输入  41 输出"]);
   });
 
   it("renders all-window session tokens with detailed per-model rows", () => {
@@ -790,7 +790,7 @@ describe("formatQuotaRows", () => {
     expect(out.split("\n")).toEqual([
       SESSION_TOKEN_SECTION_HEADING,
       "  openai/gpt-5.4-mini",
-      "    372 in  41 out",
+      "    372 输入  41 输出",
     ]);
   });
 
@@ -819,7 +819,7 @@ describe("formatQuotaRows", () => {
 
     expect(out.split("\n")).toEqual([
       SESSION_TOKEN_SECTION_HEADING,
-      "  openai/gpt-5.4-mini   372 (120) in      41 out",
+      "  openai/gpt-5.4-mini   372 (120) 输入      41 输出",
     ]);
   });
 

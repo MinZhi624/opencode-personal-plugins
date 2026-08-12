@@ -1,6 +1,6 @@
 import { sanitizeDisplayText } from "../lib/display-sanitize.js";
-import { inspectAgyCompanionPresence } from "../lib/google-agy-companion.js";
 import { hasAgyQuotaRuntimeAvailable, inspectAgyAuthPresence, queryGoogleAgyQuota, } from "../lib/google-agy.js";
+import { inspectAgyCompanionPresence } from "../lib/google-agy-companion.js";
 import { parseProviderModelRef } from "../lib/provider-model-matching.js";
 import { createGoogleAccountLabelMap, formatGoogleAccountErrors, formatGoogleAccountLabel, } from "./google-account-format.js";
 import { attemptedErrorResult, attemptedResult, notAttemptedResult, statusDetailsFromRecord, withStatusDetails, } from "./result-helpers.js";
@@ -139,4 +139,3 @@ export const googleAgyProvider = {
         }), statusDetails);
     },
 };
-//# sourceMappingURL=google-agy.js.map

@@ -1,8 +1,7 @@
-import type { QuotaRenderData } from "./quota-render-data.js";
-import type { QuotaToastConfig } from "./types.js";
-
 import { sanitizeQuotaRenderData } from "./display-sanitize.js";
 import { formatQuotaRows } from "./format.js";
+import type { QuotaRenderData } from "./quota-render-data.js";
+import type { QuotaToastConfig } from "./types.js";
 
 export const TUI_SIDEBAR_MAX_WIDTH = 36;
 export const TUI_SIDEBAR_LAYOUT = {

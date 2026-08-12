@@ -11,11 +11,7 @@ export function addTokenBuckets(a, b) {
     };
 }
 export function totalTokenBuckets(buckets) {
-    return (buckets.input +
-        buckets.output +
-        buckets.reasoning +
-        buckets.cache_read +
-        buckets.cache_write);
+    return (buckets.input + buckets.output + buckets.reasoning + buckets.cache_read + buckets.cache_write);
 }
 export function tokenBucketsFromMessage(message) {
     const tokens = message.tokens;
@@ -29,4 +25,3 @@ export function tokenBucketsFromMessage(message) {
         cache_write: typeof tokens.cache?.write === "number" ? tokens.cache.write : 0,
     };
 }
-//# sourceMappingURL=token-buckets.js.map

@@ -1,8 +1,8 @@
-import { readAuthFileCached } from "./opencode-auth.js";
+import { clearGeminiCliCompanionCacheForTests as clearGeminiCliCompanionResolutionCacheForTests, inspectGeminiCliCompanionPresence, resolveGeminiCliClientCredentials, } from "./google-gemini-cli-companion.js";
+import { getCachedAccessToken, makeAccountCacheKey, setCachedAccessToken, } from "./google-token-cache.js";
 import { fetchWithTimeout } from "./http.js";
 import { mapWithConcurrency } from "./map-with-concurrency.js";
-import { getCachedAccessToken, makeAccountCacheKey, setCachedAccessToken, } from "./google-token-cache.js";
-import { clearGeminiCliCompanionCacheForTests as clearGeminiCliCompanionResolutionCacheForTests, inspectGeminiCliCompanionPresence, resolveGeminiCliClientCredentials, } from "./google-gemini-cli-companion.js";
+import { readAuthFileCached } from "./opencode-auth.js";
 export const DEFAULT_GEMINI_CLI_AUTH_CACHE_MAX_AGE_MS = 5_000;
 const GEMINI_CLI_AUTH_KEYS = [
     "google-gemini-cli",
@@ -441,4 +441,3 @@ export async function queryGeminiCliQuota(client, options = {}) {
 export function clearGeminiCliRuntimeCacheForTests() {
     clearGeminiCliCompanionResolutionCacheForTests();
 }
-//# sourceMappingURL=google-gemini-cli.js.map

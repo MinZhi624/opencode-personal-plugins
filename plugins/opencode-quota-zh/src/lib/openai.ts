@@ -5,11 +5,11 @@
  * https://chatgpt.com/backend-api/wham/usage
  */
 
-import type { AuthData, OpenAIOAuthData, QuotaError } from "./types.js";
 import { sanitizeDisplaySnippet, sanitizeDisplayText } from "./display-sanitize.js";
+import { clampPercent } from "./format-utils.js";
 import { fetchWithTimeout } from "./http.js";
 import { readAuthFileCached } from "./opencode-auth.js";
-import { clampPercent } from "./format-utils.js";
+import type { AuthData, OpenAIOAuthData, QuotaError } from "./types.js";
 
 interface OpenAIUsageResponse {
   plan_type: string;
@@ -73,9 +73,9 @@ type OpenAIWindowValue = {
 };
 
 const WINDOW_KIND_BY_DURATION: Readonly<Record<number, OpenAIWindowKind>> = {
-  18_000: "hourly",
-  604_800: "weekly",
-  2_628_000: "monthly",
+  18000: "hourly",
+  604800: "weekly",
+  2628000: "monthly",
 };
 
 function isoFromMilliseconds(milliseconds: number): string | undefined {

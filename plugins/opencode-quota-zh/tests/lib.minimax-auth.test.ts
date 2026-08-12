@@ -286,7 +286,9 @@ describe("minimax auth resolution", () => {
 
   describe("resolveMiniMaxChinaAuth", () => {
     it("resolves MiniMax China auth.json keys", () => {
-      expect(resolveMiniMaxChinaAuth(withMiniMaxChinaAuth({ type: "api", key: "china-key" }))).toEqual({
+      expect(
+        resolveMiniMaxChinaAuth(withMiniMaxChinaAuth({ type: "api", key: "china-key" })),
+      ).toEqual({
         state: "configured",
         apiKey: "china-key",
         endpoint: "china",
@@ -294,7 +296,9 @@ describe("minimax auth resolution", () => {
     });
 
     it("returns invalid for MiniMax China access-only auth.json", () => {
-      expect(resolveMiniMaxChinaAuth(withMiniMaxChinaAuth({ type: "api", access: "china-token" }))).toEqual({
+      expect(
+        resolveMiniMaxChinaAuth(withMiniMaxChinaAuth({ type: "api", access: "china-token" })),
+      ).toEqual({
         state: "invalid",
         error: "MiniMax auth entry present but key is empty",
       });

@@ -6,7 +6,6 @@
  * toasts or transcript output.
  */
 
-import type { QuotaRenderData } from "./quota-render-data.js";
 import type {
   QuotaProviderResult,
   QuotaToastEntry,
@@ -14,6 +13,7 @@ import type {
   SessionTokensData,
 } from "./entries.js";
 import { isValueEntry } from "./entries.js";
+import type { QuotaRenderData } from "./quota-render-data.js";
 
 // Remove terminal escape sequences (CSI/OSC/DCS/APC/PM/SOS) and other control
 // characters except newline/tab so provider text cannot inject terminal actions.
@@ -93,6 +93,14 @@ export function sanitizeQuotaProviderResult(result: QuotaProviderResult): QuotaP
     ...(result.statusDetails
       ? {
           statusDetails: result.statusDetails.map((detail) => ({
+            key: sanitizeDisplayText(detail.key),
+            value: sanitizeDisplayText(detail.value),
+          })),
+        }
+      : {}),
+    ...(result.rawDetails
+      ? {
+          rawDetails: result.rawDetails.map((detail) => ({
             key: sanitizeDisplayText(detail.key),
             value: sanitizeDisplayText(detail.value),
           })),

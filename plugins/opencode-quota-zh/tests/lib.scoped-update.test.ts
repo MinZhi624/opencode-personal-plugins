@@ -5,10 +5,10 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  QUOTA_LATEST_SPEC,
   applyScopedUpdatePlan,
   isCanonicalQuotaUpdateSpec,
   planScopedUpdate,
+  QUOTA_LATEST_SPEC,
   runScopedUpdateCommand,
   sanitizeOpenCodePackageSpec,
 } from "../src/lib/scoped-update.js";
@@ -204,44 +204,44 @@ describe("scoped update application safety", () => {
     expect(readFileSync(manifest, "utf8")).toContain("@slkiser/opencode-quota");
   });
 
-  it.each(["read", "write"] as const)(
-    "reports earlier writes when a later config %s fails",
-    async (failureKind) => {
-      const f = fixture();
-      const first = join(f.project, "opencode.json");
-      const second = join(f.global, "tui.json");
-      write(first, `{"plugin":["@slkiser/opencode-quota@3.11.1"]}`);
-      write(second, `{"plugin":["@slkiser/opencode-quota@3.11.1"]}`);
-      const plan = await planScopedUpdate({
-        cwd: f.project,
-        env: f.env,
-        homeDir: join(f.root, "home"),
-      });
-      let reads = 0;
-      let writes = 0;
+  it.each([
+    "read",
+    "write",
+  ] as const)("reports earlier writes when a later config %s fails", async (failureKind) => {
+    const f = fixture();
+    const first = join(f.project, "opencode.json");
+    const second = join(f.global, "tui.json");
+    write(first, `{"plugin":["@slkiser/opencode-quota@3.11.1"]}`);
+    write(second, `{"plugin":["@slkiser/opencode-quota@3.11.1"]}`);
+    const plan = await planScopedUpdate({
+      cwd: f.project,
+      env: f.env,
+      homeDir: join(f.root, "home"),
+    });
+    let reads = 0;
+    let writes = 0;
 
-      const promise = applyScopedUpdatePlan(plan, {
-        readBytes: async (path) => {
-          reads++;
-          if (failureKind === "read" && reads === 2) throw new Error("read failed");
-          return readFileSync(path);
-        },
-        writeText: async (path, content) => {
-          writes++;
-          if (failureKind === "write" && writes === 2) throw new Error("write failed");
-          write(path, content);
-        },
-      });
+    const promise = applyScopedUpdatePlan(plan, {
+      readBytes: async (path) => {
+        reads++;
+        if (failureKind === "read" && reads === 2) throw new Error("read failed");
+        return readFileSync(path);
+      },
+      writeText: async (path, content) => {
+        writes++;
+        if (failureKind === "write" && writes === 2) throw new Error("write failed");
+        write(path, content);
+      },
+    });
 
-      const error = await promise.catch((caught: unknown) => caught);
-      expect(error).toMatchObject({
-        details: { writtenPaths: [first] },
-      });
-      expect(String(error)).toContain("Changed before failure");
-      expect(readFileSync(first, "utf8")).toContain("@latest");
-      expect(readFileSync(second, "utf8")).toContain("@3.11.1");
-    },
-  );
+    const error = await promise.catch((caught: unknown) => caught);
+    expect(error).toMatchObject({
+      details: { writtenPaths: [first] },
+    });
+    expect(String(error)).toContain("Changed before failure");
+    expect(readFileSync(first, "utf8")).toContain("@latest");
+    expect(readFileSync(second, "utf8")).toContain("@3.11.1");
+  });
 
   it("detects raw-byte races before writing", async () => {
     const f = fixture();

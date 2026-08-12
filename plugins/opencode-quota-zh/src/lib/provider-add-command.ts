@@ -1,5 +1,5 @@
-import { promptJsonV1Adapter } from "./provider-add-json-v1-questionnaire.js";
 import { applyProviderAddPlan, planProviderAdd } from "./provider-add.js";
+import { promptJsonV1Adapter } from "./provider-add-json-v1-questionnaire.js";
 
 const INVALID_JSON_V1_ADAPTER_MESSAGE = "Invalid json-v1 adapter JSON.";
 
@@ -111,10 +111,7 @@ async function promptWindows(prompts: PromptAdapter): Promise<unknown[] | null> 
 }
 
 export async function runProviderAddCommand(
-  params: {
-    argv?: string[];
-    prompts?: PromptAdapter;
-  } = {},
+  params: { argv?: string[]; prompts?: PromptAdapter } = {},
 ): Promise<number> {
   const argv = params.argv ?? [];
   if (argv.some((arg) => arg !== "--dry-run")) return 1;

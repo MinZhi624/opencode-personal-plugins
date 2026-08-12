@@ -5,7 +5,6 @@
  * Designed to feel like a status dashboard while still respecting OpenCode toast width.
  */
 
-import type { QuotaToastConfig } from "./types.js";
 import type { QuotaToastEntry, QuotaToastError, SessionTokensData } from "./entries.js";
 import { isValueEntry } from "./entries.js";
 import {
@@ -18,10 +17,11 @@ import {
   padRight,
   resolveDisplayedPercent,
 } from "./format-utils.js";
-import { formatGroupedHeader } from "./grouped-header-format.js";
 import { normalizeGroupedQuotaEntries } from "./grouped-entry-normalization.js";
-import { renderSessionTokensLines } from "./session-tokens-format.js";
+import { formatGroupedHeader } from "./grouped-header-format.js";
 import { classifyQuotaWindowText, type QuotaWindowKind } from "./quota-entry-display.js";
+import { renderSessionTokensLines } from "./session-tokens-format.js";
+import type { QuotaToastConfig } from "./types.js";
 
 function normalizeLabelText(value?: string): string {
   return value?.trim().replace(/:+$/u, "").trim() ?? "";

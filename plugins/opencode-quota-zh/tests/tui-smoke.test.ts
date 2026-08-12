@@ -3,20 +3,29 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const {
   buildQuotaDialogCommandOutput,
   cleanupFns,
+  collectQuotaRenderData,
   createTuiQuotaClient,
   disposeQuotaTelemetryOwner,
+  getMatchingInitialRuntimeSeed,
   getTuiRuntimeRootHints,
   getTuiSessionModelMeta,
   loadTuiHomeBottomStatus,
   loadTuiSessionQuotaSurfaces,
+  loadTuiStartupHint,
   normalizeTuiSessionID,
+  resolveQuotaRuntimeContext,
   resolveTuiSurfaceRegistration,
   writeTuiQuotaExportIfEnabled,
 } = vi.hoisted(() => ({
   buildQuotaDialogCommandOutput: vi.fn(),
   cleanupFns: [] as Array<() => void>,
+  collectQuotaRenderData: vi.fn(),
   createTuiQuotaClient: vi.fn(() => ({ config: {} })),
   disposeQuotaTelemetryOwner: vi.fn(),
+  // Chinese fork: the sidebar validates initial runtime seeds through this
+  // helper; with no seed present it must yield undefined (tests default to
+  // registrations without captureInitialRuntime).
+  getMatchingInitialRuntimeSeed: vi.fn((_api: unknown, seed?: unknown) => seed),
   getTuiRuntimeRootHints: vi.fn(() => ({
     worktreeRoot: "/tmp/worktree",
     activeDirectory: "/tmp/worktree",
@@ -25,19 +34,23 @@ const {
   getTuiSessionModelMeta: vi.fn(),
   loadTuiHomeBottomStatus: vi.fn(),
   loadTuiSessionQuotaSurfaces: vi.fn(),
+  loadTuiStartupHint: vi.fn(),
   normalizeTuiSessionID: vi.fn((value: unknown) =>
     typeof value === "string" && value.trim() && !value.includes("{") ? value.trim() : undefined,
   ),
+  resolveQuotaRuntimeContext: vi.fn(),
   resolveTuiSurfaceRegistration: vi.fn(),
   writeTuiQuotaExportIfEnabled: vi.fn(),
 }));
 
 vi.mock("../src/lib/tui-runtime.js", () => ({
   createTuiQuotaClient,
+  getMatchingInitialRuntimeSeed,
   getTuiRuntimeRootHints,
   getTuiSessionModelMeta,
   loadTuiHomeBottomStatus,
   loadTuiSessionQuotaSurfaces,
+  loadTuiStartupHint,
   normalizeTuiSessionID,
   resolveTuiSurfaceRegistration,
   writeTuiQuotaExportIfEnabled,
@@ -45,6 +58,15 @@ vi.mock("../src/lib/tui-runtime.js", () => ({
 
 vi.mock("../src/lib/quota-telemetry.js", () => ({
   disposeQuotaTelemetryOwner,
+}));
+
+vi.mock("../src/lib/quota-render-data.js", () => ({
+  collectQuotaRenderData,
+}));
+
+vi.mock("../src/lib/quota-runtime-context.js", () => ({
+  createQuotaRuntimeRequestContext: vi.fn(() => ({})),
+  resolveQuotaRuntimeContext,
 }));
 
 vi.mock("../src/lib/quota-dialog-commands.js", async (importOriginal) => {
@@ -55,28 +77,24 @@ vi.mock("../src/lib/quota-dialog-commands.js", async (importOriginal) => {
   };
 });
 
+// Chinese fork (v1.0.1) command surface: quota_announcements, tokens_daily,
+// tokens_session_all and tokens_between are not part of the fork surface.
 const TUI_COMMAND_IDS = [
   "quota",
   "quota_status",
-  "quota_announcements",
   "pricing_refresh",
   "tokens_today",
-  "tokens_daily",
   "tokens_weekly",
   "tokens_monthly",
   "tokens_all",
   "tokens_session",
-  "tokens_session_all",
-  "tokens_between",
 ] as const;
 
 const TUI_COMMAND_GROUPS = [
   ["quota", "quota_status"],
-  ["quota_announcements", "pricing_refresh"],
-  ["tokens_today", "tokens_daily"],
+  ["pricing_refresh", "tokens_today"],
   ["tokens_weekly", "tokens_monthly"],
   ["tokens_all", "tokens_session"],
-  ["tokens_session_all", "tokens_between"],
 ] as const;
 
 vi.mock("solid-js", () => ({
@@ -99,6 +117,15 @@ vi.mock("solid-js", () => ({
   },
   onCleanup: (fn: () => void) => {
     cleanupFns.push(fn);
+  },
+  For: (props: { each?: unknown; children?: unknown; fallback?: unknown }) => {
+    if (!Array.isArray(props.each)) return props.fallback ?? null;
+    const children = props.children;
+    return props.each.map((item, index) =>
+      typeof children === "function"
+        ? (children as (value: unknown, index: () => number) => unknown)(item, () => index)
+        : children,
+    );
   },
 }));
 
@@ -244,6 +271,45 @@ async function flushPromises(): Promise<void> {
   await Promise.resolve();
 }
 
+async function startTui(
+  plugin: Awaited<ReturnType<typeof loadTuiModule>>,
+  api: ReturnType<typeof createApi>["api"],
+): Promise<void> {
+  await plugin.tui(api as any, undefined, {} as any);
+  await flushPromises();
+}
+
+// Chinese fork helper: collect every rendered string including Show fallbacks
+// (the mocked solid runtime does not execute Show children eagerly).
+function collectTexts(node: unknown): string[] {
+  if (typeof node === "string") return [node];
+  if (Array.isArray(node)) return node.flatMap((item) => collectTexts(item));
+  if (node && typeof node === "object") {
+    const record = node as { props?: { children?: unknown; fallback?: unknown } };
+    return [
+      ...collectTexts(record.props?.children),
+      ...collectTexts(record.props?.fallback),
+    ];
+  }
+  return [];
+}
+
+function sidebarEntry(name: string, percentRemaining: number, group: string) {
+  return {
+    kind: "percent" as const,
+    name,
+    group,
+    percentRemaining,
+    accounting: {
+      resultType: "quota" as const,
+      acquisitionMethod: "remote_api" as const,
+      ownership: "maintained" as const,
+      authority: "provider_reported" as const,
+      sourceId: group.toLowerCase(),
+    },
+  };
+}
+
 describe("tui plugin smoke", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -272,6 +338,19 @@ describe("tui plugin smoke", () => {
       sidebar: { status: "ready", lines: ["Sidebar quota"] },
       compact: { status: "ready", text: "Session quota" },
     });
+    resolveQuotaRuntimeContext.mockReset();
+    resolveQuotaRuntimeContext.mockResolvedValue({
+      config: { enabled: true, tuiSidebarPanel: { enabled: true }, onlyCurrentModel: false },
+      client: { config: {} },
+      resolveRuntimeProviderIds: vi.fn(() => []),
+      configMeta: {},
+      providers: [],
+    });
+    collectQuotaRenderData.mockReset();
+    collectQuotaRenderData.mockResolvedValue({
+      data: { entries: [], errors: [] },
+      selection: {},
+    });
     resolveTuiSurfaceRegistration.mockReset();
     writeTuiQuotaExportIfEnabled.mockReset();
     writeTuiQuotaExportIfEnabled.mockResolvedValue(undefined);
@@ -282,6 +361,352 @@ describe("tui plugin smoke", () => {
     vi.clearAllTimers();
     delete (globalThis as any).React;
     vi.useRealTimers();
+  });
+
+  it("registers stable neutral hosts before late surface resolution and activates once", async () => {
+    const plugin = await loadTuiModule();
+    const { api, keymapLayers, registered } = createApi();
+    const registration = deferred<any>();
+    resolveTuiSurfaceRegistration.mockReturnValueOnce(registration.promise);
+
+    await plugin.tui(api as any, undefined, {} as any);
+
+    expect(resolveTuiSurfaceRegistration).toHaveBeenCalledOnce();
+    expect(keymapLayers).toHaveLength(1);
+    expect(registered.map((entry) => entry.order)).toEqual([40, 90]);
+    expect(Object.keys(registered[0]!.slots)).toEqual(["sidebar_content"]);
+    expect(Object.keys(registered[1]!.slots)).toEqual(["session_prompt", "home_bottom"]);
+    expect(registered[0]!.slots.sidebar_content({}, { session_id: "session-1" })).toBeNull();
+    expect(registered[1]!.slots.session_prompt({}, { session_id: "session-1" })).toBeNull();
+    expect(registered[1]!.slots.home_bottom({}, {})).toBeNull();
+    expect(loadTuiSessionQuotaSurfaces).not.toHaveBeenCalled();
+    expect(loadTuiHomeBottomStatus).not.toHaveBeenCalled();
+    keymapLayers[0]!.commands[0]!.run?.();
+    expect(buildQuotaDialogCommandOutput).not.toHaveBeenCalled();
+
+    registration.resolve({
+      commandDisplay: "inline",
+      sidebar: { enabled: true },
+      compact: {
+        enabled: true,
+        homeBottom: true,
+        sessionPrompt: true,
+        hasNativeProviderQuota: false,
+        suppressedByNativeProviderQuota: false,
+      },
+      promptBar: { enabled: false },
+      announcements: { homeBottom: false },
+      homeBottom: true,
+    });
+    await flushPromises();
+
+    expect(api.keymap.registerLayer).toHaveBeenCalledOnce();
+    expect(api.slots.register).toHaveBeenCalledTimes(2);
+    expect(buildQuotaDialogCommandOutput).not.toHaveBeenCalled();
+
+    keymapLayers[0]!.commands[0]!.run?.();
+    await flushPromises();
+
+    expect(buildQuotaDialogCommandOutput).toHaveBeenCalledOnce();
+    expect(api.client.session.prompt).toHaveBeenCalledOnce();
+    expect(registered[1]!.slots.session_prompt({}, { session_id: "session-1" })).not.toBeNull();
+    expect(registered[1]!.slots.home_bottom({}, {})).not.toBeNull();
+    expect(loadTuiSessionQuotaSurfaces).toHaveBeenCalledOnce();
+    expect(loadTuiHomeBottomStatus).toHaveBeenCalledOnce();
+  });
+
+  it("uses independent one-shot session and home registration tickets", async () => {
+    const plugin = await loadTuiModule();
+    const { api, registered, eventHandlers } = createApi();
+    const initialRuntimeSeed = { marker: "registration" };
+    resolveTuiSurfaceRegistration.mockImplementationOnce(
+      (
+        _api: unknown,
+        options?: { captureInitialRuntime?: (seed: typeof initialRuntimeSeed) => void },
+      ) => {
+        options?.captureInitialRuntime?.(initialRuntimeSeed);
+        return Promise.resolve({
+          commandDisplay: "inline",
+          sidebar: { enabled: true },
+          compact: {
+            enabled: true,
+            homeBottom: true,
+            sessionPrompt: true,
+            hasNativeProviderQuota: false,
+            suppressedByNativeProviderQuota: false,
+          },
+          promptBar: { enabled: false },
+          announcements: { homeBottom: false },
+          homeBottom: true,
+        });
+      },
+    );
+
+    await startTui(plugin, api);
+    // Chinese fork: the session ticket belongs to the session_prompt slot (the
+    // shared session resource). The Chinese sidebar_content slot also consumes a
+    // session ticket, so it is rendered only after the resource asserts here.
+    registered[1]!.slots.session_prompt({}, { session_id: "session-1" });
+    registered[1]!.slots.home_bottom({}, {});
+    await flushPromises();
+
+    expect(loadTuiSessionQuotaSurfaces).toHaveBeenCalledTimes(1);
+    expect(loadTuiSessionQuotaSurfaces).toHaveBeenNthCalledWith(1, {
+      api,
+      sessionID: "session-1",
+      initialRuntimeSeed,
+    });
+    expect(loadTuiHomeBottomStatus).toHaveBeenNthCalledWith(1, {
+      api,
+      initialRuntimeSeed,
+    });
+
+    for (const handler of eventHandlers.get("message.updated") ?? []) {
+      handler({ properties: { info: { sessionID: "session-1" } } });
+    }
+    await vi.advanceTimersByTimeAsync(150);
+    expect(loadTuiHomeBottomStatus).toHaveBeenNthCalledWith(2, { api });
+    expect(loadTuiSessionQuotaSurfaces).toHaveBeenNthCalledWith(2, {
+      api,
+      sessionID: "session-1",
+    });
+  });
+
+  it("consumes a session ticket when the initial load starts and does not pass it to a successor", async () => {
+    const plugin = await loadTuiModule();
+    const { api, registered } = createApi();
+    const initialRuntimeSeed = { marker: "registration" };
+    loadTuiSessionQuotaSurfaces.mockRejectedValueOnce(new Error("initial unavailable"));
+    resolveTuiSurfaceRegistration.mockImplementationOnce(
+      (
+        _api: unknown,
+        options?: { captureInitialRuntime?: (seed: typeof initialRuntimeSeed) => void },
+      ) => {
+        options?.captureInitialRuntime?.(initialRuntimeSeed);
+        return Promise.resolve({
+          commandDisplay: "inline",
+          sidebar: { enabled: false },
+          compact: {
+            enabled: true,
+            homeBottom: false,
+            sessionPrompt: true,
+            hasNativeProviderQuota: false,
+            suppressedByNativeProviderQuota: false,
+          },
+          promptBar: { enabled: false },
+          announcements: { homeBottom: false },
+          homeBottom: false,
+        });
+      },
+    );
+
+    await startTui(plugin, api);
+    // Chinese fork: the session ticket is consumed by the session_prompt slot
+    // (the shared session resource); the Chinese sidebar_content slot has its
+    // own collectQuotaRenderData path and is disabled in this scenario.
+    const sessionPrompt = registered.find((registration) => registration.order === 90)!;
+    const render = () => sessionPrompt.slots.session_prompt({}, { session_id: "session-1" });
+    render();
+    await flushPromises();
+    expect(loadTuiSessionQuotaSurfaces).toHaveBeenNthCalledWith(1, {
+      api,
+      sessionID: "session-1",
+      initialRuntimeSeed,
+    });
+
+    cleanupFns.pop()!();
+    render();
+    await flushPromises();
+    expect(loadTuiSessionQuotaSurfaces).toHaveBeenNthCalledWith(2, {
+      api,
+      sessionID: "session-1",
+    });
+  });
+
+  it("does not queue repeated commands while surface registration is pending", async () => {
+    const plugin = await loadTuiModule();
+    const { api, keymapLayers } = createApi();
+    const registration = deferred<any>();
+    resolveTuiSurfaceRegistration.mockReturnValueOnce(registration.promise);
+
+    await plugin.tui(api as any, undefined, {} as any);
+    for (let index = 0; index < 25; index += 1) keymapLayers[0]!.commands[0]!.run?.();
+
+    registration.resolve({
+      commandDisplay: "inline",
+      sidebar: { enabled: false },
+      compact: {
+        enabled: false,
+        homeBottom: false,
+        sessionPrompt: false,
+        hasNativeProviderQuota: false,
+        suppressedByNativeProviderQuota: false,
+      },
+      promptBar: { enabled: false },
+      announcements: { homeBottom: false },
+      homeBottom: false,
+    });
+    await flushPromises();
+
+    expect(buildQuotaDialogCommandOutput).not.toHaveBeenCalled();
+    keymapLayers[0]!.commands[0]!.run?.();
+    await flushPromises();
+    expect(buildQuotaDialogCommandOutput).toHaveBeenCalledOnce();
+  });
+
+  it("does not react to a pending command when resolution is followed by disposal", async () => {
+    const plugin = await loadTuiModule();
+    const { api, keymapLayers } = createApi();
+    const registration = deferred<any>();
+    resolveTuiSurfaceRegistration.mockReturnValueOnce(registration.promise);
+
+    await plugin.tui(api as any, undefined, {} as any);
+    keymapLayers[0]!.commands[0]!.run?.();
+    registration.resolve({
+      commandDisplay: "inline",
+      sidebar: { enabled: false },
+      compact: {
+        enabled: false,
+        homeBottom: false,
+        sessionPrompt: false,
+        hasNativeProviderQuota: false,
+        suppressedByNativeProviderQuota: false,
+      },
+      promptBar: { enabled: false },
+      announcements: { homeBottom: false },
+      homeBottom: false,
+    });
+    const dispose = api.lifecycle.onDispose.mock.calls[0]?.[0];
+    dispose?.();
+    await flushPromises();
+
+    keymapLayers[0]!.commands[0]!.run?.();
+    await flushPromises();
+    expect(buildQuotaDialogCommandOutput).not.toHaveBeenCalled();
+  });
+
+  it("activates the existing inline-command and sidebar fallback after late failure", async () => {
+    const plugin = await loadTuiModule();
+    const { api, keymapLayers, registered } = createApi();
+    const registration = deferred<any>();
+    resolveTuiSurfaceRegistration.mockReturnValueOnce(registration.promise);
+
+    await plugin.tui(api as any, undefined, {} as any);
+    expect(keymapLayers).toHaveLength(1);
+    expect(registered).toHaveLength(2);
+    expect(registered[0]!.slots.sidebar_content({}, { session_id: "session-1" })).toBeNull();
+
+    registration.reject(new Error("config unavailable"));
+    await flushPromises();
+
+    expect(api.keymap.registerLayer).toHaveBeenCalledOnce();
+    expect(api.slots.register).toHaveBeenCalledTimes(2);
+    registered[0]!.slots.sidebar_content({}, { session_id: "session-1" });
+    await flushPromises();
+    // Chinese fork: the fallback sidebar loads through collectQuotaRenderData.
+    expect(collectQuotaRenderData).toHaveBeenCalled();
+    expect(registered[1]!.slots.session_prompt({}, { session_id: "session-1" })).toBeNull();
+    expect(registered[1]!.slots.home_bottom({}, {})).toBeNull();
+  });
+
+  it("consumes late registration errors without retrying fallback", async () => {
+    const plugin = await loadTuiModule();
+    const { api, registered } = createApi();
+    api.keymap.registerLayer.mockImplementationOnce(() => {
+      throw new Error("registration unavailable");
+    });
+    resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+      commandDisplay: "inline",
+      sidebar: { enabled: true },
+      compact: {
+        enabled: false,
+        homeBottom: false,
+        sessionPrompt: false,
+        hasNativeProviderQuota: false,
+        suppressedByNativeProviderQuota: false,
+      },
+      promptBar: { enabled: false },
+      announcements: { homeBottom: false },
+      homeBottom: false,
+    });
+
+    await plugin.tui(api as any, undefined, {} as any);
+    await flushPromises();
+
+    expect(api.keymap.registerLayer).toHaveBeenCalledOnce();
+    expect(registered).toEqual([]);
+  });
+
+  it.each([
+    ["first", 1],
+    ["second", 2],
+  ] as const)("keeps the installed command layer active when the %s slot registration throws", async (_label, failedAttempt) => {
+    const plugin = await loadTuiModule();
+    const { api, keymapLayers, registered } = createApi();
+    const registration = deferred<any>();
+    resolveTuiSurfaceRegistration.mockReturnValueOnce(registration.promise);
+    let attempts = 0;
+    api.slots.register.mockImplementation((entry: any) => {
+      attempts += 1;
+      if (attempts === failedAttempt) throw new Error("slot registration unavailable");
+      registered.push(entry);
+      return `slot-${registered.length}`;
+    });
+
+    await plugin.tui(api as any, undefined, {} as any);
+    expect(api.keymap.registerLayer).toHaveBeenCalledOnce();
+    expect(api.slots.register).toHaveBeenCalledTimes(failedAttempt);
+    expect(registered).toHaveLength(failedAttempt - 1);
+
+    registration.resolve({
+      commandDisplay: "inline",
+      sidebar: { enabled: true },
+      compact: {
+        enabled: true,
+        homeBottom: true,
+        sessionPrompt: true,
+        hasNativeProviderQuota: false,
+        suppressedByNativeProviderQuota: false,
+      },
+      promptBar: { enabled: false },
+      announcements: { homeBottom: false },
+      homeBottom: true,
+    });
+    await flushPromises();
+
+    keymapLayers[0]!.commands[0]!.run?.();
+    await flushPromises();
+    expect(buildQuotaDialogCommandOutput).toHaveBeenCalledOnce();
+    expect(api.client.session.prompt).toHaveBeenCalledOnce();
+  });
+
+  it("keeps eager hosts neutral and pending commands inert after disposal", async () => {
+    const plugin = await loadTuiModule();
+    const { api, keymapLayers, registered } = createApi();
+    const registration = deferred<any>();
+    resolveTuiSurfaceRegistration.mockReturnValueOnce(registration.promise);
+
+    await plugin.tui(api as any, undefined, {} as any);
+    expect(api.lifecycle.onDispose).toHaveBeenCalledTimes(2);
+    expect(keymapLayers).toHaveLength(1);
+    expect(registered).toHaveLength(2);
+
+    keymapLayers[0]!.commands[0]!.run?.();
+    const dispose = api.lifecycle.onDispose.mock.calls[0]?.[0];
+    dispose?.();
+    registration.reject(new Error("config unavailable"));
+    await flushPromises();
+
+    expect(api.keymap.registerLayer).toHaveBeenCalledOnce();
+    expect(api.slots.register).toHaveBeenCalledTimes(2);
+    expect(registered[0]!.slots.sidebar_content({}, { session_id: "session-1" })).toBeNull();
+    expect(registered[1]!.slots.session_prompt({}, { session_id: "session-1" })).toBeNull();
+    expect(registered[1]!.slots.home_bottom({}, {})).toBeNull();
+    expect(buildQuotaDialogCommandOutput).not.toHaveBeenCalled();
+    expect(loadTuiSessionQuotaSurfaces).not.toHaveBeenCalled();
+    expect(loadTuiHomeBottomStatus).not.toHaveBeenCalled();
+    expect(createTuiQuotaClient).toHaveBeenCalledOnce();
+    expect(disposeQuotaTelemetryOwner).toHaveBeenCalledOnce();
   });
 
   it("registers every deterministic command through the palette keymap", async () => {
@@ -298,11 +723,12 @@ describe("tui plugin smoke", () => {
         hasNativeProviderQuota: false,
         suppressedByNativeProviderQuota: false,
       },
+      promptBar: { enabled: false },
       announcements: { homeBottom: false },
       homeBottom: false,
     });
 
-    await plugin.tui(api as any, undefined, {} as any);
+    await startTui(plugin, api);
 
     expect(api.keymap.registerLayer).toHaveBeenCalledOnce();
     expect(api.lifecycle.onDispose).toHaveBeenCalledTimes(2);
@@ -323,68 +749,68 @@ describe("tui plugin smoke", () => {
   });
 
   describe.each(["inline", "dialog"] as const)("%s native command display", (commandDisplay) => {
-    it.each(TUI_COMMAND_GROUPS)(
-      "routes /%s and /%s once without model execution",
-      async (...commands) => {
-        const plugin = await loadTuiModule();
-        const { api, keymapLayers, dialog } = createApi();
+    it.each(
+      TUI_COMMAND_GROUPS,
+    )("routes /%s and /%s once without model execution", async (...commands) => {
+      const plugin = await loadTuiModule();
+      const { api, keymapLayers, dialog } = createApi();
 
-        resolveTuiSurfaceRegistration.mockResolvedValueOnce({
-          commandDisplay,
-          sidebar: { enabled: false },
-          compact: {
-            enabled: false,
-            homeBottom: false,
-            sessionPrompt: false,
-            hasNativeProviderQuota: false,
-            suppressedByNativeProviderQuota: false,
-          },
-          announcements: { homeBottom: false },
+      resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+        commandDisplay,
+        sidebar: { enabled: false },
+        compact: {
+          enabled: false,
           homeBottom: false,
+          sessionPrompt: false,
+          hasNativeProviderQuota: false,
+          suppressedByNativeProviderQuota: false,
+        },
+        promptBar: { enabled: false },
+        announcements: { homeBottom: false },
+        homeBottom: false,
+      });
+
+      await startTui(plugin, api);
+      for (const command of commands) {
+        vi.clearAllMocks();
+        const output = `${command} output`;
+        buildQuotaDialogCommandOutput.mockResolvedValueOnce({
+          state: "output",
+          command,
+          title: command,
+          output,
+          dialogSize: "xlarge",
         });
+        const registeredCommand = keymapLayers[0]!.commands.find(
+          (item) => item.slashName === command,
+        )!;
+        (registeredCommand.run as (input?: unknown) => void)({ arguments: "" });
+        await Promise.resolve();
+        await Promise.resolve();
 
-        await plugin.tui(api as any, undefined, {} as any);
-        for (const command of commands) {
-          vi.clearAllMocks();
-          const output = `${command} output`;
-          buildQuotaDialogCommandOutput.mockResolvedValueOnce({
-            state: "output",
+        expect(buildQuotaDialogCommandOutput, command).toHaveBeenCalledOnce();
+        expect(buildQuotaDialogCommandOutput, command).toHaveBeenCalledWith(
+          expect.objectContaining({
             command,
-            title: command,
-            output,
-            dialogSize: "xlarge",
+            client: { config: {} },
+            sessionID: "session-route",
+          }),
+        );
+        if (commandDisplay === "inline") {
+          expect(api.client.session.prompt, command).toHaveBeenCalledOnce();
+          expect(api.client.session.prompt, command).toHaveBeenCalledWith({
+            sessionID: "session-route",
+            noReply: true,
+            parts: [{ type: "text", text: output, ignored: true }],
           });
-          const registeredCommand = keymapLayers[0]!.commands.find(
-            (item) => item.slashName === command,
-          )!;
-          (registeredCommand.run as (input?: unknown) => void)({ arguments: "" });
-          await Promise.resolve();
-          await Promise.resolve();
-
-          expect(buildQuotaDialogCommandOutput, command).toHaveBeenCalledOnce();
-          expect(buildQuotaDialogCommandOutput, command).toHaveBeenCalledWith(
-            expect.objectContaining({
-              command,
-              client: { config: {} },
-              sessionID: "session-route",
-            }),
-          );
-          if (commandDisplay === "inline") {
-            expect(api.client.session.prompt, command).toHaveBeenCalledOnce();
-            expect(api.client.session.prompt, command).toHaveBeenCalledWith({
-              sessionID: "session-route",
-              noReply: true,
-              parts: [{ type: "text", text: output, ignored: true }],
-            });
-            expect(dialog.replace, command).not.toHaveBeenCalled();
-          } else {
-            expect(api.client.session.prompt, command).not.toHaveBeenCalled();
-            expect(dialog.replace, command).toHaveBeenCalledTimes(2);
-          }
-          expect(api.client.session.command, command).not.toHaveBeenCalled();
+          expect(dialog.replace, command).not.toHaveBeenCalled();
+        } else {
+          expect(api.client.session.prompt, command).not.toHaveBeenCalled();
+          expect(dialog.replace, command).toHaveBeenCalledTimes(2);
         }
-      },
-    );
+        expect(api.client.session.command, command).not.toHaveBeenCalled();
+      }
+    });
   });
 
   it("selects Home dialog destination before executing an inline-configured command", async () => {
@@ -412,11 +838,12 @@ describe("tui plugin smoke", () => {
         hasNativeProviderQuota: false,
         suppressedByNativeProviderQuota: false,
       },
+      promptBar: { enabled: false },
       announcements: { homeBottom: false },
       homeBottom: false,
     });
 
-    await plugin.tui(api as any, undefined, {} as any);
+    await startTui(plugin, api);
     const quota = keymapLayers[0]!.commands.find((command) => command.slashName === "quota")!;
     (quota.run as (input?: unknown) => void)({ arguments: "" });
     await Promise.resolve();
@@ -429,50 +856,51 @@ describe("tui plugin smoke", () => {
     expect(api.client.session.command).not.toHaveBeenCalled();
   });
 
-  it.each(["inline", "dialog"] as const)(
-    "keeps command no-op behavior in %s mode",
-    async (commandDisplay) => {
-      const plugin = await loadTuiModule();
-      const { api, keymapLayers, dialog } = createApi();
-      buildQuotaDialogCommandOutput.mockResolvedValueOnce({
-        state: "noop",
-        command: "pricing_refresh",
-        reason: "disabled",
-      });
-      resolveTuiSurfaceRegistration.mockResolvedValueOnce({
-        commandDisplay,
-        sidebar: { enabled: false },
-        compact: {
-          enabled: false,
-          homeBottom: false,
-          sessionPrompt: false,
-          hasNativeProviderQuota: false,
-          suppressedByNativeProviderQuota: false,
-        },
-        announcements: { homeBottom: false },
+  it.each([
+    "inline",
+    "dialog",
+  ] as const)("keeps command no-op behavior in %s mode", async (commandDisplay) => {
+    const plugin = await loadTuiModule();
+    const { api, keymapLayers, dialog } = createApi();
+    buildQuotaDialogCommandOutput.mockResolvedValueOnce({
+      state: "noop",
+      command: "pricing_refresh",
+      reason: "disabled",
+    });
+    resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+      commandDisplay,
+      sidebar: { enabled: false },
+      compact: {
+        enabled: false,
         homeBottom: false,
-      });
+        sessionPrompt: false,
+        hasNativeProviderQuota: false,
+        suppressedByNativeProviderQuota: false,
+      },
+      promptBar: { enabled: false },
+      announcements: { homeBottom: false },
+      homeBottom: false,
+    });
 
-      await plugin.tui(api as any, undefined, {} as any);
-      const refresh = keymapLayers[0]!.commands.find(
-        (command) => command.slashName === "pricing_refresh",
-      )!;
-      (refresh.run as (input?: unknown) => void)({ arguments: "" });
-      await Promise.resolve();
-      await Promise.resolve();
+    await startTui(plugin, api);
+    const refresh = keymapLayers[0]!.commands.find(
+      (command) => command.slashName === "pricing_refresh",
+    )!;
+    (refresh.run as (input?: unknown) => void)({ arguments: "" });
+    await Promise.resolve();
+    await Promise.resolve();
 
-      expect(buildQuotaDialogCommandOutput).toHaveBeenCalledOnce();
-      expect(api.client.session.prompt).not.toHaveBeenCalled();
-      expect(api.client.session.command).not.toHaveBeenCalled();
-      if (commandDisplay === "inline") {
-        expect(dialog.replace).not.toHaveBeenCalled();
-        expect(dialog.clear).not.toHaveBeenCalled();
-      } else {
-        expect(dialog.replace).toHaveBeenCalledOnce();
-        expect(dialog.clear).toHaveBeenCalledOnce();
-      }
-    },
-  );
+    expect(buildQuotaDialogCommandOutput).toHaveBeenCalledOnce();
+    expect(api.client.session.prompt).not.toHaveBeenCalled();
+    expect(api.client.session.command).not.toHaveBeenCalled();
+    if (commandDisplay === "inline") {
+      expect(dialog.replace).not.toHaveBeenCalled();
+      expect(dialog.clear).not.toHaveBeenCalled();
+    } else {
+      expect(dialog.replace).toHaveBeenCalledOnce();
+      expect(dialog.clear).toHaveBeenCalledOnce();
+    }
+  });
 
   it("shows the command error without falling back to quota output dialog when inline injection fails", async () => {
     const plugin = await loadTuiModule();
@@ -489,11 +917,12 @@ describe("tui plugin smoke", () => {
         hasNativeProviderQuota: false,
         suppressedByNativeProviderQuota: false,
       },
+      promptBar: { enabled: false },
       announcements: { homeBottom: false },
       homeBottom: false,
     });
 
-    await plugin.tui(api as any, undefined, {} as any);
+    await startTui(plugin, api);
     const quota = keymapLayers[0]!.commands.find((command) => command.slashName === "quota")!;
     (quota.run as (input?: unknown) => void)();
     await Promise.resolve();
@@ -506,7 +935,7 @@ describe("tui plugin smoke", () => {
     expect(errorDialog.props.children).not.toContain("Quota line 1");
     expect(api.ui.toast).toHaveBeenCalledWith({
       variant: "error",
-      message: "OpenCode Quota command failed",
+      message: "额度命令执行失败",
     });
     expect(api.client.session.command).not.toHaveBeenCalled();
   });
@@ -525,11 +954,12 @@ describe("tui plugin smoke", () => {
         hasNativeProviderQuota: false,
         suppressedByNativeProviderQuota: false,
       },
+      promptBar: { enabled: false },
       announcements: { homeBottom: false },
       homeBottom: false,
     });
 
-    await plugin.tui(api as any, undefined, {} as any);
+    await startTui(plugin, api);
     const status = keymapLayers[0]!.commands.find(
       (command) => command.slashName === "quota_status",
     )!;
@@ -541,7 +971,7 @@ describe("tui plugin smoke", () => {
       expect.objectContaining({
         type: "DialogPrompt",
         props: expect.objectContaining({
-          title: "OpenCode Quota Status Options",
+          title: "OpenCode 额度状态选项",
         }),
       }),
     );
@@ -580,19 +1010,10 @@ describe("tui plugin smoke", () => {
     );
     expect(api.client.session.prompt).toHaveBeenCalledTimes(2);
 
-    const announcements = keymapLayers[0]!.commands.find(
-      (command) => command.slashName === "quota_announcements",
-    )!;
-    (announcements.run as (input?: unknown) => void)();
-    expect(buildQuotaDialogCommandOutput).toHaveBeenCalledTimes(2);
-    const announcementsPrompt = dialog.replace.mock.calls.at(-1)![0]() as any;
-    announcementsPrompt.props.onConfirm("   ");
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(buildQuotaDialogCommandOutput).toHaveBeenLastCalledWith(
-      expect.objectContaining({ command: "quota_announcements" }),
-    );
-    expect(api.client.session.prompt).toHaveBeenCalledTimes(3);
+    // /quota_announcements is not part of the v1.0.1 command surface.
+    expect(
+      keymapLayers[0]!.commands.some((command) => command.slashName === "quota_announcements"),
+    ).toBe(false);
     expect(api.client.session.command).not.toHaveBeenCalled();
   });
 
@@ -609,35 +1030,21 @@ describe("tui plugin smoke", () => {
         hasNativeProviderQuota: false,
         suppressedByNativeProviderQuota: false,
       },
+      promptBar: { enabled: false },
       announcements: { homeBottom: false },
       homeBottom: false,
     });
 
-    await plugin.tui(api as any, undefined, {} as any);
-    const between = keymapLayers[0]!.commands.find(
-      (command) => command.slashName === "tokens_between",
-    )!;
-    (between.run as (input?: unknown) => void)();
+    await startTui(plugin, api);
+    // /tokens_between is not part of the v1.0.1 command surface.
+    expect(
+      keymapLayers[0]!.commands.some((command) => command.slashName === "tokens_between"),
+    ).toBe(false);
     expect(buildQuotaDialogCommandOutput).not.toHaveBeenCalled();
-
-    const prompt = dialog.replace.mock.calls[0]![0]() as any;
-    prompt.props.onConfirm("2026-01-01 2026-01-15");
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(buildQuotaDialogCommandOutput).toHaveBeenCalledOnce();
-    expect(buildQuotaDialogCommandOutput).toHaveBeenCalledWith(
-      expect.objectContaining({
-        command: "tokens_between",
-        arguments: "2026-01-01 2026-01-15",
-      }),
-    );
-    expect(dialog.replace).toHaveBeenCalledTimes(3);
-    expect(api.client.session.prompt).not.toHaveBeenCalled();
     expect(api.client.session.command).not.toHaveBeenCalled();
   });
 
-  it("registers sidebar_content and compact slots independently", async () => {
+  it("keeps stable hosts registered while activating sidebar and compact surfaces independently", async () => {
     const plugin = await loadTuiModule();
     const sidebarOnly = createApi();
 
@@ -651,15 +1058,24 @@ describe("tui plugin smoke", () => {
         hasNativeProviderQuota: false,
         suppressedByNativeProviderQuota: false,
       },
+      promptBar: { enabled: false },
       announcements: { homeBottom: false },
       homeBottom: false,
     });
 
-    await plugin.tui(sidebarOnly.api as any, undefined, {} as any);
+    await startTui(plugin, sidebarOnly.api);
 
-    expect(sidebarOnly.registered).toHaveLength(1);
-    expect(sidebarOnly.registered[0].order).toBe(150);
-    expect(Object.keys(sidebarOnly.registered[0].slots)).toEqual(["sidebar_content"]);
+    expect(sidebarOnly.registered).toHaveLength(2);
+    expect(sidebarOnly.registered.map((entry) => entry.order)).toEqual([40, 90]);
+    sidebarOnly.registered[0].slots.sidebar_content({}, { session_id: "session-1" });
+    await flushPromises();
+    expect(
+      sidebarOnly.registered[0].slots.sidebar_content({}, { session_id: "session-1" }),
+    ).not.toBeNull();
+    expect(
+      sidebarOnly.registered[1].slots.session_prompt({}, { session_id: "session-1" }),
+    ).toBeNull();
+    expect(sidebarOnly.registered[1].slots.home_bottom({}, {})).toBeNull();
 
     const compactOnly = createApi();
     resolveTuiSurfaceRegistration.mockResolvedValueOnce({
@@ -672,15 +1088,22 @@ describe("tui plugin smoke", () => {
         hasNativeProviderQuota: false,
         suppressedByNativeProviderQuota: false,
       },
+      promptBar: { enabled: false },
       announcements: { homeBottom: true },
       homeBottom: true,
     });
 
-    await plugin.tui(compactOnly.api as any, undefined, {} as any);
+    await startTui(plugin, compactOnly.api);
 
-    expect(compactOnly.registered).toHaveLength(1);
-    expect(compactOnly.registered[0].order).toBe(90);
-    expect(Object.keys(compactOnly.registered[0].slots)).toEqual(["session_prompt", "home_bottom"]);
+    expect(compactOnly.registered).toHaveLength(2);
+    expect(compactOnly.registered.map((entry) => entry.order)).toEqual([40, 90]);
+    expect(
+      compactOnly.registered[0].slots.sidebar_content({}, { session_id: "session-1" }),
+    ).toBeNull();
+    expect(
+      compactOnly.registered[1].slots.session_prompt({}, { session_id: "session-1" }),
+    ).not.toBeNull();
+    expect(compactOnly.registered[1].slots.home_bottom({}, {})).not.toBeNull();
 
     const enabled = createApi();
     resolveTuiSurfaceRegistration.mockResolvedValueOnce({
@@ -693,31 +1116,33 @@ describe("tui plugin smoke", () => {
         hasNativeProviderQuota: false,
         suppressedByNativeProviderQuota: false,
       },
+      promptBar: { enabled: false },
       announcements: { homeBottom: true },
       homeBottom: true,
     });
 
-    await plugin.tui(enabled.api as any, undefined, {} as any);
+    await startTui(plugin, enabled.api);
 
     expect(enabled.registered).toHaveLength(2);
-    expect(enabled.registered[0].order).toBe(150);
+    expect(enabled.registered[0].order).toBe(40);
     expect(Object.keys(enabled.registered[0].slots)).toEqual(["sidebar_content"]);
     expect(enabled.registered[1].order).toBe(90);
     expect(Object.keys(enabled.registered[1].slots)).toEqual(["session_prompt", "home_bottom"]);
   });
 
-  it("renders sidebar summary count from runtime state and persists detail toggles", async () => {
+  it("renders the Chinese sidebar header, summary count, and persists quota-zh toggles", async () => {
     const plugin = await loadTuiModule();
-    const { api, registered } = createApi();
+    const { api, registered, kvStore } = createApi();
 
-    loadTuiSessionQuotaSurfaces.mockResolvedValueOnce({
-      sidebar: {
-        status: "ready",
-        lines: ["Copilot 5h 82%"],
-        linesExpanded: ["[Copilot]", "5h window 82%", "Weekly window 58%"],
-        providerCount: 2,
+    collectQuotaRenderData.mockResolvedValueOnce({
+      data: {
+        entries: [
+          sidebarEntry("Copilot 5h", 82, "Copilot"),
+          sidebarEntry("OpenAI Weekly", 58, "OpenAI"),
+        ],
+        errors: [],
       },
-      compact: { status: "ready", text: "Session quota" },
+      selection: {},
     });
     resolveTuiSurfaceRegistration.mockResolvedValueOnce({
       commandDisplay: "inline",
@@ -729,51 +1154,55 @@ describe("tui plugin smoke", () => {
         hasNativeProviderQuota: false,
         suppressedByNativeProviderQuota: false,
       },
+      promptBar: { enabled: false },
       announcements: { homeBottom: false },
       homeBottom: false,
     });
 
-    await plugin.tui(api as any, undefined, {} as any);
+    await startTui(plugin, api);
 
-    const sidebarRegistration = registered.find((registration) => registration.order === 150);
+    const sidebarRegistration = registered.find((registration) => registration.order === 40);
     expect(sidebarRegistration).toBeDefined();
 
-    sidebarRegistration!.slots.sidebar_content({}, { session_id: "session-1" });
-    await Promise.resolve();
-
-    const collapsed = sidebarRegistration!.slots.sidebar_content(
+    const firstRender = sidebarRegistration!.slots.sidebar_content(
       {},
       { session_id: "session-1" },
     ) as any;
-    const collapsedHeader = collapsed.props.children[0];
-    expect(collapsedHeader.props.children[0].props.children.props.children).toBe("▶ Quota");
-    expect(collapsedHeader.props.children[1].props.children).toEqual([" (", 2, " providers)"]);
-    expect(
-      collapsed.props.children[1].props.children.map((line: any) => line.props.children),
-    ).toEqual(["Copilot 5h 82%"]);
+    await flushPromises();
 
-    collapsedHeader.props.children[0].props.onMouseDown();
+    // The v1.0.1 sidebar defaults to the expanded state: ▼ header + 额度 label.
+    const expandedTexts = collectTexts(firstRender);
+    expect(expandedTexts).toContain("▼");
+    expect(expandedTexts).toContain("额度");
 
-    expect(api.kv.set).toHaveBeenCalledWith("quota-sidebar-collapsed", false);
+    // Toggling persists the collapse state under the quota-zh kv key.
+    const headerRow = firstRender.props.children[0];
+    headerRow.props.onMouseDown();
+    expect(api.kv.set).toHaveBeenCalledWith("quota-zh-sidebar-collapsed", true);
+    expect(kvStore.get("quota-zh-sidebar-collapsed")).toBe(true);
 
-    const expanded = sidebarRegistration!.slots.sidebar_content(
+    // A fresh mount reads the persisted collapse state: ▶ header instead of ▼.
+    const collapsedRender = sidebarRegistration!.slots.sidebar_content(
       {},
       { session_id: "session-1" },
     ) as any;
-    const expandedHeader = expanded.props.children[0];
-    expect(expandedHeader.props.children[0].props.children.props.children).toBe("▼ Quota");
-    expect(
-      expanded.props.children[1].props.children.map((line: any) => line.props.children),
-    ).toEqual(["[Copilot]", "5h window 82%", "Weekly window 58%"]);
+    const collapsedTexts = collectTexts(collapsedRender);
+    expect(collapsedTexts).toContain("▶");
+    expect(collapsedTexts).toContain("额度");
+
+    // collectQuotaRenderData is the Chinese sidebar data path (all-windows style).
+    expect(collectQuotaRenderData).toHaveBeenCalledWith(
+      expect.objectContaining({ formatStyle: "allWindows", includeAllWindowsData: true }),
+    );
   });
 
-  it("keeps non-expandable empty sidebar panels visible while collapsed", async () => {
+  it("keeps the Chinese sidebar visible with an empty-data hint instead of hiding", async () => {
     const plugin = await loadTuiModule();
     const { api, registered } = createApi();
 
-    loadTuiSessionQuotaSurfaces.mockResolvedValueOnce({
-      sidebar: { status: "ready", lines: [] },
-      compact: { status: "ready", text: "Session quota" },
+    collectQuotaRenderData.mockResolvedValueOnce({
+      data: { entries: [], errors: [] },
+      selection: {},
     });
     resolveTuiSurfaceRegistration.mockResolvedValueOnce({
       commandDisplay: "inline",
@@ -785,38 +1214,53 @@ describe("tui plugin smoke", () => {
         hasNativeProviderQuota: false,
         suppressedByNativeProviderQuota: false,
       },
+      promptBar: { enabled: false },
       announcements: { homeBottom: false },
       homeBottom: false,
     });
 
-    await plugin.tui(api as any, undefined, {} as any);
+    await startTui(plugin, api);
 
-    const sidebarRegistration = registered.find((registration) => registration.order === 150);
+    const sidebarRegistration = registered.find((registration) => registration.order === 40);
     expect(sidebarRegistration).toBeDefined();
-
-    sidebarRegistration!.slots.sidebar_content({}, { session_id: "session-1" });
-    await Promise.resolve();
 
     const rendered = sidebarRegistration!.slots.sidebar_content(
       {},
       { session_id: "session-1" },
     ) as any;
-    const header = rendered.props.children[0];
-    expect(header.props.children[0].props.children.props.children).toBe("Quota");
-    expect(rendered.props.children[1].props.children[0].props.children).toBe("Unavailable");
+    const texts = collectTexts(rendered);
+    expect(texts).toContain("额度");
+    // The v1.0.1 sidebar keeps the panel visible with an explicit loading hint;
+    // empty data resolves to the 暂无额度数据 hint once the load lands (the
+    // captured tree stays in the initial loading state without reactivity).
+    expect(texts).toContain("加载中...");
+    await flushPromises();
+    expect(collectQuotaRenderData).toHaveBeenCalledWith(
+      expect.objectContaining({ formatStyle: "allWindows", includeAllWindowsData: true }),
+    );
   });
 
-  it("falls back to sidebar-only registration when surface resolution fails", async () => {
+  it("activates only the sidebar host when surface resolution fails", async () => {
     const plugin = await loadTuiModule();
     const fallback = createApi();
 
     resolveTuiSurfaceRegistration.mockRejectedValueOnce(new Error("config unavailable"));
 
-    await plugin.tui(fallback.api as any, undefined, {} as any);
+    await startTui(plugin, fallback.api);
 
-    expect(fallback.registered).toHaveLength(1);
-    expect(fallback.registered[0].order).toBe(150);
-    expect(Object.keys(fallback.registered[0].slots)).toEqual(["sidebar_content"]);
+    expect(fallback.registered).toHaveLength(2);
+    expect(fallback.registered.map((entry) => entry.order)).toEqual([40, 90]);
+    fallback.registered[0].slots.sidebar_content({}, { session_id: "session-1" });
+    await flushPromises();
+    expect(
+      fallback.registered[0].slots.sidebar_content({}, { session_id: "session-1" }),
+    ).not.toBeNull();
+    expect(fallback.registered[1].slots.session_prompt({}, { session_id: "session-1" })).toBeNull();
+    expect(fallback.registered[1].slots.home_bottom({}, {})).toBeNull();
+    // Chinese fork: the fallback sidebar loads through collectQuotaRenderData.
+    expect(collectQuotaRenderData).toHaveBeenCalledWith(
+      expect.objectContaining({ formatStyle: "allWindows", includeAllWindowsData: true }),
+    );
   });
 
   it("does not register right-side compact slots", async () => {
@@ -833,11 +1277,12 @@ describe("tui plugin smoke", () => {
         hasNativeProviderQuota: false,
         suppressedByNativeProviderQuota: false,
       },
+      promptBar: { enabled: false },
       announcements: { homeBottom: true },
       homeBottom: true,
     });
 
-    await plugin.tui(api as any, undefined, {} as any);
+    await startTui(plugin, api);
 
     const slotNames = registered.flatMap((registration) => Object.keys(registration.slots));
     expect(slotNames).toContain("session_prompt");
@@ -851,20 +1296,25 @@ describe("tui plugin smoke", () => {
     const { api, registered, eventHandlers } = createApi();
     resolveTuiSurfaceRegistration.mockResolvedValueOnce({
       commandDisplay: "inline",
-      sidebar: { enabled: true },
+      sidebar: { enabled: false },
       compact: {
-        enabled: false,
+        enabled: true,
         homeBottom: false,
-        sessionPrompt: false,
+        sessionPrompt: true,
         hasNativeProviderQuota: false,
         suppressedByNativeProviderQuota: false,
       },
+      promptBar: { enabled: false },
       announcements: { homeBottom: false },
       homeBottom: false,
     });
 
-    await plugin.tui(api as any, undefined, {} as any);
-    registered[0]!.slots.sidebar_content({}, { session_id: "session-1" });
+    await startTui(plugin, api);
+    // Chinese fork: the shared session-quota resource (loadTuiSessionQuotaSurfaces)
+    // is owned by the session_prompt slot; the Chinese sidebar_content slot has
+    // its own collectQuotaRenderData path (asserted in the sidebar tests above).
+    const sessionPrompt = registered.find((registration) => registration.order === 90)!;
+    sessionPrompt.slots.session_prompt({}, { session_id: "session-1" });
     await flushPromises();
     expect(loadTuiSessionQuotaSurfaces).toHaveBeenCalledTimes(1);
 
@@ -891,7 +1341,7 @@ describe("tui plugin smoke", () => {
     expect(loadTuiSessionQuotaSurfaces).toHaveBeenCalledTimes(7);
   });
 
-  it("coalesces in-flight session refreshes and ignores the stale completion", async () => {
+  it("coalesces in-flight session refreshes and accepts the active completion before its follow-up", async () => {
     const plugin = await loadTuiModule();
     const { api, registered } = createApi();
     const first = deferred<{
@@ -908,38 +1358,41 @@ describe("tui plugin smoke", () => {
       .mockReturnValueOnce(second.promise);
     resolveTuiSurfaceRegistration.mockResolvedValueOnce({
       commandDisplay: "inline",
-      sidebar: { enabled: true },
+      sidebar: { enabled: false },
       compact: {
-        enabled: false,
+        enabled: true,
         homeBottom: false,
-        sessionPrompt: false,
+        sessionPrompt: true,
         hasNativeProviderQuota: false,
         suppressedByNativeProviderQuota: false,
       },
+      promptBar: { enabled: false },
       announcements: { homeBottom: false },
       homeBottom: false,
     });
 
-    await plugin.tui(api as any, undefined, {} as any);
-    const sidebar = registered[0]!.slots.sidebar_content;
-    sidebar({}, { session_id: "session-1" });
+    await startTui(plugin, api);
+    const sessionPrompt = registered.find((registration) => registration.order === 90)!;
+    sessionPrompt.slots.session_prompt({}, { session_id: "session-1" });
     await vi.advanceTimersByTimeAsync(4_000);
     expect(loadTuiSessionQuotaSurfaces).toHaveBeenCalledOnce();
 
     first.resolve({
-      sidebar: { status: "ready", lines: ["stale"] },
-      compact: { status: "ready", text: "stale" },
+      sidebar: { status: "ready", lines: ["initial"] },
+      compact: { status: "ready", text: "initial" },
     });
     await flushPromises();
     expect(loadTuiSessionQuotaSurfaces).toHaveBeenCalledTimes(2);
+    let rendered = sessionPrompt.slots.session_prompt({}, { session_id: "session-1" }) as any;
+    expect(collectTexts(rendered)).toContain("initial");
 
     second.resolve({
-      sidebar: { status: "ready", lines: ["accepted"] },
-      compact: { status: "ready", text: "accepted" },
+      sidebar: { status: "ready", lines: ["refreshed"] },
+      compact: { status: "ready", text: "refreshed" },
     });
     await flushPromises();
-    const rendered = sidebar({}, { session_id: "session-1" }) as any;
-    expect(rendered.props.children[1].props.children[0].props.children).toBe("accepted");
+    rendered = sessionPrompt.slots.session_prompt({}, { session_id: "session-1" });
+    expect(collectTexts(rendered)).toContain("refreshed");
   });
 
   it("keeps shared session resources alive until the final release and then disposes them", async () => {
@@ -947,22 +1400,24 @@ describe("tui plugin smoke", () => {
     const { api, registered, unsubscribers } = createApi();
     resolveTuiSurfaceRegistration.mockResolvedValueOnce({
       commandDisplay: "inline",
-      sidebar: { enabled: true },
+      sidebar: { enabled: false },
       compact: {
-        enabled: false,
+        enabled: true,
         homeBottom: false,
-        sessionPrompt: false,
+        sessionPrompt: true,
         hasNativeProviderQuota: false,
         suppressedByNativeProviderQuota: false,
       },
+      promptBar: { enabled: false },
       announcements: { homeBottom: false },
       homeBottom: false,
     });
 
-    await plugin.tui(api as any, undefined, {} as any);
-    const sidebar = registered[0]!.slots.sidebar_content;
-    sidebar({}, { session_id: "session-1" });
-    sidebar({}, { session_id: "session-1" });
+    await startTui(plugin, api);
+    const sessionPrompt = registered.find((registration) => registration.order === 90)!;
+    const render = () => sessionPrompt.slots.session_prompt({}, { session_id: "session-1" });
+    render();
+    render();
     await flushPromises();
     expect(loadTuiSessionQuotaSurfaces).toHaveBeenCalledOnce();
 
@@ -993,12 +1448,13 @@ describe("tui plugin smoke", () => {
         hasNativeProviderQuota: false,
         suppressedByNativeProviderQuota: false,
       },
+      promptBar: { enabled: false },
       announcements: { homeBottom: false },
       homeBottom: true,
     });
 
-    await plugin.tui(api as any, undefined, {} as any);
-    registered[0]!.slots.home_bottom({}, {});
+    await startTui(plugin, api);
+    registered.find((registration) => registration.order === 90)!.slots.home_bottom({}, {});
     await vi.advanceTimersByTimeAsync(4_000);
     expect(loadTuiHomeBottomStatus).toHaveBeenCalledOnce();
 
@@ -1008,18 +1464,18 @@ describe("tui plugin smoke", () => {
 
     first.resolve({
       status: "ready",
-      compact: { status: "ready", text: "stale" },
+      compact: { status: "ready", text: "initial" },
     });
     await flushPromises();
     expect(loadTuiHomeBottomStatus).toHaveBeenCalledTimes(2);
-    expect(writeTuiQuotaExportIfEnabled).not.toHaveBeenCalled();
+    expect(writeTuiQuotaExportIfEnabled).toHaveBeenCalledOnce();
 
     second.resolve({
       status: "ready",
-      compact: { status: "ready", text: "accepted" },
+      compact: { status: "ready", text: "refreshed" },
     });
     await flushPromises();
-    expect(writeTuiQuotaExportIfEnabled).toHaveBeenCalledOnce();
+    expect(writeTuiQuotaExportIfEnabled).toHaveBeenCalledTimes(2);
   });
 
   it("ignores rejected and disposed home completions without exporting", async () => {
@@ -1036,11 +1492,14 @@ describe("tui plugin smoke", () => {
         hasNativeProviderQuota: false,
         suppressedByNativeProviderQuota: false,
       },
+      promptBar: { enabled: false },
       announcements: { homeBottom: true },
       homeBottom: true,
     });
-    await plugin.tui(rejected.api as any, undefined, {} as any);
-    rejected.registered[0]!.slots.home_bottom({}, {});
+    await startTui(plugin, rejected.api);
+    rejected.registered
+      .find((registration) => registration.order === 90)!
+      .slots.home_bottom({}, {});
     await flushPromises();
     expect(writeTuiQuotaExportIfEnabled).not.toHaveBeenCalled();
 
@@ -1057,11 +1516,14 @@ describe("tui plugin smoke", () => {
         hasNativeProviderQuota: false,
         suppressedByNativeProviderQuota: false,
       },
+      promptBar: { enabled: false },
       announcements: { homeBottom: true },
       homeBottom: true,
     });
-    await plugin.tui(disposed.api as any, undefined, {} as any);
-    disposed.registered[0]!.slots.home_bottom({}, {});
+    await startTui(plugin, disposed.api);
+    disposed.registered
+      .find((registration) => registration.order === 90)!
+      .slots.home_bottom({}, {});
     cleanupFns.pop()!();
     pending.resolve({ status: "ready", compact: { status: "disabled" } });
     await flushPromises();
@@ -1082,11 +1544,12 @@ describe("tui plugin smoke", () => {
         hasNativeProviderQuota: false,
         suppressedByNativeProviderQuota: false,
       },
+      promptBar: { enabled: false },
       announcements: { homeBottom: true },
       homeBottom: true,
     });
 
-    await plugin.tui(api as any, undefined, {} as any);
+    await startTui(plugin, api);
 
     const compactRegistration = registered.find((registration) => registration.order === 90);
     expect(compactRegistration).toBeDefined();
@@ -1167,13 +1630,15 @@ describe("tui plugin smoke", () => {
         hasNativeProviderQuota: false,
         suppressedByNativeProviderQuota: false,
       },
+      promptBar: { enabled: false },
       announcements: { homeBottom: true },
       homeBottom: true,
     });
 
-    await plugin.tui(api as any, undefined, {} as any);
+    await startTui(plugin, api);
 
-    const homeBottom = registered[0].slots.home_bottom;
+    const homeBottom = registered.find((registration) => registration.order === 90)!.slots
+      .home_bottom;
     const empty = homeBottom({}, {}) as any;
     expect(empty).toEqual({
       type: "box",
@@ -1224,13 +1689,16 @@ describe("tui plugin smoke", () => {
         hasNativeProviderQuota: false,
         suppressedByNativeProviderQuota: false,
       },
+      promptBar: { enabled: false },
       announcements: { homeBottom: false },
       homeBottom: true,
     });
 
-    await plugin.tui(api as any, undefined, {} as any);
+    await startTui(plugin, api);
 
-    const rendered = registered[0].slots.home_bottom({}, {}) as any;
+    const rendered = registered
+      .find((registration) => registration.order === 90)!
+      .slots.home_bottom({}, {}) as any;
     expect(rendered).toEqual({
       type: "box",
       props: { gap: 0, children: [null, null, null] },
@@ -1256,11 +1724,12 @@ describe("tui plugin smoke", () => {
         hasNativeProviderQuota: false,
         suppressedByNativeProviderQuota: false,
       },
+      promptBar: { enabled: false },
       announcements: { homeBottom: false },
       homeBottom: false,
     });
 
-    await plugin.tui(api as any, undefined, {} as any);
+    await startTui(plugin, api);
 
     const compactRegistration = registered.find((registration) => registration.order === 90);
     expect(compactRegistration).toBeDefined();
@@ -1284,5 +1753,211 @@ describe("tui plugin smoke", () => {
       onSubmit,
       ref,
     });
+  });
+
+  it("renders the opt-in prompt quota bar and suppresses the compact status line", async () => {
+    const plugin = await loadTuiModule();
+    const { api, registered } = createApi();
+
+    loadTuiSessionQuotaSurfaces.mockResolvedValueOnce({
+      sidebar: { status: "ready", lines: [] },
+      compact: { status: "ready", text: "Session quota" },
+      promptBar: {
+        status: "ready",
+        entry: {
+          name: "[Copilot] 5h:",
+          label: "5h:",
+          percentRemaining: 18,
+          resetTimeIso: "2099-01-01T00:00:00.000Z",
+        },
+        percentDisplayMode: "remaining",
+      },
+    });
+    resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+      commandDisplay: "inline",
+      sidebar: { enabled: false },
+      compact: {
+        enabled: true,
+        homeBottom: false,
+        sessionPrompt: true,
+        hasNativeProviderQuota: false,
+        suppressedByNativeProviderQuota: false,
+      },
+      promptBar: { enabled: true },
+      announcements: { homeBottom: false },
+      homeBottom: false,
+    });
+
+    await startTui(plugin, api);
+
+    const compactRegistration = registered.find((registration) => registration.order === 90);
+    expect(compactRegistration).toBeDefined();
+
+    compactRegistration!.slots.session_prompt({}, { session_id: "session-1" });
+    await flushPromises();
+
+    // The prompt bar replaces the compact status line when enabled: the tree
+    // contains the Prompt element plus the bar hint (Chinese labels), and the
+    // compact status text is not rendered.
+    const rendered = compactRegistration!.slots.session_prompt(
+      {},
+      { session_id: "session-1" },
+    ) as any;
+    expect(rendered.props.children[0].type).toBe("Prompt");
+    const texts = collectTexts(rendered);
+    expect(texts).toContain("5h");
+    expect(texts.some((text) => text.includes("18% 剩余"))).toBe(true);
+    expect(texts.some((text) => text.includes("Session quota"))).toBe(false);
+    expect(rendered.props.children[1]).not.toBeNull();
+  });
+
+  it("keeps the compact status fallback and no residual bar when the prompt bar is disabled or unreliable", async () => {
+    const plugin = await loadTuiModule();
+    const { api, registered } = createApi();
+
+    // Disabled: compact status renders, no bar.
+    loadTuiSessionQuotaSurfaces.mockResolvedValueOnce({
+      sidebar: { status: "ready", lines: [] },
+      compact: { status: "ready", text: "Session quota" },
+      promptBar: { status: "disabled" },
+    });
+    resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+      commandDisplay: "inline",
+      sidebar: { enabled: false },
+      compact: {
+        enabled: true,
+        homeBottom: false,
+        sessionPrompt: true,
+        hasNativeProviderQuota: false,
+        suppressedByNativeProviderQuota: false,
+      },
+      promptBar: { enabled: false },
+      announcements: { homeBottom: false },
+      homeBottom: false,
+    });
+
+    await startTui(plugin, api);
+    const compactRegistration = registered.find((registration) => registration.order === 90)!;
+    compactRegistration.slots.session_prompt({}, { session_id: "session-1" });
+    await flushPromises();
+    const fallback = compactRegistration.slots.session_prompt(
+      {},
+      { session_id: "session-1" },
+    ) as any;
+    expect(collectTexts(fallback)).toContain("Session quota");
+
+    // Unreliable data (no matching entry): the bar renders nothing, the host
+    // stays neutral and the compact status does not reappear mid-flight.
+    const unreliable = createApi();
+    loadTuiSessionQuotaSurfaces.mockResolvedValueOnce({
+      sidebar: { status: "ready", lines: [] },
+      compact: { status: "ready", text: "Session quota" },
+      promptBar: { status: "ready" },
+    });
+    resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+      commandDisplay: "inline",
+      sidebar: { enabled: false },
+      compact: {
+        enabled: true,
+        homeBottom: false,
+        sessionPrompt: true,
+        hasNativeProviderQuota: false,
+        suppressedByNativeProviderQuota: false,
+      },
+      promptBar: { enabled: true },
+      announcements: { homeBottom: false },
+      homeBottom: false,
+    });
+
+    await startTui(plugin, unreliable.api);
+    const second = unreliable.registered.find((registration) => registration.order === 90)!;
+    second.slots.session_prompt({}, { session_id: "session-1" });
+    await flushPromises();
+    const neutral = second.slots.session_prompt({}, { session_id: "session-1" }) as any;
+    const neutralTexts = collectTexts(neutral);
+    expect(neutralTexts).not.toContain("Session quota");
+    expect(neutralTexts).not.toContain("18% 剩余");
+  });
+
+  it("renders the startup hint on home and keeps it out of session surfaces (Ticket 07)", async () => {
+    const plugin = await loadTuiModule();
+    const { api, registered } = createApi();
+    loadTuiStartupHint.mockResolvedValue({
+      status: "ready",
+      text: "额度：整体正常。监控 1 个 Provider。输入 /quota 查看详情。",
+    });
+
+    resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+      commandDisplay: "inline",
+      sidebar: { enabled: false },
+      compact: {
+        enabled: false,
+        homeBottom: false,
+        sessionPrompt: false,
+        hasNativeProviderQuota: false,
+        suppressedByNativeProviderQuota: false,
+      },
+      promptBar: { enabled: false },
+      startupHint: { enabled: true },
+      announcements: { homeBottom: false },
+      homeBottom: false,
+    });
+
+    await startTui(plugin, api);
+    const compactRegistration = registered.find((registration) => registration.order === 90)!;
+    const loading = compactRegistration.slots.home_bottom({}, {}) as any;
+    expect(loading).not.toBeNull();
+    await flushPromises();
+    const rendered = compactRegistration.slots.home_bottom({}, {}) as any;
+    expect(collectTexts(rendered)).toContain(
+      "额度：整体正常。监控 1 个 Provider。输入 /quota 查看详情。",
+    );
+    expect(loadTuiStartupHint).toHaveBeenCalledOnce();
+
+    // The startup hint never appears on the session prompt surface.
+    const sessionPrompt = compactRegistration.slots.session_prompt(
+      {},
+      { session_id: "session-1" },
+    ) as any;
+    expect(sessionPrompt).toBeNull();
+  });
+
+  it("renders the startup hint above home bottom content when both are enabled (Ticket 07)", async () => {
+    const plugin = await loadTuiModule();
+    const { api, registered } = createApi();
+    loadTuiStartupHint.mockResolvedValue({
+      status: "ready",
+      text: "额度：整体正常。",
+    });
+    loadTuiHomeBottomStatus.mockResolvedValueOnce({
+      status: "ready",
+      announcementText: "维护公告",
+      compact: { status: "disabled" },
+    });
+
+    resolveTuiSurfaceRegistration.mockResolvedValueOnce({
+      commandDisplay: "inline",
+      sidebar: { enabled: false },
+      compact: {
+        enabled: false,
+        homeBottom: false,
+        sessionPrompt: false,
+        hasNativeProviderQuota: false,
+        suppressedByNativeProviderQuota: false,
+      },
+      promptBar: { enabled: false },
+      startupHint: { enabled: true },
+      announcements: { homeBottom: true },
+      homeBottom: true,
+    });
+
+    await startTui(plugin, api);
+    const compactRegistration = registered.find((registration) => registration.order === 90)!;
+    compactRegistration.slots.home_bottom({}, {});
+    await flushPromises();
+    const rendered = compactRegistration.slots.home_bottom({}, {}) as any;
+    const texts = collectTexts(rendered);
+    expect(texts).toContain("额度：整体正常。");
+    expect(texts).toContain("维护公告");
   });
 });

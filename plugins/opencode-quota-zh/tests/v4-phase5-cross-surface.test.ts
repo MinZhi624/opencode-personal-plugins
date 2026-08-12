@@ -376,41 +376,40 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
       }),
     );
     const serverOutput = getPromptText(client);
-    expect(serverOutput).toMatch(/^Quota \(\/quota\)/);
+    expect(serverOutput).toMatch(/^额度（\/quota）/);
     expect(serverOutput).not.toContain("```");
     expect(serverOutput).not.toMatch(/^#{1,6} /mu);
-    expect(serverOutput).toMatch(/→ \[Team Accounting\]\n  Month quota/u);
+    expect(serverOutput).toMatch(/→ \[Team Accounting\]\n  月 额度/u);
     const serverBars = serverOutput.match(/[█░]+/gu) ?? [];
     expect(serverBars.length).toBeGreaterThan(0);
     expect(serverBars.every((bar) => Array.from(bar).length === 10)).toBe(true);
-    expect(serverOutput).toMatch(/Month quota\s+[█░]{10}\s+64% left \| 64\/100 \| reset /);
-    expect(serverOutput).toMatch(/Balance\s+\$12\.34/);
+    expect(serverOutput).toMatch(/月 额度\s+[█░]{10}\s+64% 剩余 \| 64\/100 \| \d+天后重置/);
+    expect(serverOutput).toMatch(/余额\s+\$12\.34/);
     assertFixtureContent(serverOutput);
     assertTreeSessionTokenTotals(serverOutput);
     expect(serverOutput).toContain("tree-model");
 
+    // Ticket 07: ordinary session lifecycle events never produce routine
+    // quota toasts under the v2 passive display model, and they trigger no
+    // Provider refresh either.
     await hooks.event?.({
       event: {
         type: "session.idle",
         properties: { sessionID: "phase5-session" },
       },
     });
-    expect(client.tui.showToast).toHaveBeenCalledTimes(1);
-    const toastOutput = getToastMessage(client);
-    assertFixtureContent(toastOutput);
-    assertTreeSessionTokenTotals(toastOutput);
-    expect(toastOutput).toContain("tree-model");
+    expect(client.tui.showToast).not.toHaveBeenCalled();
+    expect(client.session.prompt).toHaveBeenCalledTimes(1);
 
-    const callsAfterFirstToast = vi.mocked(globalThis.fetch).mock.calls.length;
+    const callsAfterIdle = vi.mocked(globalThis.fetch).mock.calls.length;
     await hooks.event?.({
       event: {
         type: "session.idle",
         properties: { sessionID: "phase5-session" },
       },
     });
-    expect(client.tui.showToast).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledTimes(callsAfterFirstToast);
-    assertFixtureContent(getToastMessage(client, 1));
+    expect(client.tui.showToast).not.toHaveBeenCalled();
+    expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledTimes(callsAfterIdle);
 
     const statusMetadata = vi.fn();
     expect(hooks.tool?.quota_status).toBeDefined();
@@ -540,16 +539,16 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     expect(sessionPromptCompact).toContain("64%");
     expect(sessionPromptCompact).toContain("$12.34");
     expect(sessionPromptCompact).toContain("80%");
-    expect(sessionPromptCompact).toContain("issue");
-    expect(sessionPromptCompact).toContain("tok 1.2K (300) in / 45 out");
+    expect(sessionPromptCompact).toContain("个问题");
+    expect(sessionPromptCompact).toContain("token 1.2K (300) 输入 / 45 输出");
     assertTreeSessionTokenTotals(sessionPromptCompact);
     assertPhase5CanariesRedacted(sessionPromptCompact);
 
     const homeBottom = await loadTuiHomeBottomStatus({ api: tuiApi });
     expect(homeBottom.status).toBe("ready");
     const homeCompact = homeBottom.compact.status === "ready" ? homeBottom.compact.text : "";
-    expect(homeCompact).toBe(sessionPromptCompact.replace(/ \| tok [^|]+(?= \|)/u, ""));
-    expect(homeCompact).not.toContain("tok ");
+    expect(homeCompact).toBe(sessionPromptCompact.replace(/ \| token [^|]+(?= \|)/u, ""));
+    expect(homeCompact).not.toContain("token ");
     assertPhase5CanariesRedacted(homeCompact);
 
     currentConfig = configFor("singleWindow");
@@ -575,7 +574,6 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
 
     const allOutput = JSON.stringify({
       serverOutput,
-      toastOutput,
       allWindows,
       homeBottom,
       singleWindow,
@@ -676,24 +674,21 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     );
     const serverOutput = getPromptText(client);
     expect(serverOutput).toContain("MiniMax Coding Plan");
-    expect(serverOutput).toContain("5h quota");
-    expect(serverOutput).toContain("Week quota");
+    expect(serverOutput).toContain("5h 额度");
+    expect(serverOutput).toContain("周 额度");
     expect(serverOutput).toContain("35%");
     expect(serverOutput).toContain("80%");
     expect(serverOutput).not.toContain("Invalid normalized provider result");
 
+    // Ticket 07: session idle produces no routine quota toast; the passive
+    // startup hint, sidebar and /quota are the normal surfaces.
     await hooks.event?.({
       event: {
         type: "session.idle",
         properties: { sessionID: "minimax-session" },
       },
     });
-    const toastOutput = getToastMessage(client);
-    expect(toastOutput).toContain("MiniMax Coding Plan");
-    expect(toastOutput).toContain("Five-hour");
-    expect(toastOutput).toContain("Weekly");
-    expect(toastOutput).toContain("35%");
-    expect(toastOutput).toContain("80%");
+    expect(client.tui.showToast).not.toHaveBeenCalled();
 
     const tuiApi = {
       state: {

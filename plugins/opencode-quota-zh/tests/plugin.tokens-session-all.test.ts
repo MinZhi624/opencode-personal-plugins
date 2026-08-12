@@ -94,7 +94,7 @@ async function buildTokenDialogOutput(params: {
   return result.state === "output" ? result.output : "";
 }
 
-describe("/tokens_session_all command", () => {
+describe("v1.0.1 session token command surface", () => {
   beforeEach(() => {
     seedDefaultPluginBootstrapMocks(mocks, {
       configOverrides: {
@@ -121,68 +121,57 @@ describe("/tokens_session_all command", () => {
     ]);
   });
 
-  it("registers /tokens_session_all in server plugin config", async () => {
+  it("does not register /tokens_session_all in the v1.0.1 command surface", async () => {
     const { QuotaToastPlugin } = await import("../src/plugin.js");
     const { QUOTA_DIALOG_COMMANDS } = await import("../src/lib/quota-dialog-commands.js");
-    const tokensSessionAllCommand = QUOTA_DIALOG_COMMANDS.find(
-      (command) => command.id === "tokens_session_all",
-    );
+    expect(QUOTA_DIALOG_COMMANDS.some((command) => command.id === "tokens_session_all")).toBe(false);
+
     const hooks = await QuotaToastPlugin({ client: createClient() } as any);
-    const cfg: { command?: Record<string, { template: string; description: string }> } = {};
-
+    const cfg: { command?: Record<string, unknown> } = {};
     await hooks.config?.(cfg as any);
-
-    expect(cfg.command?.tokens_session_all).toEqual({
-      template: `/${tokensSessionAllCommand?.slashName}`,
-      description: tokensSessionAllCommand?.description,
-    });
+    expect(cfg.command?.tokens_session_all).toBeUndefined();
   });
 
-  it("aggregates the current session tree for /tokens_session_all", async () => {
+  it("keeps the session tree command out of the v1.0.1 surface; /tokens_session stays session-scoped", async () => {
     const { QuotaToastPlugin } = await import("../src/plugin.js");
+    const { QUOTA_DIALOG_COMMANDS } = await import("../src/lib/quota-dialog-commands.js");
+    expect(QUOTA_DIALOG_COMMANDS.some((command) => command.id === "tokens_session_all")).toBe(false);
+    expect(QUOTA_DIALOG_COMMANDS.some((command) => command.id === "tokens_between")).toBe(false);
+
     const client = createClient();
     await QuotaToastPlugin({ client } as any);
 
     const output = await buildTokenDialogOutput({
-      command: "tokens_session_all",
+      command: "tokens_session",
       client,
       sessionID: "ses_parent",
     });
 
-    expect(mocks.resolveSessionTree).toHaveBeenCalledWith("ses_parent");
+    // The Chinese v1.0.1 runtime only aggregates the selected session; the
+    // session-tree aggregation path is not reachable from any registered command.
+    expect(mocks.resolveSessionTree).not.toHaveBeenCalled();
     expect(mocks.aggregateUsage).toHaveBeenCalledWith({
       sinceMs: undefined,
       untilMs: undefined,
-      sessionID: undefined,
-      sessionIDs: ["ses_parent", "ses_child"],
+      sessionID: "ses_parent",
+      sessionIDs: undefined,
     });
     expect(mocks.formatQuotaStatsReport).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: "Tokens used (Current Session Tree) (/tokens_session_all)",
+        title: "当前会话 token 用量（/tokens_session）",
         focusSessionID: "ses_parent",
-        reportKind: "session_tree",
+        sessionOnly: true,
+        reportKind: "session",
         tableOptions: {
           compactHeaders: true,
           modelNameMaxWidth: 20,
-        },
-        sessionTree: {
-          rootSessionID: "ses_parent",
-          nodes: [
-            { sessionID: "ses_parent", title: "Parent Session", depth: 0 },
-            {
-              sessionID: "ses_child",
-              parentID: "ses_parent",
-              title: "Child Session",
-              depth: 1,
-            },
-          ],
         },
       }),
     );
     expect(output).toContain("formatted token report");
   });
 
-  it("keeps /tokens_session scoped to the selected session only", async () => {
+  it("keeps /tokens_session scoped to the selected session only (v1.0.1 title)", async () => {
     const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient();
     await QuotaToastPlugin({ client } as any);
@@ -202,7 +191,7 @@ describe("/tokens_session_all command", () => {
     });
     expect(mocks.formatQuotaStatsReport).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: "Tokens used (Current Session) (/tokens_session)",
+        title: "当前会话 token 用量（/tokens_session）",
         focusSessionID: "ses_parent",
         sessionOnly: true,
         reportKind: "session",
@@ -212,26 +201,6 @@ describe("/tokens_session_all command", () => {
         },
       }),
     );
-  });
-
-  it("returns a dialog session lookup error for /tokens_session_all", async () => {
-    mocks.resolveSessionTree.mockRejectedValueOnce(
-      new mocks.SessionNotFoundError("ses_missing", "/tmp/opencode.db"),
-    );
-
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const client = createClient();
-    await QuotaToastPlugin({ client } as any);
-
-    const injected = await buildTokenDialogOutput({
-      command: "tokens_session_all",
-      client,
-      sessionID: "ses_missing",
-    });
-    expect(injected).toContain("Token report unavailable (/tokens_session_all)");
-    expect(injected).toContain("session_lookup_error:");
-    expect(injected).toContain("- session_id: ses_missing");
-    expect(injected).toContain("- checked_path: /tmp/opencode.db");
   });
 
   it("returns a dialog session lookup error for /tokens_session", async () => {
@@ -248,8 +217,9 @@ describe("/tokens_session_all command", () => {
       client,
       sessionID: "ses_parent",
     });
-    expect(injected).toContain("Token report unavailable (/tokens_session)");
-    expect(injected).toContain("- session_id: ses_parent");
-    expect(injected).toContain("- checked_path: /tmp/opencode.db");
+    expect(injected).toContain("Token 报告不可用（/tokens_session）");
+    expect(injected).toContain("会话查找错误：");
+    expect(injected).toContain("- 会话 ID：ses_parent");
+    expect(injected).toContain("- 检查路径：/tmp/opencode.db");
   });
 });

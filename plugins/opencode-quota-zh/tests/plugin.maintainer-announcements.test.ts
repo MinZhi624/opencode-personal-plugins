@@ -139,27 +139,6 @@ async function runSuccessfulQuestion(
   );
 }
 
-async function buildAnnouncementsDialogOutput(params: {
-  client: ReturnType<typeof createClient>;
-  arguments?: string;
-}) {
-  const { buildQuotaDialogCommandOutput } = await import("../src/lib/quota-dialog-commands.js");
-  const result = await buildQuotaDialogCommandOutput({
-    command: "quota_announcements",
-    arguments: params.arguments,
-    client: params.client,
-    roots: {
-      workspaceRoot: process.cwd(),
-      configRoot: process.cwd(),
-      fallbackDirectory: process.cwd(),
-    },
-    sessionID: "session-announcements",
-  });
-  expect(params.client.session.prompt).not.toHaveBeenCalled();
-  expect(result.state).toBe("output");
-  return result.state === "output" ? result.output : "";
-}
-
 async function flushMaintainerFallbackWork(): Promise<void> {
   for (let i = 0; i < 5; i += 1) {
     await Promise.resolve();
@@ -193,7 +172,7 @@ describe("maintainer announcement plugin integration", () => {
     await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
   });
 
-  it("registers and builds the no-arg /quota_announcements deterministic output", async () => {
+  it("keeps /quota_announcements out of the v1.0.1 command surface", async () => {
     const provider = {
       id: "copilot",
       isAvailable: vi.fn().mockResolvedValue(true),
@@ -203,63 +182,40 @@ describe("maintainer announcement plugin integration", () => {
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
     const { QUOTA_DIALOG_COMMANDS } = await import("../src/lib/quota-dialog-commands.js");
-    const announcementCommand = QUOTA_DIALOG_COMMANDS.find(
-      (command) => command.id === "quota_announcements",
-    );
+    expect(
+      QUOTA_DIALOG_COMMANDS.some((command) => command.id === "quota_announcements"),
+    ).toBe(false);
+
     const client = createClient();
     const hooks = await QuotaToastPlugin({ client } as any);
     const cfg: any = {};
 
     await hooks.config?.(cfg);
-    expect(cfg.command?.quota_announcements).toEqual({
-      template: `/${announcementCommand?.slashName}`,
-      description: announcementCommand?.description,
-    });
-
-    const output = await buildAnnouncementsDialogOutput({ client });
-
-    expect(output).toBe(
-      "Maintainer announcements\n\n- If you use Copilot, GitHub billing is moving to AI Credits.\n  https://github.blog/example",
-    );
-    expect(output).not.toContain("copilot-credits");
-    expect(output).not.toContain("source:");
-    expect(output).not.toContain("state");
-    expect(provider.isAvailable).toHaveBeenCalledOnce();
-    expect(announcementMocks.getMaintainerAnnouncementsSummary).toHaveBeenCalledWith(
-      expect.objectContaining({ enabledProviders: ["copilot"] }),
-    );
+    expect(cfg.command?.quota_announcements).toBeUndefined();
+    expect(provider.isAvailable).not.toHaveBeenCalled();
   });
 
-  it("renders none for provider-targeted announcements when the provider is unavailable", async () => {
+  it("does not expose /quota_announcements even when the provider is unavailable", async () => {
     const provider = {
       id: "copilot",
       isAvailable: vi.fn().mockResolvedValue(false),
       fetch: vi.fn(),
     };
     mocks.getProviders.mockReturnValue([provider]);
-    announcementMocks.getMaintainerAnnouncementsSummary.mockImplementation((params: any) => {
-      const enabledProviders = Array.isArray(params?.enabledProviders)
-        ? params.enabledProviders
-        : [];
-      return enabledProviders.includes("copilot")
-        ? makeAnnouncementSummary()
-        : makeAnnouncementSummary({ activeCount: 0, activeAnnouncements: [] });
-    });
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient();
-    await QuotaToastPlugin({ client } as any);
+    const hooks = await QuotaToastPlugin({ client } as any);
+    const cfg: any = {};
+    await hooks.config?.(cfg);
 
-    await expect(buildAnnouncementsDialogOutput({ client })).resolves.toBe(
-      "Maintainer announcements\n\nNo current announcements.",
-    );
-    expect(provider.isAvailable).toHaveBeenCalledOnce();
-    expect(announcementMocks.getMaintainerAnnouncementsSummary).toHaveBeenCalledWith(
-      expect.objectContaining({ enabledProviders: [] }),
-    );
+    expect(cfg.command?.quota_announcements).toBeUndefined();
+    // The v1.0.1 runtime keeps announcement data for passive surfaces (toast
+    // fallback / home bottom), but there is no announcement dialog command.
+    expect(provider.isAvailable).not.toHaveBeenCalled();
   });
 
-  it("renders none when no active announcements are available", async () => {
+  it("keeps the announcement dialog unregistered when no active announcements exist", async () => {
     announcementMocks.getMaintainerAnnouncementsSummary.mockReturnValue(
       makeAnnouncementSummary({
         activeCount: 0,
@@ -268,27 +224,27 @@ describe("maintainer announcement plugin integration", () => {
     );
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const client = createClient();
-    await QuotaToastPlugin({ client } as any);
+    const { QUOTA_DIALOG_COMMANDS } = await import("../src/lib/quota-dialog-commands.js");
+    expect(
+      QUOTA_DIALOG_COMMANDS.some((command) => command.id === "quota_announcements"),
+    ).toBe(false);
 
-    await expect(buildAnnouncementsDialogOutput({ client })).resolves.toBe(
-      "Maintainer announcements\n\nNo current announcements.",
-    );
+    const client = createClient();
+    const hooks = await QuotaToastPlugin({ client } as any);
+    const cfg: any = {};
+    await hooks.config?.(cfg);
+    expect(cfg.command?.quota_announcements).toBeUndefined();
   });
 
-  it("rejects /quota_announcements arguments", async () => {
+  it("never routes /quota_announcements arguments (command removed in v1.0.1)", async () => {
     const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient();
-    await QuotaToastPlugin({ client } as any);
+    const hooks = await QuotaToastPlugin({ client } as any);
+    const cfg: any = {};
+    await hooks.config?.(cfg);
 
-    await expect(
-      buildAnnouncementsDialogOutput({
-        client,
-        arguments: "show copilot-credits",
-      }),
-    ).resolves.toBe(
-      "Invalid arguments for /quota_announcements\n\nThis command does not accept arguments.\n\nUsage: /quota_announcements",
-    );
+    expect(cfg.command?.quota_announcements).toBeUndefined();
+    expect(Object.keys(cfg.command ?? {})).not.toContain("quota_announcements");
   });
 
   it("does not show fallback toasts when the quota TUI plugin is configured", async () => {

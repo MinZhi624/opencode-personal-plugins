@@ -1,29 +1,29 @@
 import { homedir } from "os";
 import { join } from "path";
-
+import { writeJsonAtomic } from "./atomic-json.js";
+import { sanitizeSingleLineDisplaySnippet } from "./display-sanitize.js";
 import type {
   QuotaProvider,
   QuotaProviderContext,
   QuotaProviderResult,
   QuotaToastEntry,
 } from "./entries.js";
+import { isValueEntry } from "./entries.js";
+import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 import type {
   QuotaExport,
   QuotaExportEntry,
   QuotaExportError,
   QuotaExportProvider,
+  QuotaExportRawDetail,
   QuotaExportSource,
 } from "./quota-export-types.js";
-import type { QuotaRuntimeContext } from "./quota-runtime-context.js";
-
-import { writeJsonAtomic } from "./atomic-json.js";
-import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
-import { readCachedProviderResult } from "./quota-state.js";
-import { isValueEntry } from "./entries.js";
-import { normalizeSingleWindowWindowLabel } from "./quota-render-data.js";
-import { sanitizeSingleLineDisplaySnippet } from "./display-sanitize.js";
-import { createQuotaProviderRuntimeContext } from "./quota-runtime-context.js";
 import { MAINTAINED_LOCAL_ESTIMATE_IDS } from "./quota-providers.js";
+import { normalizeSingleWindowWindowLabel } from "./quota-render-data.js";
+import type { QuotaRuntimeContext } from "./quota-runtime-context.js";
+import { createQuotaProviderRuntimeContext } from "./quota-runtime-context.js";
+import { buildUnifiedQuotaSnapshot } from "./quota-snapshot.js";
+import { readCachedProviderResult, type CachedProviderRead } from "./quota-state.js";
 
 /** Max length for an exported provider error message after sanitization. */
 const EXPORT_ERROR_MAX_LENGTH = 240;
@@ -57,6 +57,7 @@ export function createExportProviderContext(runtime: QuotaRuntimeContext): Quota
  *
  * - Empty string → XDG cache default: `$XDG_CACHE_HOME/opencode/quota-export.json`
  * - Starts with `~/` → expands `~` to `homedir()`
+ * - Starts with `~\` → expands `~` and treats backslashes as path separators
  * - Otherwise → returns as-is (caller is responsible for absolute paths)
  */
 export function resolveExportPath(configured: string): string {
@@ -65,6 +66,9 @@ export function resolveExportPath(configured: string): string {
   }
   if (configured.startsWith("~/")) {
     return join(homedir(), configured.slice(2));
+  }
+  if (configured.startsWith("~\\")) {
+    return join(homedir(), ...configured.slice(2).split(/\\+/u));
   }
   return configured;
 }
@@ -83,6 +87,13 @@ function toExportError(error: { label: string; message: string }): QuotaExportEr
   return {
     label: sanitizeSingleLineDisplaySnippet(error.label, EXPORT_ERROR_MAX_LENGTH),
     message: sanitizeSingleLineDisplaySnippet(error.message, EXPORT_ERROR_MAX_LENGTH),
+  };
+}
+
+function toExportRawDetail(detail: { key: string; value: string }): QuotaExportRawDetail {
+  return {
+    key: sanitizeSingleLineDisplaySnippet(detail.key, EXPORT_ERROR_MAX_LENGTH),
+    value: sanitizeSingleLineDisplaySnippet(detail.value, EXPORT_ERROR_MAX_LENGTH),
   };
 }
 
@@ -131,6 +142,12 @@ function buildQuotaProviderStatuses(params: {
     });
 }
 
+/** A provider paired with its cached read result (discriminated by `read.hit`). */
+type ProviderCachedRead = {
+  provider: QuotaProvider;
+  read: CachedProviderRead;
+};
+
 /**
  * Builds a `QuotaExport` document by reading cached provider results.
  *
@@ -143,7 +160,7 @@ export async function buildQuotaExport(params: {
   ttlMs: number;
   fromCache: boolean;
 }): Promise<QuotaExport> {
-  const reads = await Promise.all(
+  const reads: ProviderCachedRead[] = await Promise.all(
     params.providers.map((provider) =>
       readCachedProviderResult({
         provider,
@@ -171,6 +188,10 @@ export async function buildQuotaExport(params: {
       continue;
     }
 
+    const withRawDetails = read.result.rawDetails?.length
+      ? { rawDetails: read.result.rawDetails.map(toExportRawDetail) }
+      : {};
+
     const fetchedAt = Math.floor(read.timestamp / 1000);
 
     if (read.result.entries.length > 0 && read.result.errors.length > 0) {
@@ -180,6 +201,7 @@ export async function buildQuotaExport(params: {
         entries: read.result.entries.map(toExportEntry),
         errors: read.result.errors.map(toExportError),
         ...withSources,
+        ...withRawDetails,
       };
       fetchedAtValues.push(fetchedAt);
       continue;
@@ -194,6 +216,7 @@ export async function buildQuotaExport(params: {
           EXPORT_ERROR_MAX_LENGTH,
         ),
         ...withSources,
+        ...withRawDetails,
       };
       fetchedAtValues.push(fetchedAt);
       continue;
@@ -205,12 +228,28 @@ export async function buildQuotaExport(params: {
       fetchedAt,
       entries,
       ...withSources,
+      ...withRawDetails,
     };
     fetchedAtValues.push(fetchedAt);
   }
 
   const cacheAgeSeconds =
     fetchedAtValues.length > 0 ? Math.floor(Date.now() / 1000) - Math.min(...fetchedAtValues) : 0;
+
+  // Data integrity through the Ticket 07 unified snapshot semantics: one
+  // observation per exported provider; a cache hit with entries is the only
+  // "fresh" quality, so the exported document reports complete/partial/unknown
+  // exactly like the passive surfaces.
+  const snapshot = buildUnifiedQuotaSnapshot({
+    monitoredProviderIds: params.providers.map((provider) => provider.id),
+    availability: reads.map(({ provider, read }) => ({
+      providerId: provider.id,
+      ok: read.hit,
+    })),
+    results: reads.flatMap(({ provider, read }) =>
+      read.hit ? [{ providerId: provider.id, result: read.result }] : [],
+    ),
+  });
 
   const exportedAt = Math.floor(Date.now() / 1000);
 
@@ -219,6 +258,7 @@ export async function buildQuotaExport(params: {
     exportedAt,
     fromCache: params.fromCache,
     cacheAgeSeconds,
+    integrity: snapshot.integrity,
     providers,
   };
 }

@@ -1,6 +1,6 @@
 import { sanitizeDisplayText } from "../lib/display-sanitize.js";
-import { inspectGeminiCliCompanionPresence } from "../lib/google-gemini-cli-companion.js";
 import { hasGeminiCliQuotaRuntimeAvailable, inspectGeminiCliAuthPresence, queryGeminiCliQuota, } from "../lib/google-gemini-cli.js";
+import { inspectGeminiCliCompanionPresence } from "../lib/google-gemini-cli-companion.js";
 import { parseProviderModelRef } from "../lib/provider-model-matching.js";
 import { createGoogleAccountLabelMap, formatGoogleAccountErrors, formatGoogleAccountLabel, } from "./google-account-format.js";
 import { attemptedErrorResult, attemptedResult, notAttemptedResult, statusDetailsFromRecord, withStatusDetails, } from "./result-helpers.js";
@@ -96,4 +96,3 @@ export const googleGeminiCliProvider = {
         }), statusDetails);
     },
 };
-//# sourceMappingURL=google-gemini-cli.js.map

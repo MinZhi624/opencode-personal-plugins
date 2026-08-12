@@ -3,10 +3,10 @@
  *
  * Fetches quota data from MiniMax API for coding plan users.
  */
-import { DEFAULT_MINIMAX_AUTH_CACHE_MAX_AGE_MS, getMiniMaxAuthDiagnostics, getMiniMaxChinaAuthDiagnostics, resolveMiniMaxAuthCached, resolveMiniMaxChinaAuthCached, } from "../lib/minimax-auth.js";
-import { getMiniMaxQuotaEndpoint } from "../lib/minimax-endpoints.js";
 import { sanitizeDisplayText } from "../lib/display-sanitize.js";
 import { fetchWithTimeout } from "../lib/http.js";
+import { DEFAULT_MINIMAX_AUTH_CACHE_MAX_AGE_MS, getMiniMaxAuthDiagnostics, getMiniMaxChinaAuthDiagnostics, resolveMiniMaxAuthCached, resolveMiniMaxChinaAuthCached, } from "../lib/minimax-auth.js";
+import { getMiniMaxQuotaEndpoint } from "../lib/minimax-endpoints.js";
 import { isAnyProviderIdAvailable, isCanonicalProviderAvailable, } from "../lib/provider-availability.js";
 import { normalizeQuotaProviderId } from "../lib/provider-metadata.js";
 import { apiKeyStatusDetails, attemptedErrorResult, attemptedResult, notAttemptedResult, statusDetailsFromRecord, withStatusDetails, } from "./result-helpers.js";
@@ -317,4 +317,3 @@ export const minimaxChinaCodingPlanProvider = createMiniMaxProvider({
     resolveAuthCached: resolveMiniMaxChinaAuthCached,
     getAuthDiagnostics: getMiniMaxChinaAuthDiagnostics,
 });
-//# sourceMappingURL=minimax-coding-plan.js.map

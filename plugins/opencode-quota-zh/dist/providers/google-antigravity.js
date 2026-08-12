@@ -3,9 +3,9 @@
  */
 import { stat } from "fs/promises";
 import { sanitizeDisplayText } from "../lib/display-sanitize.js";
+import { hasAntigravityQuotaRuntimeAvailable, inspectAntigravityAccountsPresence, queryGoogleQuota, } from "../lib/google.js";
 import { inspectAntigravityCompanionPresence } from "../lib/google-antigravity-companion.js";
 import { getGoogleTokenCachePath } from "../lib/google-token-cache.js";
-import { hasAntigravityQuotaRuntimeAvailable, inspectAntigravityAccountsPresence, queryGoogleQuota, } from "../lib/google.js";
 import { parseProviderModelRef } from "../lib/provider-model-matching.js";
 import { createGoogleAccountLabelMap, formatGoogleAccountErrors, formatGoogleAccountLabel, } from "./google-account-format.js";
 import { attemptedErrorResult, attemptedResult, notAttemptedResult, statusDetailsFromRecord, withStatusDetails, } from "./result-helpers.js";
@@ -111,4 +111,3 @@ export const googleAntigravityProvider = {
         }), statusDetails);
     },
 };
-//# sourceMappingURL=google-antigravity.js.map

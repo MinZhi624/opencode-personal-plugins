@@ -1,0 +1,35 @@
+{
+  "_fixture": {
+    "runtime": "plugins/opencode-quota-zh/dist (pre-Ticket-01 Chinese v1.0.1 runtime)",
+    "surface": "session token section heading + wide/narrow/sidebar-summary rendering",
+    "clock": "2026-08-11T12:00:00.000Z"
+  },
+  "SESSION_TOKEN_SECTION_HEADING": "会话 token（输入/输出）",
+  "wide": [
+    "会话 token（输入/输出）",
+    "  claude-3-5-sonnet-20241022",
+    "    1.2K (500) 输入  200 输出",
+    "  gpt-4o-mini",
+    "    15K 输入  3.0K 输出"
+  ],
+  "narrow": [
+    "会话 token（输入/输出）",
+    "  claude-3-5-sonnet-20241022",
+    "    1.2K (500) 输入  200 输出",
+    "  gpt-4o-mini",
+    "    15K 输入  3.0K 输出"
+  ],
+  "veryNarrow": [
+    "会话 token（输入/",
+    "  claude-3-…",
+    "    1.2K (50",
+    "    200 输出",
+    "  gpt-4o-mi…",
+    "    15K 输入",
+    "    3.0K 输出"
+  ],
+  "sidebarSummary": [
+    "会话 token（输入/输出）",
+    "  16K (500) 输入  3.2K 输出"
+  ]
+}

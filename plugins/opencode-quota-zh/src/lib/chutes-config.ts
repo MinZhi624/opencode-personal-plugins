@@ -1,8 +1,8 @@
-import { getAuthPaths, readAuthFile } from "./opencode-auth.js";
 import {
   createProviderApiKeyResolver,
   getGlobalOpencodeConfigCandidatePaths,
 } from "./api-key-resolver.js";
+import { getAuthPaths, readAuthFile } from "./opencode-auth.js";
 
 export interface ChutesApiKeyResult {
   key: string;

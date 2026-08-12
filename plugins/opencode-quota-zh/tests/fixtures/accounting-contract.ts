@@ -113,6 +113,7 @@ export const accountingContractExport = {
   exportedAt: 1_783_728_000,
   fromCache: true,
   cacheAgeSeconds: 60,
+  integrity: "complete",
   providers: {
     fixture: {
       status: "ok",

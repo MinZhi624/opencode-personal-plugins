@@ -1,10 +1,9 @@
+import type { InvalidAwareAuthDiagnostics, InvalidAwareAuthResult } from "./api-key-resolver.js";
 import {
   createProviderApiKeyResolver,
   getGlobalOpencodeConfigCandidatePaths,
 } from "./api-key-resolver.js";
 import { getAuthPaths, readAuthFileCached } from "./opencode-auth.js";
-
-import type { InvalidAwareAuthDiagnostics, InvalidAwareAuthResult } from "./api-key-resolver.js";
 import type { AuthData } from "./types.js";
 
 export const DEFAULT_ZAI_AUTH_CACHE_MAX_AGE_MS = 5_000;

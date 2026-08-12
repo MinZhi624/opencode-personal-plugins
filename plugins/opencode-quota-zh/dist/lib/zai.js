@@ -11,4 +11,3 @@ const ZAI_QUOTA = {
 export function queryZaiQuota(options = {}) {
     return queryGlmCodingPlanQuota(ZAI_QUOTA, options);
 }
-//# sourceMappingURL=zai.js.map

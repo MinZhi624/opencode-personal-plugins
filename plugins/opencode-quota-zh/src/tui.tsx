@@ -9,33 +9,36 @@ import type {
 import { Show, createEffect, createSignal, onCleanup } from "solid-js";
 
 import type { SessionTokenError } from "./lib/quota-status.js";
+import { formatDisplayedPercentLabel, formatResetCountdown } from "./lib/format-utils.js";
 import { createTuiRefreshLifecycle } from "./lib/tui-refresh-lifecycle.js";
+import { extractSingleWindowWindowLabel } from "./lib/quota-entry-display.js";
 import type { TuiCommandDisplay } from "./lib/types.js";
 import type {
   CompactStatusState,
   HomeBottomState,
+  PromptBarState,
   SidebarPanelState,
+  StartupHintState,
 } from "./lib/tui-panel-state.js";
 
 import {
   getCompactStatusText,
   getHomeBottomAnnouncementText,
-  getSidebarPanelLines,
-  getSidebarPanelLinesExpanded,
   shouldRenderCompactStatus,
   shouldRenderHomeBottom,
-  shouldRenderSidebarPanel,
 } from "./lib/tui-panel-state.js";
-import { getSidebarBodyLineColor } from "./lib/tui-line-style.js";
 import {
   createTuiQuotaClient,
   getTuiRuntimeRootHints,
   getTuiSessionModelMeta,
   loadTuiHomeBottomStatus,
   loadTuiSessionQuotaSurfaces,
+  loadTuiStartupHint,
   normalizeTuiSessionID,
   resolveTuiSurfaceRegistration,
   writeTuiQuotaExportIfEnabled,
+  type TuiInitialRuntimeSeed,
+  type TuiSurfaceRegistration,
 } from "./lib/tui-runtime.js";
 import { disposeQuotaTelemetryOwner } from "./lib/quota-telemetry.js";
 import {
@@ -44,11 +47,12 @@ import {
   type QuotaDialogCommandId,
   type QuotaDialogCommandSpec,
 } from "./lib/quota-dialog-commands.js";
+import { ChineseSidebarContentView } from "./quota-zh-sidebar.tsx";
 
-const id = "@slkiser/opencode-quota";
+const id = "@local/opencode-quota-zh";
 // Place Quota near the top so variable-height built-in sections
 // (MCP/LSP/Todo/Files) do not push it below the visible fold.
-const SIDEBAR_ORDER = 150;
+const SIDEBAR_ORDER = 40;
 const COMPACT_ORDER = 90;
 const REFRESH_INTERVAL_MS = 60_000;
 const EVENT_REFRESH_DELAYS_MS = [150, 600] as const;
@@ -57,6 +61,102 @@ const MOUNT_RECOVERY_DELAYS_MS = [500, 1_500, 4_000] as const;
 type TuiPromptRefCallback = (ref: TuiPromptRef | undefined) => void;
 type DialogSize = "medium" | "large" | "xlarge";
 
+// Upstream v4.6.0: initial-load reuse. resolveTuiSurfaceRegistration captures
+// the resolved runtime context once; the first session/home loads reuse it so
+// the first quota frame appears without re-reading configuration, and each
+// seed is consumed at most once per surface.
+//
+// Chinese fork: the sidebar_content slot hosts its own ChineseSidebarContentView
+// (collectQuotaRenderData path) instead of the upstream session resource, so a
+// dedicated sidebar ticket lets the Chinese sidebar and the session resource
+// each reuse the seed exactly once on their first load.
+type TuiInitialLoadCoordinator = {
+  takeInitialSession: () => TuiInitialRuntimeSeed | undefined;
+  takeSidebarSession: () => TuiInitialRuntimeSeed | undefined;
+  takeInitialHome: () => TuiInitialRuntimeSeed | undefined;
+  takeStartupHintHome: () => TuiInitialRuntimeSeed | undefined;
+};
+
+type TuiRegistrationState =
+  | { status: "pending" }
+  | {
+      status: "active";
+      registration: TuiSurfaceRegistration;
+      initialLoads?: TuiInitialLoadCoordinator;
+    }
+  | { status: "disposed" };
+
+type TuiRegistrationGate = {
+  current: () => TuiRegistrationState;
+  activate: (
+    registration: TuiSurfaceRegistration,
+    initialLoads?: TuiInitialLoadCoordinator,
+  ) => void;
+  dispose: () => void;
+};
+
+const FALLBACK_SURFACE_REGISTRATION: TuiSurfaceRegistration = {
+  commandDisplay: "inline",
+  sidebar: { enabled: true },
+  compact: {
+    enabled: false,
+    homeBottom: false,
+    sessionPrompt: false,
+    hasNativeProviderQuota: false,
+    suppressedByNativeProviderQuota: false,
+  },
+  promptBar: { enabled: false },
+  startupHint: { enabled: false },
+  announcements: { homeBottom: false },
+  homeBottom: false,
+};
+
+function createTuiInitialLoadCoordinator(seed: TuiInitialRuntimeSeed): TuiInitialLoadCoordinator {
+  let sessionAvailable = true;
+  let sidebarAvailable = true;
+  let homeAvailable = true;
+  let startupHintHomeAvailable = true;
+
+  return {
+    takeInitialSession() {
+      if (!sessionAvailable) return undefined;
+      sessionAvailable = false;
+      return seed;
+    },
+    takeSidebarSession() {
+      if (!sidebarAvailable) return undefined;
+      sidebarAvailable = false;
+      return seed;
+    },
+    takeInitialHome() {
+      if (!homeAvailable) return undefined;
+      homeAvailable = false;
+      return seed;
+    },
+    takeStartupHintHome() {
+      if (!startupHintHomeAvailable) return undefined;
+      startupHintHomeAvailable = false;
+      return seed;
+    },
+  };
+}
+
+function createTuiRegistrationGate(): TuiRegistrationGate {
+  const [current, setCurrent] = createSignal<TuiRegistrationState>({ status: "pending" });
+
+  return {
+    current,
+    activate(registration, initialLoads) {
+      if (current().status !== "pending") return;
+      setCurrent({ status: "active", registration, initialLoads });
+    },
+    dispose() {
+      if (current().status === "disposed") return;
+      setCurrent({ status: "disposed" });
+    },
+  };
+}
+
 type QuotaDialogCommandState = {
   lastSessionTokenError?: SessionTokenError;
 };
@@ -64,6 +164,7 @@ type SessionQuotaResource = {
   sessionID: string;
   sidebar: () => SidebarPanelState;
   compact: () => CompactStatusState;
+  promptBar: () => PromptBarState;
   retain: () => SessionQuotaResource;
   release: () => void;
 };
@@ -86,18 +187,33 @@ function getSessionResourceMap(api: TuiPluginApi): Map<string, SessionQuotaResou
   return next;
 }
 
-function createSessionQuotaResource(api: TuiPluginApi, sessionID: string): SessionQuotaResource {
+function createSessionQuotaResource(
+  api: TuiPluginApi,
+  sessionID: string,
+  initialLoads?: TuiInitialLoadCoordinator,
+): SessionQuotaResource {
   const [sidebar, setSidebar] = createSignal<SidebarPanelState>({
     status: "loading",
     lines: [],
   });
   const [compact, setCompact] = createSignal<CompactStatusState>({ status: "loading" });
+  const [promptBar, setPromptBar] = createSignal<PromptBarState>({ status: "loading" });
 
+  let loadOrdinal = 0;
   const lifecycle = createTuiRefreshLifecycle({
-    load: () => loadTuiSessionQuotaSurfaces({ api, sessionID }),
+    load: () => {
+      const initialRuntimeSeed = loadOrdinal === 0 ? initialLoads?.takeInitialSession() : undefined;
+      loadOrdinal += 1;
+      return loadTuiSessionQuotaSurfaces({
+        api,
+        sessionID,
+        ...(initialRuntimeSeed ? { initialRuntimeSeed } : {}),
+      });
+    },
     apply: (next) => {
       setSidebar(next.sidebar);
       setCompact(next.compact);
+      setPromptBar(next.promptBar ?? { status: "loading" });
     },
     intervalMs: REFRESH_INTERVAL_MS,
     eventRefreshDelaysMs: EVENT_REFRESH_DELAYS_MS,
@@ -135,6 +251,7 @@ function createSessionQuotaResource(api: TuiPluginApi, sessionID: string): Sessi
     sessionID,
     sidebar,
     compact,
+    promptBar,
     retain: () => {
       lifecycle.retain();
       return resource;
@@ -145,12 +262,16 @@ function createSessionQuotaResource(api: TuiPluginApi, sessionID: string): Sessi
   return resource;
 }
 
-function acquireSessionQuotaResource(api: TuiPluginApi, sessionID: string): SessionQuotaResource {
+function acquireSessionQuotaResource(
+  api: TuiPluginApi,
+  sessionID: string,
+  initialLoads?: TuiInitialLoadCoordinator,
+): SessionQuotaResource {
   const resources = getSessionResourceMap(api);
   const existing = resources.get(sessionID);
   if (existing) return existing.retain();
 
-  const next = createSessionQuotaResource(api, sessionID).retain();
+  const next = createSessionQuotaResource(api, sessionID, initialLoads).retain();
   resources.set(sessionID, next);
   return next;
 }
@@ -158,14 +279,23 @@ function acquireSessionQuotaResource(api: TuiPluginApi, sessionID: string): Sess
 function createHomeBottomResource(
   api: TuiPluginApi,
   compactHomeBottomEnabled: boolean,
+  initialLoads?: TuiInitialLoadCoordinator,
 ): HomeBottomResource {
   const [bottom, setBottom] = createSignal<HomeBottomState>({
     status: "loading",
     compact: compactHomeBottomEnabled ? { status: "loading" } : { status: "disabled" },
   });
 
+  let loadOrdinal = 0;
   const lifecycle = createTuiRefreshLifecycle({
-    load: () => loadTuiHomeBottomStatus({ api }),
+    load: () => {
+      const initialRuntimeSeed = loadOrdinal === 0 ? initialLoads?.takeInitialHome() : undefined;
+      loadOrdinal += 1;
+      return loadTuiHomeBottomStatus({
+        api,
+        ...(initialRuntimeSeed ? { initialRuntimeSeed } : {}),
+      });
+    },
     apply: setBottom,
     afterApply: () => {
       // Fire-and-forget: write export file if enabled. A failed write must
@@ -202,11 +332,12 @@ function createHomeBottomResource(
 function acquireHomeBottomResource(
   api: TuiPluginApi,
   compactHomeBottomEnabled: boolean,
+  initialLoads?: TuiInitialLoadCoordinator,
 ): HomeBottomResource {
   const existing = homeResources.get(api);
   if (existing) return existing.retain();
 
-  const next = createHomeBottomResource(api, compactHomeBottomEnabled).retain();
+  const next = createHomeBottomResource(api, compactHomeBottomEnabled, initialLoads).retain();
   homeResources.set(api, next);
   return next;
 }
@@ -214,8 +345,9 @@ function acquireHomeBottomResource(
 function useSessionQuotaResource(
   api: TuiPluginApi,
   sessionID: () => string,
+  initialLoads?: TuiInitialLoadCoordinator,
 ): () => SessionQuotaResource {
-  let current = acquireSessionQuotaResource(api, sessionID());
+  let current = acquireSessionQuotaResource(api, sessionID(), initialLoads);
   const [resource, setResource] = createSignal(current);
 
   createEffect(() => {
@@ -223,7 +355,7 @@ function useSessionQuotaResource(
     if (current.sessionID === nextSessionID) return;
 
     const previous = current;
-    current = acquireSessionQuotaResource(api, nextSessionID);
+    current = acquireSessionQuotaResource(api, nextSessionID, initialLoads);
     setResource(current);
     previous.release();
   });
@@ -235,53 +367,13 @@ function useSessionQuotaResource(
   return resource;
 }
 
-function SidebarContentView(props: { api: TuiPluginApi; sessionID: string }) {
-  const resource = useSessionQuotaResource(props.api, () => props.sessionID);
-  const panel = () => resource().sidebar();
-
-  const lines = () => getSidebarPanelLines(panel());
-  const hasDetailLines = () => Boolean(panel().linesExpanded?.length);
-
-  const [collapsed, setCollapsed] = createSignal(
-    props.api.kv?.get("quota-sidebar-collapsed", true) ?? true,
-  );
-
-  const toggleCollapsed = () => {
-    if (!hasDetailLines()) return;
-
-    const next = !collapsed();
-    setCollapsed(next);
-    props.api.kv?.set("quota-sidebar-collapsed", next);
-  };
-
-  const displayLines = () => {
-    if (!hasDetailLines()) return lines();
-    return collapsed() ? lines() : getSidebarPanelLinesExpanded(panel());
-  };
-
-  const toggleIcon = () => (collapsed() ? "▶" : "▼");
-  const providerCount = () => panel().providerCount ?? 0;
-
+function SidebarContentView(props: {
+  api: TuiPluginApi;
+  sessionID: string;
+  initialLoads?: TuiInitialLoadCoordinator;
+}) {
   return (
-    <Show when={shouldRenderSidebarPanel(panel())}>
-      <box gap={0}>
-        <box flexDirection="row">
-          <text fg={props.api.theme.current.text} onMouseDown={toggleCollapsed}>
-            <b>{hasDetailLines() ? `${toggleIcon()} Quota` : "Quota"}</b>
-          </text>
-          <Show when={collapsed() && providerCount() > 0}>
-            <text fg={props.api.theme.current.textMuted}> ({providerCount()} providers)</text>
-          </Show>
-        </box>
-        <box gap={0}>
-          {displayLines().map((line) => (
-            <text fg={getSidebarBodyLineColor(line, props.api.theme.current)} wrapMode="none">
-              {line || " "}
-            </text>
-          ))}
-        </box>
-      </box>
-    </Show>
+    <ChineseSidebarContentView api={props.api} sessionID={props.sessionID} initialLoads={props.initialLoads} />
   );
 }
 
@@ -324,8 +416,9 @@ function SessionPromptWithCompactStatus(props: {
   disabled?: boolean;
   onSubmit?: () => void;
   promptRef?: TuiPromptRefCallback;
+  initialLoads?: TuiInitialLoadCoordinator;
 }) {
-  const resource = useSessionQuotaResource(props.api, () => props.sessionID);
+  const resource = useSessionQuotaResource(props.api, () => props.sessionID, props.initialLoads);
   const panel = () => resource().compact();
 
   return (
@@ -342,8 +435,16 @@ function SessionPromptWithCompactStatus(props: {
   );
 }
 
-function HomeBottomView(props: { api: TuiPluginApi; compactHomeBottomEnabled: boolean }) {
-  const resource = acquireHomeBottomResource(props.api, props.compactHomeBottomEnabled);
+function HomeBottomView(props: {
+  api: TuiPluginApi;
+  compactHomeBottomEnabled: boolean;
+  initialLoads?: TuiInitialLoadCoordinator;
+}) {
+  const resource = acquireHomeBottomResource(
+    props.api,
+    props.compactHomeBottomEnabled,
+    props.initialLoads,
+  );
   onCleanup(() => resource.release());
 
   const announcement = () => getHomeBottomAnnouncementText(resource.bottom());
@@ -369,6 +470,256 @@ function HomeBottomView(props: { api: TuiPluginApi; compactHomeBottomEnabled: bo
   );
 }
 
+// Ticket 07: startup hint resource. The hint is the first real consumer of the
+// unified quota snapshot projection seam; it renders once on the OpenCode home
+// page as a quiet single line and refreshes with the normal home lifecycle.
+const startupHintResources = new WeakMap<TuiPluginApi, StartupHintResource>();
+
+type StartupHintResource = {
+  hint: () => StartupHintState;
+  retain: () => StartupHintResource;
+  release: () => void;
+};
+
+function createStartupHintResource(
+  api: TuiPluginApi,
+  initialLoads?: TuiInitialLoadCoordinator,
+): StartupHintResource {
+  const [hint, setHint] = createSignal<StartupHintState>({ status: "loading" });
+
+  let loadOrdinal = 0;
+  const lifecycle = createTuiRefreshLifecycle({
+    load: () => {
+      const initialRuntimeSeed =
+        loadOrdinal === 0 ? initialLoads?.takeStartupHintHome() : undefined;
+      loadOrdinal += 1;
+      return loadTuiStartupHint({
+        api,
+        ...(initialRuntimeSeed ? { initialRuntimeSeed } : {}),
+      });
+    },
+    apply: setHint,
+    intervalMs: REFRESH_INTERVAL_MS,
+    eventRefreshDelaysMs: EVENT_REFRESH_DELAYS_MS,
+    subscribe: (scheduleRefresh) => [
+      api.event.on("session.updated", scheduleRefresh),
+      api.event.on("message.updated", scheduleRefresh),
+      api.event.on("message.removed", scheduleRefresh),
+      api.event.on("tui.session.select", scheduleRefresh),
+    ],
+    onDispose: () => {
+      startupHintResources.delete(api);
+    },
+  });
+
+  const resource: StartupHintResource = {
+    hint,
+    retain: () => {
+      lifecycle.retain();
+      return resource;
+    },
+    release: lifecycle.release,
+  };
+
+  return resource;
+}
+
+function acquireStartupHintResource(
+  api: TuiPluginApi,
+  initialLoads?: TuiInitialLoadCoordinator,
+): StartupHintResource {
+  const existing = startupHintResources.get(api);
+  if (existing) return existing.retain();
+
+  const next = createStartupHintResource(api, initialLoads).retain();
+  startupHintResources.set(api, next);
+  return next;
+}
+
+function StartupHintView(props: { api: TuiPluginApi; initialLoads?: TuiInitialLoadCoordinator }) {
+  const resource = acquireStartupHintResource(props.api, props.initialLoads);
+  onCleanup(() => resource.release());
+
+  const text = () => {
+    const hint = resource.hint();
+    return hint.status === "ready" ? hint.text : "";
+  };
+
+  return (
+    <Show when={text()}>
+      <box flexDirection="row" justifyContent="center">
+        <text fg={props.api.theme.current.textMuted} wrapMode="none">
+          {text()}
+        </text>
+      </box>
+    </Show>
+  );
+}
+
+// Upstream v4.6.1: opt-in TUI prompt quota bar. The bar renders under the
+// prompt when quotaToast.tuiPromptBar.enabled is true (default false); the
+// existing compact status remains the session_prompt fallback. Data selection
+// prefers a five-hour window and falls back to the lowest remaining percent.
+const PROMPT_BAR_WIDTH = 12;
+
+function shouldRenderPromptBar(
+  bar: PromptBarState,
+): bar is Extract<PromptBarState, { status: "ready" }> {
+  return bar.status === "ready" && Boolean(bar.entry);
+}
+
+function useSessionRunning(api: TuiPluginApi, sessionID: () => string): () => boolean {
+  const [running, setRunning] = createSignal(false);
+  createEffect(() => {
+    const id = sessionID();
+    if (!id) {
+      setRunning(false);
+      return;
+    }
+    const update = () => {
+      try {
+        const sessionState = api.state.session as {
+          status?: (sessionID: string) => { type?: string } | undefined;
+        };
+        const status = sessionState.status?.(id);
+        setRunning(status?.type === "busy" || status?.type === "retry");
+      } catch {
+        setRunning(false);
+      }
+    };
+    update();
+    const disposers = [
+      api.event.on("session.status", (event) => {
+        if (event.properties?.sessionID === id) {
+          update();
+        }
+      }),
+      api.event.on("session.updated", (event) => {
+        if (event.properties?.info?.id === id) {
+          update();
+        }
+      }),
+    ];
+    onCleanup(() => {
+      for (const dispose of disposers) {
+        if (typeof dispose === "function") {
+          dispose();
+        }
+      }
+    });
+  });
+  return running;
+}
+
+function buildPromptBarParts(params: {
+  bar: () => PromptBarState;
+  running: () => boolean;
+  phase: () => number;
+}): { label: string; barText: string; meta: string } | undefined {
+  const bar = params.bar();
+  if (!shouldRenderPromptBar(bar)) return undefined;
+  const entry = bar.entry;
+  if (!entry) return undefined;
+  const windowLabel =
+    extractSingleWindowWindowLabel(entry.label ?? "") ??
+    extractSingleWindowWindowLabel(entry.name ?? "") ??
+    "额度";
+  const percent = formatDisplayedPercentLabel(
+    entry.percentRemaining ?? 0,
+    bar.percentDisplayMode ?? "remaining",
+  );
+  const reset = entry.resetTimeIso
+    ? formatResetCountdown(entry.resetTimeIso, {
+        compactRounded: true,
+        decimals: bar.resetTimeDecimals,
+      })
+    : "";
+  const p = Math.max(0, Math.min(100, Math.round(entry.percentRemaining ?? 0)));
+  const filled = Math.round((p / 100) * PROMPT_BAR_WIDTH);
+  const empty = PROMPT_BAR_WIDTH - filled;
+  let barText = "█".repeat(filled) + "░".repeat(empty);
+  if (params.running() && filled > 0) {
+    const cells = Array(filled).fill("▓");
+    const center = params.phase() % filled;
+    const gradient = ["▒", "▓", "█", "▓", "▒"];
+    for (let offset = -2; offset <= 2; offset++) {
+      const position = (center + offset + filled) % filled;
+      cells[position] = gradient[offset + 2];
+    }
+    barText = cells.join("") + "░".repeat(empty);
+  }
+  return {
+    label: windowLabel,
+    barText,
+    meta: [percent.replace(/\s+left$/u, ""), reset].filter(Boolean).join(" | "),
+  };
+}
+
+function PromptQuotaHint(props: {
+  api: TuiPluginApi;
+  bar: () => PromptBarState;
+  running: () => boolean;
+  phase: () => number;
+}) {
+  const parts = () => buildPromptBarParts(props);
+  const barColor = () => props.api.theme.current.textMuted;
+  const label = () => parts()?.label ?? "";
+  const bar = () => parts()?.barText ?? "";
+  const meta = () => parts()?.meta ?? "";
+
+  return (
+    <Show when={parts()}>
+      <box flexDirection="row" justifyContent="flex-end" gap={1}>
+        <text fg={props.api.theme.current.textMuted} wrapMode="none">
+          {label()}
+        </text>
+        <text fg={barColor()} wrapMode="none">
+          {bar()}
+        </text>
+        <text fg={props.api.theme.current.textMuted} wrapMode="none">
+          {meta()}
+        </text>
+      </box>
+    </Show>
+  );
+}
+
+function SessionQuotaPromptBar(props: {
+  api: TuiPluginApi;
+  sessionID: string;
+  initialLoads?: TuiInitialLoadCoordinator;
+  visible?: boolean;
+  disabled?: boolean;
+  onSubmit?: () => void;
+  promptRef?: TuiPromptRefCallback;
+}) {
+  const resource = useSessionQuotaResource(props.api, () => props.sessionID, props.initialLoads);
+  const promptBar = () => resource().promptBar();
+  const running = useSessionRunning(props.api, () => props.sessionID);
+  const [phase, setPhase] = createSignal(0);
+  createEffect(() => {
+    if (!running() || !shouldRenderPromptBar(promptBar())) {
+      setPhase(0);
+      return;
+    }
+    const interval = setInterval(() => setPhase((p) => p + 1), 160);
+    onCleanup(() => clearInterval(interval));
+  });
+
+  return (
+    <box gap={0}>
+      <props.api.ui.Prompt
+        sessionID={props.sessionID}
+        visible={props.visible}
+        disabled={props.disabled}
+        onSubmit={props.onSubmit}
+        ref={props.promptRef}
+      />
+      <PromptQuotaHint api={props.api} bar={promptBar} running={running} phase={phase} />
+    </box>
+  );
+}
+
 function getActiveTuiSessionID(api: TuiPluginApi): string | undefined {
   if (api.route.current.name !== "session") return undefined;
   return normalizeTuiSessionID(api.route.current.params?.sessionID);
@@ -390,7 +741,7 @@ function CommandLoadingDialog(props: { api: TuiPluginApi; title: string }) {
       <text fg={props.api.theme.current.text}>
         <b>{props.title}</b>
       </text>
-      <text fg={props.api.theme.current.textMuted}>Loading deterministic local output…</text>
+      <text fg={props.api.theme.current.textMuted}>正在加载本地统计...</text>
     </box>
   );
 }
@@ -412,7 +763,7 @@ function CommandOutputDialog(props: { api: TuiPluginApi; title: string; output: 
           ))}
         </box>
       </scrollbox>
-      <text fg={props.api.theme.current.textMuted}>esc closes</text>
+      <text fg={props.api.theme.current.textMuted}>按 Esc 关闭</text>
     </box>
   );
 }
@@ -424,11 +775,11 @@ function CommandErrorDialog(props: { api: TuiPluginApi; title: string; error: un
       <text fg={props.api.theme.current.text}>
         <b>{props.title}</b>
       </text>
-      <text fg={props.api.theme.current.text}>OpenCode Quota command failed.</text>
+      <text fg={props.api.theme.current.text}>额度命令执行失败。</text>
       <text fg={props.api.theme.current.textMuted} wrapMode="none">
-        {message || "Unknown error"}
+        {message || "未知错误"}
       </text>
-      <text fg={props.api.theme.current.textMuted}>esc closes</text>
+      <text fg={props.api.theme.current.textMuted}>按 Esc 关闭</text>
     </box>
   );
 }
@@ -441,21 +792,21 @@ function getCommandPromptCopy(spec: QuotaDialogCommandSpec): {
   switch (spec.id) {
     case "tokens_between":
       return {
-        title: "OpenCode Quota Token Range",
+        title: "OpenCode 额度 token 日期范围",
         placeholder: "YYYY-MM-DD YYYY-MM-DD",
-        description: "Enter start and end dates, for example: 2026-01-01 2026-01-15",
+        description: "输入开始和结束日期，例如：2026-01-01 2026-01-15",
       };
     case "quota_status":
       return {
-        title: "OpenCode Quota Status Options",
-        placeholder: 'Optional JSON, e.g. {"refreshGoogleTokens":true}',
-        description: "Leave blank for normal diagnostics, or enter one JSON options object.",
+        title: "OpenCode 额度状态选项",
+        placeholder: '可选 JSON，例如 {"refreshGoogleTokens":true}',
+        description: "留空执行普通诊断，或输入一个 JSON 选项对象。",
       };
     default:
       return {
         title: spec.title,
-        placeholder: "Optional arguments",
-        description: "Leave blank to run with no arguments.",
+        placeholder: "可选参数",
+        description: "留空即可无参数执行。",
       };
   }
 }
@@ -562,12 +913,15 @@ async function runQuotaDialogCommandAsync(
     ));
     api.ui.toast({
       variant: "error",
-      message: "OpenCode Quota command failed",
+        message: "额度命令执行失败",
     });
   }
 }
 
-function registerQuotaDialogCommands(api: TuiPluginApi, commandDisplay: TuiCommandDisplay): void {
+// Upstream v4.6.0: commands are registered once; each run consults the
+// registration gate so no command executes before the surface registration
+// settles or after disposal.
+function registerQuotaDialogCommands(api: TuiPluginApi, gate: TuiRegistrationGate): void {
   const commandState: QuotaDialogCommandState = {};
   const dispose = api.keymap.registerLayer({
     commands: QUOTA_DIALOG_COMMANDS.map((spec) => ({
@@ -575,10 +929,18 @@ function registerQuotaDialogCommands(api: TuiPluginApi, commandDisplay: TuiComma
       name: `opencode-quota.${spec.id}`,
       title: spec.title,
       desc: spec.description,
-      category: "OpenCode Quota",
+       category: "OpenCode 额度",
       slashName: spec.slashName,
       run(input?: unknown) {
-        void runQuotaDialogCommandAsync(api, spec.id, commandDisplay, input, commandState);
+        const state = gate.current();
+        if (state.status !== "active") return;
+        void runQuotaDialogCommandAsync(
+          api,
+          spec.id,
+          state.registration.commandDisplay,
+          input,
+          commandState,
+        );
       },
     })),
     bindings: [],
@@ -587,76 +949,152 @@ function registerQuotaDialogCommands(api: TuiPluginApi, commandDisplay: TuiComma
   api.lifecycle.onDispose(dispose);
 }
 
-function registerSidebarSlots(api: TuiPluginApi): void {
+// Upstream v4.6.0: slots are registered up front (so OpenCode never sees a
+// missing surface), but each slot renders nothing until the registration gate
+// turns active with the matching surface enabled. The Chinese sidebar content
+// keeps its own collectQuotaRenderData view; session_prompt/home_bottom reuse
+// the shared session/home resources with the initial-load coordinator.
+function registerStableTuiSlots(api: TuiPluginApi, current: () => TuiRegistrationState): void {
   api.slots.register({
     order: SIDEBAR_ORDER,
     slots: {
       sidebar_content(_ctx, props: { session_id: string }) {
-        return <SidebarContentView api={api} sessionID={props.session_id} />;
+        const state = current();
+        if (state.status !== "active" || !state.registration.sidebar.enabled) return null;
+        return (
+          <SidebarContentView
+            api={api}
+            sessionID={props.session_id}
+            initialLoads={state.initialLoads}
+          />
+        );
+      },
+    },
+  });
+
+  api.slots.register({
+    order: COMPACT_ORDER,
+    slots: {
+      session_prompt(
+        _ctx,
+        props: {
+          session_id: string;
+          visible?: boolean;
+          disabled?: boolean;
+          on_submit?: () => void;
+          ref?: TuiPromptRefCallback;
+        },
+      ) {
+        const state = current();
+        if (state.status !== "active") return null;
+        if (state.registration.promptBar.enabled) {
+          return (
+            <SessionQuotaPromptBar
+              api={api}
+              sessionID={props.session_id}
+              initialLoads={state.initialLoads}
+              visible={props.visible}
+              disabled={props.disabled}
+              onSubmit={props.on_submit}
+              promptRef={props.ref}
+            />
+          );
+        }
+        if (!state.registration.compact.sessionPrompt) return null;
+        return (
+          <SessionPromptWithCompactStatus
+            api={api}
+            sessionID={props.session_id}
+            initialLoads={state.initialLoads}
+            visible={props.visible}
+            disabled={props.disabled}
+            onSubmit={props.on_submit}
+            promptRef={props.ref}
+          />
+        );
+      },
+      home_bottom() {
+        const state = current();
+        if (state.status !== "active") return null;
+        const startupHintEnabled = state.registration.startupHint?.enabled === true;
+        const homeBottomEnabled = state.registration.homeBottom === true;
+        if (!startupHintEnabled && !homeBottomEnabled) return null;
+        if (!startupHintEnabled) {
+          return (
+            <HomeBottomView
+              api={api}
+              compactHomeBottomEnabled={state.registration.compact.homeBottom}
+              initialLoads={state.initialLoads}
+            />
+          );
+        }
+        if (!homeBottomEnabled) {
+          return <StartupHintView api={api} initialLoads={state.initialLoads} />;
+        }
+        // Conditional children (ternaries) keep component mounting explicit;
+        // StartupHintView/HomeBottomView manage their own refresh lifecycles.
+        return (
+          <box gap={0}>
+            {<StartupHintView api={api} initialLoads={state.initialLoads} />}
+            {
+              <HomeBottomView
+                api={api}
+                compactHomeBottomEnabled={state.registration.compact.homeBottom}
+                initialLoads={state.initialLoads}
+              />
+            }
+          </box>
+        );
       },
     },
   });
 }
 
+// Upstream v4.5.1 + v4.6.0: configuration checks may be slow, so TUI startup
+// must not block on them. The gate starts pending, the stable slots are
+// registered immediately (they render nothing until active), and commands
+// execute only after the gate activates. The resolved runtime context is
+// captured once and handed to the first session/home loads so the first quota
+// frame appears without re-reading configuration.
+async function initializeTuiRegistration(
+  api: TuiPluginApi,
+  gate: TuiRegistrationGate,
+): Promise<void> {
+  let initialRuntimeSeed: TuiInitialRuntimeSeed | undefined;
+  let surfaceRegistration: Promise<{
+    registration: TuiSurfaceRegistration;
+    initialRuntimeSeed?: TuiInitialRuntimeSeed;
+  }>;
+  try {
+    surfaceRegistration = resolveTuiSurfaceRegistration(api, {
+      captureInitialRuntime(seed) {
+        initialRuntimeSeed = seed;
+      },
+    })
+      .then((registration) => ({ registration, initialRuntimeSeed }))
+      .catch(() => ({ registration: FALLBACK_SURFACE_REGISTRATION }));
+  } catch {
+    surfaceRegistration = Promise.resolve({ registration: FALLBACK_SURFACE_REGISTRATION });
+  }
+
+  registerQuotaDialogCommands(api, gate);
+  void surfaceRegistration.then(({ registration, initialRuntimeSeed: seed }) =>
+    gate.activate(
+      registration,
+      seed ? createTuiInitialLoadCoordinator(seed) : undefined,
+    ),
+  );
+  registerStableTuiSlots(api, gate.current);
+}
+
 const tui: TuiPlugin = async (api) => {
+  const registrationGate = createTuiRegistrationGate();
   api.lifecycle.onDispose(() => {
+    registrationGate.dispose();
     disposeQuotaTelemetryOwner(createTuiQuotaClient(api));
   });
 
-  let surfaceRegistration;
-  try {
-    surfaceRegistration = await resolveTuiSurfaceRegistration(api);
-  } catch {
-    registerQuotaDialogCommands(api, "inline");
-    registerSidebarSlots(api);
-    return;
-  }
-
-  registerQuotaDialogCommands(api, surfaceRegistration.commandDisplay);
-
-  if (surfaceRegistration.sidebar.enabled) {
-    registerSidebarSlots(api);
-  }
-
-  const compactRegistration = surfaceRegistration.compact;
-  if (!compactRegistration.enabled && !surfaceRegistration.homeBottom) return;
-
-  const compactSlots: Record<string, (ctx: any, props: any) => JSX.Element | null> = {};
-
-  if (compactRegistration.sessionPrompt) {
-    compactSlots.session_prompt = (
-      _ctx,
-      props: {
-        session_id: string;
-        visible?: boolean;
-        disabled?: boolean;
-        on_submit?: () => void;
-        ref?: TuiPromptRefCallback;
-      },
-    ) => (
-      <SessionPromptWithCompactStatus
-        api={api}
-        sessionID={props.session_id}
-        visible={props.visible}
-        disabled={props.disabled}
-        onSubmit={props.on_submit}
-        promptRef={props.ref}
-      />
-    );
-  }
-
-  if (surfaceRegistration.homeBottom) {
-    compactSlots.home_bottom = () => (
-      <HomeBottomView api={api} compactHomeBottomEnabled={surfaceRegistration.compact.homeBottom} />
-    );
-  }
-
-  if (Object.keys(compactSlots).length > 0) {
-    api.slots.register({
-      order: COMPACT_ORDER,
-      slots: compactSlots,
-    });
-  }
+  void initializeTuiRegistration(api, registrationGate).catch(() => {});
 };
 
 const pluginModule: TuiPluginModule & { id: string } = {

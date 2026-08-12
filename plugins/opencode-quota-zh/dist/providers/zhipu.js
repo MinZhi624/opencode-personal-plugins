@@ -16,4 +16,3 @@ export const zhipuProvider = createGlmCodingPlanProvider({
         return !!provider && (provider.includes("zhipu") || provider === "glm-coding-plan");
     },
 });
-//# sourceMappingURL=zhipu.js.map

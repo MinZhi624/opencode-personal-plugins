@@ -1,9 +1,8 @@
 import { isIP } from "node:net";
 
 import type { AccountingResultType } from "./entries.js";
-
-import { getQuotaProviderShape } from "./provider-metadata.js";
 import { lookupCost } from "./modelsdev-pricing.js";
+import { getQuotaProviderShape } from "./provider-metadata.js";
 import { resolvePricingKey } from "./quota-stats.js";
 
 export const QUOTA_PROVIDER_REMOTE_FORMATS = ["quota-v1", "openrouter-key-v1", "json-v1"] as const;
@@ -255,7 +254,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 function hasOwnKey(value: Record<string, unknown>, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(value, key);
+  return Object.hasOwn(value, key);
 }
 
 function isValidId(value: unknown): value is string {

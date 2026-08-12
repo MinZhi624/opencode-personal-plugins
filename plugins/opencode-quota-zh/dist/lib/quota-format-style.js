@@ -35,4 +35,3 @@ export function getQuotaFormatStyleDefinition(value) {
 export function getQuotaFormatStyleLabel(value) {
     return getQuotaFormatStyleDefinition(value).label;
 }
-//# sourceMappingURL=quota-format-style.js.map

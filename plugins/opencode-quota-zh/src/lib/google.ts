@@ -5,16 +5,15 @@
  * Requires the user to have opencode-antigravity-auth installed and logged in.
  */
 
+import { existsSync } from "fs";
 import { readFile } from "fs/promises";
 import { join } from "path";
-import { existsSync } from "fs";
-
-import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
 import {
+  type GoogleAntigravityConfiguredCredentials,
   inspectAntigravityCompanionPresence,
   resolveAntigravityClientCredentials,
-  type GoogleAntigravityConfiguredCredentials,
 } from "./google-antigravity-companion.js";
+import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
 
 // NOTE: Google Antigravity auth differs intentionally from Qwen:
 // - Qwen reads OpenCode auth.json key "qwen-code" first, then falls back to
@@ -22,24 +21,24 @@ import {
 // - Google refresh flow requires upstream OAuth client credentials from
 //   opencode-antigravity-auth to match that plugin's runtime behavior.
 
-import type {
-  AntigravityAccount,
-  AntigravityAccountsFile,
-  GoogleQuotaResponse,
-  GoogleQuotaResult,
-  GoogleModelQuota,
-  GoogleModelId,
-  GoogleAccountError,
-  GoogleResult,
-} from "./types.js";
-import { GOOGLE_MODEL_KEYS } from "./types.js";
-import { fetchWithTimeout } from "./http.js";
 import {
   getCachedAccessToken,
   makeAccountCacheKey,
   setCachedAccessToken,
 } from "./google-token-cache.js";
+import { fetchWithTimeout } from "./http.js";
 import { mapWithConcurrency } from "./map-with-concurrency.js";
+import type {
+  AntigravityAccount,
+  AntigravityAccountsFile,
+  GoogleAccountError,
+  GoogleModelId,
+  GoogleModelQuota,
+  GoogleQuotaResponse,
+  GoogleQuotaResult,
+  GoogleResult,
+} from "./types.js";
+import { GOOGLE_MODEL_KEYS } from "./types.js";
 
 // =============================================================================
 // Constants

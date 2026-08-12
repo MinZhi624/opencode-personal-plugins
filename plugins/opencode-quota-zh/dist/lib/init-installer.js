@@ -2,14 +2,14 @@ import { existsSync } from "fs";
 import { readFile } from "fs/promises";
 import { basename, join } from "path";
 import { writeJsonAtomic } from "./atomic-json.js";
-import { applyConfigDocumentEdit, planConfigDocumentEdit, validateConfigDocumentEdit, } from "./opencode-config-editor.js";
-import { dedupeNonEmptyStrings, extractPluginSpecsFromParsedConfig, getPluginSpecFromEntry, isQuotaPluginSpec, resolveEditableConfigPath, findGitWorktreeRoot, } from "./config-file-utils.js";
-import { parseJsonOrJsonc } from "./jsonc.js";
-import { QUOTA_PROVIDERS_AGGREGATE_ID } from "./quota-providers.js";
-import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
-import { QUOTA_PROVIDER_SHAPES, getQuotaProviderDisplayLabel, normalizeQuotaProviderId, } from "./provider-metadata.js";
-import { getQuotaFormatStyleLabel, isQuotaFormatStyle, resolveQuotaFormatStyle, } from "./quota-format-style.js";
 import { getQuotaToastConfigPath, QUOTA_TOAST_CONFIG_RELATIVE_PATH, QUOTA_TOAST_CONFIG_RELATIVE_PATHS, } from "./config.js";
+import { dedupeNonEmptyStrings, extractPluginSpecsFromParsedConfig, findGitWorktreeRoot, getPluginSpecFromEntry, isQuotaPluginSpec, resolveEditableConfigPath, } from "./config-file-utils.js";
+import { parseJsonOrJsonc } from "./jsonc.js";
+import { applyConfigDocumentEdit, planConfigDocumentEdit, validateConfigDocumentEdit, } from "./opencode-config-editor.js";
+import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
+import { getQuotaProviderDisplayLabel, normalizeQuotaProviderId, QUOTA_PROVIDER_SHAPES, } from "./provider-metadata.js";
+import { getQuotaFormatStyleLabel, isQuotaFormatStyle, resolveQuotaFormatStyle, } from "./quota-format-style.js";
+import { QUOTA_PROVIDERS_AGGREGATE_ID } from "./quota-providers.js";
 const QUOTA_PLUGIN_SPEC = "@slkiser/opencode-quota@latest";
 const OPENCODE_SCHEMA_URL = "https://opencode.ai/config.json";
 const TUI_SCHEMA_URL = "https://opencode.ai/tui.json";
@@ -28,7 +28,7 @@ function isPlainObject(value) {
     return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 function hasOwnKey(value, key) {
-    return Object.prototype.hasOwnProperty.call(value, key);
+    return Object.hasOwn(value, key);
 }
 function jsonEqual(left, right) {
     return JSON.stringify(left) === JSON.stringify(right);
@@ -1210,4 +1210,3 @@ export async function runInitInstaller(params) {
         return 1;
     }
 }
-//# sourceMappingURL=init-installer.js.map

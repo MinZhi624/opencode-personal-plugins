@@ -1,11 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  type ConfigLoaderWorkspace,
   createConfigLoaderWorkspace,
   createEmptyRuntimeDirCandidates,
   quotaSidecarConfigSource,
-  type ConfigLoaderWorkspace,
 } from "./helpers/config-loader-test-harness.js";
 
 const runtimeDirs = vi.hoisted(() => ({
@@ -343,10 +343,12 @@ describe("loadConfig", () => {
     first.tuiCompactStatus.maxWidth = 1;
     first.maintainerAnnouncements.enabled = false;
     first.maintainerAnnouncements.home = false;
+    first.tuiPromptBar.enabled = true;
 
     const second = await loadConfig(undefined, undefined, { cwd: isolatedCwd });
     expect(second.tuiSidebarPanel).toEqual(DEFAULT_CONFIG.tuiSidebarPanel);
     expect(second.tuiCompactStatus).toEqual(DEFAULT_CONFIG.tuiCompactStatus);
+    expect(second.tuiPromptBar).toEqual(DEFAULT_CONFIG.tuiPromptBar);
     expect(DEFAULT_CONFIG.tuiSidebarPanel).toEqual({ enabled: true });
     expect(DEFAULT_CONFIG.tuiCompactStatus).toEqual({
       enabled: false,
@@ -731,6 +733,34 @@ describe("loadConfig", () => {
       expect(rejected.config.resetTimeDecimals).toBeUndefined();
       expect(rejected.meta.settingSources).not.toHaveProperty("resetTimeDecimals");
     }
+  });
+
+  it("defaults tuiPromptBar off and accepts validated opt-in overrides", async () => {
+    // Upstream v4.6.1: the TUI prompt quota bar is opt-in and stays disabled
+    // by default (Ticket 06; no reset-notification behavior is involved).
+    const defaults = await loadSdkConfig({});
+    expect(defaults.config.tuiPromptBar).toEqual({ enabled: false });
+    expect(defaults.config.tuiPromptBar).not.toBe(DEFAULT_CONFIG.tuiPromptBar);
+
+    const enabled = await loadSdkConfig({ tuiPromptBar: { enabled: true } });
+    expect(enabled.config.tuiPromptBar).toEqual({ enabled: true });
+    expect(enabled.meta.settingSources).toEqual({
+      "tuiPromptBar.enabled": "client.config.get",
+    });
+
+    const disabled = await loadSdkConfig({ tuiPromptBar: { enabled: false } });
+    expect(disabled.config.tuiPromptBar).toEqual({ enabled: false });
+    expect(disabled.meta.settingSources).toEqual({
+      "tuiPromptBar.enabled": "client.config.get",
+    });
+
+    const invalidValue = await loadSdkConfig({ tuiPromptBar: { enabled: "yes" } });
+    expect(invalidValue.config.tuiPromptBar).toEqual({ enabled: false });
+    expect(invalidValue.meta.settingSources).toEqual({});
+
+    const invalidNested = await loadSdkConfig({ tuiPromptBar: true });
+    expect(invalidNested.config.tuiPromptBar).toEqual({ enabled: false });
+    expect(invalidNested.meta.settingSources).toEqual({});
   });
 
   it("defaults anthropicBinaryPath and trims explicit overrides", async () => {

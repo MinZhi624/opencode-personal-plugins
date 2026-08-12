@@ -7,8 +7,10 @@
  * excluded from runtime staging (see scripts/stage-runtime.mjs).
  *
  * Mirrors the upstream build pipeline (tsc + copy-data) with the output redirected
- * to the dev baseline location. The upstream esbuild/babel TUI bundling
- * (prepare-tui-dist.mjs) remains part of the runtime pipeline, not of this dev build.
+ * to the dev baseline location. The runtime distribution is generated separately
+ * by scripts/build-runtime.mjs (see tsconfig.runtime.json; the upstream
+ * esbuild/babel TUI bundling in prepare-tui-dist.mjs is retained as upstream
+ * history only and is superseded by that pipeline's raw-TSX entry copies).
  */
 import { copyFile, mkdir, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";

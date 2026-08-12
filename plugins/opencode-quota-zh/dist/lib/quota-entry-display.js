@@ -56,4 +56,3 @@ export function buildSingleWindowPercentEntryDisplayName(entry) {
     }
     return name;
 }
-//# sourceMappingURL=quota-entry-display.js.map

@@ -1,7 +1,7 @@
 import { createProviderApiKeyResolver, getApiKeyCheckedPaths, getGlobalOpencodeConfigCandidatePaths, } from "./api-key-resolver.js";
 import { sanitizeSingleLineDisplayText } from "./display-sanitize.js";
-import { JSON_V1_MAX_DISPLAY_CODE_POINTS, JSON_V1_MAX_NUMBER_MAGNITUDE, normalizeJsonV1Timestamp, } from "./quota-providers.js";
 import { getAuthPaths, readAuthFile } from "./opencode-auth.js";
+import { JSON_V1_MAX_DISPLAY_CODE_POINTS, JSON_V1_MAX_NUMBER_MAGNITUDE, normalizeJsonV1Timestamp, } from "./quota-providers.js";
 import { REQUEST_TIMEOUT_MS } from "./types.js";
 export const QUOTA_PROVIDER_MAX_BODY_BYTES = 256 * 1024;
 export const QUOTA_PROVIDER_MAX_REMOTE_ROWS = 100;
@@ -229,7 +229,7 @@ function resolveJsonV1Path(root, path) {
         if (!isRecord(current))
             return { state: "wrong-type" };
         const segment = path[index];
-        if (!Object.prototype.hasOwnProperty.call(current, segment))
+        if (!Object.hasOwn(current, segment))
             return { state: "missing" };
         current = current[segment];
         if (current === null)
@@ -666,4 +666,3 @@ export async function fetchRemoteQuotaProvider(source, apiKey, requestTimeoutMs)
         clearTimeout(timeoutId);
     }
 }
-//# sourceMappingURL=quota-providers-remote.js.map

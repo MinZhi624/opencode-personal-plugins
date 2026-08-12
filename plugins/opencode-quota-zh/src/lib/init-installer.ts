@@ -4,40 +4,40 @@ import { basename, join } from "path";
 
 import { writeJsonAtomic } from "./atomic-json.js";
 import {
-  applyConfigDocumentEdit,
-  planConfigDocumentEdit,
-  validateConfigDocumentEdit,
-  type ConfigDocumentEdit,
-} from "./opencode-config-editor.js";
-import {
-  dedupeNonEmptyStrings,
-  extractPluginSpecsFromParsedConfig,
-  getPluginSpecFromEntry,
-  isQuotaPluginSpec,
-  resolveEditableConfigPath,
-  findGitWorktreeRoot,
-  type ConfigFileFormat,
-  type EditableConfigPath,
-} from "./config-file-utils.js";
-import { parseJsonOrJsonc } from "./jsonc.js";
-import { QUOTA_PROVIDERS_AGGREGATE_ID } from "./quota-providers.js";
-import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
-import {
-  QUOTA_PROVIDER_SHAPES,
-  getQuotaProviderDisplayLabel,
-  normalizeQuotaProviderId,
-} from "./provider-metadata.js";
-import {
-  getQuotaFormatStyleLabel,
-  isQuotaFormatStyle,
-  resolveQuotaFormatStyle,
-  type CanonicalQuotaFormatStyle,
-} from "./quota-format-style.js";
-import {
   getQuotaToastConfigPath,
   QUOTA_TOAST_CONFIG_RELATIVE_PATH,
   QUOTA_TOAST_CONFIG_RELATIVE_PATHS,
 } from "./config.js";
+import {
+  type ConfigFileFormat,
+  dedupeNonEmptyStrings,
+  type EditableConfigPath,
+  extractPluginSpecsFromParsedConfig,
+  findGitWorktreeRoot,
+  getPluginSpecFromEntry,
+  isQuotaPluginSpec,
+  resolveEditableConfigPath,
+} from "./config-file-utils.js";
+import { parseJsonOrJsonc } from "./jsonc.js";
+import {
+  applyConfigDocumentEdit,
+  type ConfigDocumentEdit,
+  planConfigDocumentEdit,
+  validateConfigDocumentEdit,
+} from "./opencode-config-editor.js";
+import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
+import {
+  getQuotaProviderDisplayLabel,
+  normalizeQuotaProviderId,
+  QUOTA_PROVIDER_SHAPES,
+} from "./provider-metadata.js";
+import {
+  type CanonicalQuotaFormatStyle,
+  getQuotaFormatStyleLabel,
+  isQuotaFormatStyle,
+  resolveQuotaFormatStyle,
+} from "./quota-format-style.js";
+import { QUOTA_PROVIDERS_AGGREGATE_ID } from "./quota-providers.js";
 import type { QuotaToastConfig, SessionTokenScope, TuiCommandDisplay } from "./types.js";
 
 const QUOTA_PLUGIN_SPEC = "@slkiser/opencode-quota@latest";
@@ -163,7 +163,7 @@ function isPlainObject(value: unknown): value is JsonObject {
 }
 
 function hasOwnKey<T extends object>(value: T, key: PropertyKey): boolean {
-  return Object.prototype.hasOwnProperty.call(value, key);
+  return Object.hasOwn(value, key);
 }
 
 function jsonEqual(left: unknown, right: unknown): boolean {

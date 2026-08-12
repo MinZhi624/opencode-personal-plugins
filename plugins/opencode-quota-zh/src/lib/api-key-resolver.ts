@@ -8,11 +8,11 @@
 import { existsSync } from "fs";
 import { sanitizeDisplayText } from "./display-sanitize.js";
 import { resolveEnvTemplate } from "./env-template.js";
-import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
 import {
   buildOpenCodeConfigCandidates,
   readOpenCodeConfigCandidate,
 } from "./opencode-config-read.js";
+import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
 
 /** A candidate config file path with its format */
 export interface ConfigCandidate {
@@ -91,7 +91,7 @@ export function getFirstAuthEntryValue(auth: unknown, authKeys: readonly string[
   if (!root) return undefined;
 
   for (const authKey of authKeys) {
-    if (Object.prototype.hasOwnProperty.call(root, authKey)) {
+    if (Object.hasOwn(root, authKey)) {
       return root[authKey];
     }
   }
@@ -166,9 +166,8 @@ export interface ResolveEnvAndConfigApiKeyConfig<Source extends string> {
 }
 
 /** Configuration for resolving an API key from multiple sources */
-export interface ResolveApiKeyConfig<
-  Source extends string,
-> extends ResolveEnvAndConfigApiKeyConfig<Source> {
+export interface ResolveApiKeyConfig<Source extends string>
+  extends ResolveEnvAndConfigApiKeyConfig<Source> {
   /** Extract API key from auth.json data. Returns null if not found. */
   extractFromAuth: (auth: unknown) => string | null;
 
@@ -205,9 +204,8 @@ export interface InvalidAwareApiKeyAuthConfig<AuthSource extends string> {
 }
 
 /** Configuration for simple nullable API key resolution. */
-export interface ResolveProviderApiKeyConfig<
-  Source extends string,
-> extends ResolveProviderApiKeyBaseConfig<Source> {
+export interface ResolveProviderApiKeyConfig<Source extends string>
+  extends ResolveProviderApiKeyBaseConfig<Source> {
   auth?: StrictApiKeyAuthConfig<Source>;
 }
 

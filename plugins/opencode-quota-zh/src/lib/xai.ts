@@ -116,11 +116,11 @@ function parseCreditsWindow(payload: unknown): XaiWindowValue | null {
 
   const config = payload.config;
   const period = isRecord(config.currentPeriod) ? config.currentPeriod : null;
-  const hasUsage = Object.prototype.hasOwnProperty.call(config, "creditUsagePercent");
+  const hasUsage = Object.hasOwn(config, "creditUsagePercent");
   const hasPeriod = Boolean(
     getNonEmptyString(period?.type) ||
-    getNonEmptyString(period?.start) ||
-    getNonEmptyString(period?.end),
+      getNonEmptyString(period?.start) ||
+      getNonEmptyString(period?.end),
   );
   if (!hasPeriod && !hasUsage) return null;
 

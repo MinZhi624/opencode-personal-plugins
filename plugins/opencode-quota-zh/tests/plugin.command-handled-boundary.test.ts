@@ -122,7 +122,7 @@ async function runServerCommand(params: {
 }
 
 async function buildDialogOutput(params: {
-  command: "quota" | "pricing_refresh" | "tokens_daily" | "tokens_session_all";
+  command: "quota" | "pricing_refresh" | "tokens_weekly" | "tokens_session";
   client: ReturnType<typeof createClient>;
   sessionID?: string;
 }) {
@@ -166,10 +166,10 @@ describe("plugin command handled boundary", () => {
 
     expect(hooks["command.execute.before"]).toBeDefined();
     expect(cfg.command).toBeDefined();
-    expect(QUOTA_DIALOG_COMMANDS).toHaveLength(12);
-    expect(new Set(QUOTA_DIALOG_COMMANDS.map((spec) => spec.id)).size).toBe(12);
-    expect(new Set(QUOTA_DIALOG_COMMANDS.map((spec) => spec.slashName)).size).toBe(12);
-    expect(Object.keys(cfg.command ?? {})).toHaveLength(12);
+    expect(QUOTA_DIALOG_COMMANDS).toHaveLength(8);
+    expect(new Set(QUOTA_DIALOG_COMMANDS.map((spec) => spec.id)).size).toBe(8);
+    expect(new Set(QUOTA_DIALOG_COMMANDS.map((spec) => spec.slashName)).size).toBe(8);
+    expect(Object.keys(cfg.command ?? {})).toHaveLength(8);
     for (const spec of QUOTA_DIALOG_COMMANDS) {
       expect(cfg.command?.[spec.id]).toEqual({
         template: `/${spec.slashName}`,
@@ -268,8 +268,8 @@ describe("plugin command handled boundary", () => {
         }),
       }),
     );
-    expect(getPromptText(client)).toContain("Quota unavailable");
-    expect(getPromptText(client)).toContain("No provider data available");
+    expect(getPromptText(client)).toContain("额度不可用");
+    expect(getPromptText(client)).toContain("没有可用的 Provider 数据");
   });
 
   it("injects clean plain text with noReply/ignored when /quota has no current model", async () => {
@@ -321,38 +321,43 @@ describe("plugin command handled boundary", () => {
           {
             type: "text",
             ignored: true,
-            text: expect.stringContaining("  Week quota"),
+            text: expect.stringContaining("  周 额度"),
           },
         ],
       },
     });
-    expect(getPromptText(client)).toMatch(/\n  Week quota\s+[█░]{10}\s+80% left/u);
-    expect(getPromptText(client)).toMatch(/^Quota \(\/quota\)/u);
+    expect(getPromptText(client)).toMatch(/\n  周 额度\s+[█░]{10}\s+80% 剩余/u);
+    expect(getPromptText(client)).toMatch(/^额度（\/quota）/u);
     expect(getPromptText(client)).not.toContain("```");
     expect(getPromptText(client)).not.toMatch(/^#{1,6} /mu);
-    expect(getPromptText(client)).not.toContain("No enabled quota providers matched");
+    expect(getPromptText(client)).not.toContain("没有启用的额度 Provider 匹配");
   });
 
-  it("handles /tokens_between arguments through one inline injection", async () => {
-    const { client } = await runServerCommand({
-      command: "tokens_between",
-      arguments: "not-a-date-range",
-      sessionID: "session-between",
-    });
+  it("leaves the removed /tokens_between command untouched (v1.0.1 surface)", async () => {
+    const client = createClient();
+    const hooks = await loadPluginHooks(client);
 
-    expect(client.session.prompt).toHaveBeenCalledTimes(1);
-    expect(getPromptText(client)).toContain("Invalid arguments for /tokens_between");
+    await expect(
+      hooks["command.execute.before"]?.({
+        command: "tokens_between",
+        arguments: "not-a-date-range",
+        sessionID: "session-between",
+      }),
+    ).resolves.toBeUndefined();
+    expect(client.session.prompt).not.toHaveBeenCalled();
   });
 
-  it("injects inline usage output when /tokens_between arguments are missing", async () => {
-    const { client } = await runServerCommand({
-      command: "tokens_between",
-      sessionID: "session-between-missing",
-    });
+  it("does not inject usage output for missing /tokens_between arguments (removed command)", async () => {
+    const client = createClient();
+    const hooks = await loadPluginHooks(client);
 
-    expect(client.session.prompt).toHaveBeenCalledTimes(1);
-    expect(getPromptText(client)).toContain("Invalid arguments for /tokens_between");
-    expect(getPromptText(client)).toContain("Expected: /tokens_between YYYY-MM-DD YYYY-MM-DD");
+    await expect(
+      hooks["command.execute.before"]?.({
+        command: "tokens_between",
+        sessionID: "session-between-missing",
+      }),
+    ).resolves.toBeUndefined();
+    expect(client.session.prompt).not.toHaveBeenCalled();
   });
 
   it("propagates server slash command injection failures instead of throwing handled", async () => {
@@ -397,8 +402,8 @@ describe("plugin command handled boundary", () => {
     const result = await buildDialogOutput({ command: "quota", client, sessionID: "session-2" });
 
     expect(result.state).toBe("output");
-    expect(result.state === "output" ? result.output : "").toContain("Quota unavailable");
-    expect(result.state === "output" ? result.output : "").toContain("No provider data available");
+    expect(result.state === "output" ? result.output : "").toContain("额度不可用");
+    expect(result.state === "output" ? result.output : "").toContain("没有可用的 Provider 数据");
     expect(isAvailable).toHaveBeenCalledOnce();
     expect(client.session.prompt).not.toHaveBeenCalled();
   });
@@ -407,9 +412,9 @@ describe("plugin command handled boundary", () => {
     mocks.loadConfig.mockResolvedValue(makeQuotaToastTestConfig({ enabled: false }));
     const client = createClient();
 
-    await runServerCommand({ command: "tokens_daily", client, sessionID: "session-disabled" });
+    await runServerCommand({ command: "tokens_weekly", client, sessionID: "session-disabled" });
     await runServerCommand({
-      command: "tokens_session_all",
+      command: "tokens_session",
       client,
       sessionID: "session-disabled-tree",
     });
@@ -422,19 +427,19 @@ describe("plugin command handled boundary", () => {
     mocks.loadConfig.mockResolvedValue(makeQuotaToastTestConfig({ enabled: false }));
     const client = createClient();
 
-    const daily = await buildDialogOutput({
-      command: "tokens_daily",
+    const weekly = await buildDialogOutput({
+      command: "tokens_weekly",
       client,
       sessionID: "session-disabled",
     });
-    const tree = await buildDialogOutput({
-      command: "tokens_session_all",
+    const session = await buildDialogOutput({
+      command: "tokens_session",
       client,
       sessionID: "session-disabled-tree",
     });
 
-    expect(daily).toEqual({ state: "noop", command: "tokens_daily", reason: "disabled" });
-    expect(tree).toEqual({ state: "noop", command: "tokens_session_all", reason: "disabled" });
+    expect(weekly).toEqual({ state: "noop", command: "tokens_weekly", reason: "disabled" });
+    expect(session).toEqual({ state: "noop", command: "tokens_session", reason: "disabled" });
     expect(mocks.maybeRefreshPricingSnapshot).not.toHaveBeenCalled();
     expect(client.session.prompt).not.toHaveBeenCalled();
   });

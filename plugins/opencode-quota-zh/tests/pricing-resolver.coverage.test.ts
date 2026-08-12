@@ -114,6 +114,35 @@ describe("resolvePricingKey snapshot coverage", () => {
     expect(lookupCost("openai", "gpt-4o-mini")).not.toBeNull();
   });
 
+  it("maps documented Kimi Code K3 models to authoritative pricing", () => {
+    // Ticket 05 (upstream v4.6.0): Kimi K3 official list prices enter the
+    // snapshot as moonshotai/kimi-k3; the quota-stats alias mapping resolves
+    // the documented model ids exactly and rejects free/preview variants.
+    for (const modelID of ["k3", "k3-256k"]) {
+      const resolved = resolvePricingKey({
+        providerID: "kimi-for-coding",
+        modelID,
+      });
+      expect(resolved.ok).toBe(true);
+      if (!resolved.ok) continue;
+      expect(resolved.key).toEqual({ provider: "moonshotai", model: "kimi-k3" });
+      expect(resolved.method).toBe("source_provider");
+    }
+    expect(lookupCost("moonshotai", "kimi-k3")).toEqual({
+      input: 3,
+      output: 15,
+      cache_read: 0.3,
+    });
+    for (const modelID of ["k3-free", "k3-256k-free", "k3-preview"]) {
+      expect(
+        resolvePricingKey({
+          providerID: "kimi-for-coding",
+          modelID,
+        }).ok,
+      ).toBe(false);
+    }
+  });
+
   it("maps cursor local and api-pool models into deterministic pricing keys", () => {
     const auto = resolvePricingKey({
       providerID: "cursor",

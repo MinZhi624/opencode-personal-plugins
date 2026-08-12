@@ -1,22 +1,21 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-
+import { type ConfigFileFormat, resolveEditableConfigPath } from "./config-file-utils.js";
 import {
   applyConfigDocumentEdit,
+  type ConfigDocumentEdit,
+  type ManagedConfigComment,
   parseConfigDocument,
   planConfigDocumentEdit,
   validateConfigDocumentEdit,
-  type ConfigDocumentEdit,
-  type ManagedConfigComment,
 } from "./opencode-config-editor.js";
-import { resolveEditableConfigPath, type ConfigFileFormat } from "./config-file-utils.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 import {
   MAINTAINED_LOCAL_ESTIMATE_IDS,
   QUOTA_PROVIDERS_AGGREGATE_ID,
-  validateQuotaProviders,
   type QuotaProviderDefinition,
+  validateQuotaProviders,
 } from "./quota-providers.js";
 
 type JsonObject = Record<string, unknown>;

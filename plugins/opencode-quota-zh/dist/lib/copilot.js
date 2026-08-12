@@ -68,7 +68,7 @@ function validateEnterpriseHost(value) {
         host = url.hostname.toLowerCase();
     }
     else {
-        if (/[\/:@?#]/.test(raw))
+        if (/[/:@?#]/.test(raw))
             return invalid;
         host = raw.toLowerCase();
     }
@@ -1049,4 +1049,3 @@ export function formatCopilotQuota(result) {
     }
     return `Copilot ${unit} ${result.used} used`;
 }
-//# sourceMappingURL=copilot.js.map

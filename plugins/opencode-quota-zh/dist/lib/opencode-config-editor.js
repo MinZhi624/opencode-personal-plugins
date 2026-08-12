@@ -66,7 +66,7 @@ function collectValueEdits(current, desired, path, edits) {
                 const currentValue = current[index];
                 const desiredValue = desired[index];
                 for (const key of Object.keys(currentValue)) {
-                    if (!Object.prototype.hasOwnProperty.call(desiredValue, key)) {
+                    if (!Object.hasOwn(desiredValue, key)) {
                         edits.push({ path: [...path, index, key], value: undefined });
                     }
                 }
@@ -317,4 +317,3 @@ export async function applyConfigDocumentEdit(edit, options = {}) {
         throw new ConfigDocumentError(`Failed removing converted config source: ${edit.removeSourcePath}`, edit.removeSourcePath);
     }
 }
-//# sourceMappingURL=opencode-config-editor.js.map

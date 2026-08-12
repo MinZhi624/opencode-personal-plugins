@@ -79,6 +79,14 @@ export function sanitizeQuotaProviderResult(result) {
                 })),
             }
             : {}),
+        ...(result.rawDetails
+            ? {
+                rawDetails: result.rawDetails.map((detail) => ({
+                    key: sanitizeDisplayText(detail.key),
+                    value: sanitizeDisplayText(detail.value),
+                })),
+            }
+            : {}),
         ...(result.presentation ? { presentation: { ...result.presentation } } : {}),
     };
 }
@@ -100,4 +108,3 @@ export function sanitizeQuotaRenderData(data) {
         sessionTokens: sanitizeSessionTokensData(data.sessionTokens),
     };
 }
-//# sourceMappingURL=display-sanitize.js.map

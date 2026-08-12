@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-
-import { expectAttemptedWithNoErrors, expectNotAttempted } from "./helpers/provider-assertions.js";
-import { visibleEntries } from "./helpers/provider-assertions.js";
 import { qwenCodeProvider } from "../src/providers/qwen-code.js";
+import {
+  expectAttemptedWithNoErrors,
+  expectNotAttempted,
+  visibleEntries,
+} from "./helpers/provider-assertions.js";
 
 vi.mock("../src/lib/opencode-auth.js", () => ({
   readAuthFileCached: vi.fn(),
@@ -36,8 +38,9 @@ describe("qwen-code provider", () => {
 
   it("maps qwen free local quota into canonical grouped-capable entries", async () => {
     const { readAuthFileCached } = await import("../src/lib/opencode-auth.js");
-    const { computeQwenQuota, readQwenLocalQuotaState } =
-      await import("../src/lib/qwen-local-quota.js");
+    const { computeQwenQuota, readQwenLocalQuotaState } = await import(
+      "../src/lib/qwen-local-quota.js"
+    );
 
     (readAuthFileCached as any).mockResolvedValue({
       "qwen-code": { type: "oauth", access: "token" },
@@ -81,8 +84,9 @@ describe("qwen-code provider", () => {
 
   it("falls back to the legacy qwen auth key when the canonical key is absent", async () => {
     const { readAuthFileCached } = await import("../src/lib/opencode-auth.js");
-    const { computeQwenQuota, readQwenLocalQuotaState } =
-      await import("../src/lib/qwen-local-quota.js");
+    const { computeQwenQuota, readQwenLocalQuotaState } = await import(
+      "../src/lib/qwen-local-quota.js"
+    );
 
     (readAuthFileCached as any).mockResolvedValue({
       "opencode-qwencode-auth": { type: "oauth", access: "legacy-token" },
@@ -128,8 +132,9 @@ describe("qwen-code provider", () => {
 
   it("passes quotaProviders request-limit tuning to the maintained provider", async () => {
     const { readAuthFileCached } = await import("../src/lib/opencode-auth.js");
-    const { computeQwenQuota, readQwenLocalQuotaState } =
-      await import("../src/lib/qwen-local-quota.js");
+    const { computeQwenQuota, readQwenLocalQuotaState } = await import(
+      "../src/lib/qwen-local-quota.js"
+    );
     (readAuthFileCached as any).mockResolvedValue({
       "qwen-code": { type: "oauth", access: "token" },
     });

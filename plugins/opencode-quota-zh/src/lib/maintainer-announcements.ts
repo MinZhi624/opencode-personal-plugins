@@ -1,7 +1,7 @@
 import {
+  type CanonicalQuotaProviderId,
   getQuotaProviderShape,
   normalizeQuotaProviderId,
-  type CanonicalQuotaProviderId,
 } from "./provider-metadata.js";
 
 export interface MaintainerAnnouncement {
@@ -77,6 +77,23 @@ function normalizedProviderIds(providerIds: readonly string[]): CanonicalQuotaPr
     }
     seen.add(shape.id);
     out.push(shape.id);
+  }
+
+  return out;
+}
+
+export function getMaintainerAnnouncementTargetProviderIds(params?: {
+  announcements?: readonly MaintainerAnnouncement[];
+}): CanonicalQuotaProviderId[] {
+  const out: CanonicalQuotaProviderId[] = [];
+  const seen = new Set<CanonicalQuotaProviderId>();
+
+  for (const announcement of params?.announcements ?? BUNDLED_MAINTAINER_ANNOUNCEMENTS) {
+    for (const providerId of normalizedProviderIds(announcement.providerIds ?? [])) {
+      if (seen.has(providerId)) continue;
+      seen.add(providerId);
+      out.push(providerId);
+    }
   }
 
   return out;

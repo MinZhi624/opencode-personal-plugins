@@ -6,7 +6,7 @@ import {
   type ReportDocument,
   type ReportSection,
 } from "./report-document.js";
-import { emptyTokenBuckets, totalTokenBuckets } from "./token-buckets.js";
+import { addTokenBuckets, emptyTokenBuckets, totalTokenBuckets } from "./token-buckets.js";
 
 /** Use markdown-conceal for proper TUI alignment (strips markdown syntax for width calc) */
 const TABLE_WIDTH_MODE: WidthMode = "markdown-conceal";
@@ -28,6 +28,39 @@ function hasRenderableSessionUsage(row: SessionReportRow): boolean {
   return totalTokenBuckets(row.tokens) > 0 || row.costUsd > 0;
 }
 
+function sumSessionUsageRows(rows: readonly SessionReportRow[]): {
+  tokens: TokenBuckets;
+  costUsd: number;
+  messageCount: number;
+} {
+  let tokens = emptyTokenBuckets();
+  let costUsd = 0;
+  let messageCount = 0;
+  for (const row of rows) {
+    tokens = addTokenBuckets(tokens, row.tokens);
+    costUsd += row.costUsd;
+    messageCount += row.messageCount;
+  }
+  return { tokens, costUsd, messageCount };
+}
+
+/**
+ * One-line pricing snapshot identity (snapshot repricing). The aggregation
+ * records which snapshot priced the estimates; showing it here makes
+ * historical estimates reproducible: re-running after a snapshot update
+ * re-prices against the current snapshot and reports the new identity.
+ */
+function formatPricingSnapshotLine(pricing: AggregateResult["pricing"]): string {
+  const time = pricing.generatedAt > 0 ? fmtLocalDateTime(pricing.generatedAt) : "未记录";
+  return `定价快照：${pricing.source}（${time}）`;
+}
+
+function pricingSnapshotLineBlock(
+  pricing: AggregateResult["pricing"] | undefined,
+): Array<{ kind: "lines"; lines: string[] }> {
+  return pricing ? [{ kind: "lines" as const, lines: [formatPricingSnapshotLine(pricing)] }] : [];
+}
+
 function appendSessionRow(sessionRows: string[][], row: SessionReportRow, current = ""): void {
   sessionRows.push([
     current,
@@ -40,16 +73,16 @@ function appendSessionRow(sessionRows: string[][], row: SessionReportRow, curren
 }
 
 function treeRelationLabel(depth: number): string {
-  if (depth <= 0) return "current";
-  if (depth === 1) return "child";
-  if (depth === 2) return "grandchild";
-  return `descendant(${depth})`;
+  if (depth <= 0) return "当前会话";
+  if (depth === 1) return "子会话";
+  if (depth === 2) return "孙会话";
+  return `后代会话（${depth}）`;
 }
 
 function missingFocusSessionLabel(hasRawFocus: boolean): string {
   return hasRawFocus
-    ? "(current session has no token usage in selected window)"
-    : "(current session not in selected window)";
+    ? "（当前会话在所选时间范围内没有 token 用量）"
+    : "（当前会话不在所选时间范围内）";
 }
 
 /**
@@ -66,9 +99,9 @@ function fmtLocalDateTime(ms: number): string {
 }
 
 function fmtWindow(params: { sinceMs?: number; untilMs?: number }): string {
-  if (!params.sinceMs && !params.untilMs) return "all time";
+  if (!params.sinceMs && !params.untilMs) return "全部时间";
   const since = typeof params.sinceMs === "number" ? fmtLocalDateTime(params.sinceMs) : "-";
-  const until = typeof params.untilMs === "number" ? fmtLocalDateTime(params.untilMs) : "now";
+  const until = typeof params.untilMs === "number" ? fmtLocalDateTime(params.untilMs) : "现在";
   return `${since} .. ${until}`;
 }
 
@@ -196,8 +229,8 @@ export function formatQuotaStatsReport(params: {
         {
           kind: "table",
           headers: tableOptions.compactHeaders
-            ? ["Msgs", "Tok", "Cost"]
-            : ["Messages", "Tokens", "Cost"],
+            ? ["消息", "token", "费用"]
+            : ["消息数", "token", "费用"],
           aligns: ["right", "right", "right"],
           widthMode: TABLE_WIDTH_MODE,
           rows: [
@@ -208,17 +241,34 @@ export function formatQuotaStatsReport(params: {
             ],
           ],
         },
+        ...pricingSnapshotLineBlock(r.pricing),
       ],
     });
   } else if (sessionTreeMode) {
+    const sessionUsageByID = new Map(r.bySession.map((row) => [row.sessionID, row]));
+    const rootNode = sessionTree!.nodes.find((node) => node.depth === 0) ?? sessionTree!.nodes[0];
+    const descendantNodes = sessionTree!.nodes.filter((node) => node.depth > 0);
+    const rootRow = rootNode ? sessionUsageByID.get(rootNode.sessionID) : undefined;
+    const rootUsage = rootRow ?? { tokens: emptyTokenBuckets(), costUsd: 0, messageCount: 0 };
+    const descendantUsage = sumSessionUsageRows(
+      descendantNodes
+        .map((node) => sessionUsageByID.get(node.sessionID))
+        .filter((row): row is SessionReportRow => row !== undefined),
+    );
+    const treeUsage = sumSessionUsageRows(
+      sessionTree!.nodes
+        .map((node) => sessionUsageByID.get(node.sessionID))
+        .filter((row): row is SessionReportRow => row !== undefined),
+    );
+
     sections.push({
       id: "summary",
       blocks: [
         {
           kind: "table",
           headers: tableOptions.compactHeaders
-            ? ["Msgs", "Sess", "Tok", "Cost"]
-            : ["Messages", "Sessions", "Tokens", "Cost"],
+            ? ["消息", "会话", "token", "费用"]
+            : ["消息数", "会话数", "token", "费用"],
           aligns: ["right", "right", "right", "right"],
           widthMode: TABLE_WIDTH_MODE,
           rows: [
@@ -230,6 +280,40 @@ export function formatQuotaStatsReport(params: {
             ],
           ],
         },
+        // Task-tree API list-price estimate: root session, subagents, and the
+        // task-tree total are shown and computed separately.
+        {
+          kind: "table",
+          headers: tableOptions.compactHeaders
+            ? ["关系", "消息", "会话", "token", "费用"]
+            : ["关系", "消息数", "会话数", "token", "费用"],
+          aligns: ["left", "right", "right", "right", "right"],
+          widthMode: TABLE_WIDTH_MODE,
+          rows: [
+            [
+              "本会话",
+              fmtCompact(rootUsage.messageCount),
+              "1",
+              fmtCompact(totalTokenBuckets(rootUsage.tokens)),
+              fmtUsd(rootUsage.costUsd),
+            ],
+            [
+              "子代理",
+              fmtCompact(descendantUsage.messageCount),
+              fmtCompact(descendantNodes.length),
+              fmtCompact(totalTokenBuckets(descendantUsage.tokens)),
+              fmtUsd(descendantUsage.costUsd),
+            ],
+            [
+              "任务树合计",
+              fmtCompact(treeUsage.messageCount),
+              fmtCompact(sessionTree!.nodes.length),
+              fmtCompact(totalTokenBuckets(treeUsage.tokens)),
+              fmtUsd(treeUsage.costUsd),
+            ],
+          ],
+        },
+        ...pricingSnapshotLineBlock(r.pricing),
       ],
     });
   } else {
@@ -239,8 +323,8 @@ export function formatQuotaStatsReport(params: {
         {
           kind: "table",
           headers: tableOptions.compactHeaders
-            ? ["Window", "Msgs", "Sess", "Tok", "Cost"]
-            : ["Window", "Messages", "Sessions", "Tokens", "Cost"],
+            ? ["范围", "消息", "会话", "token", "费用"]
+            : ["时间范围", "消息数", "会话数", "token", "费用"],
           aligns: ["left", "right", "right", "right", "right"],
           widthMode: TABLE_WIDTH_MODE,
           rows: [
@@ -253,6 +337,7 @@ export function formatQuotaStatsReport(params: {
             ],
           ],
         },
+        ...pricingSnapshotLineBlock(r.pricing),
       ],
     });
   }
@@ -263,14 +348,14 @@ export function formatQuotaStatsReport(params: {
     r.totals.unpriced.reasoning > 0;
 
   const headers = tableOptions.compactHeaders
-    ? ["Source", "Model", "In", "Out", "C.Rd", "C.Wr"]
-    : ["Source", "Model", "Input", "Output", "C.Read", "C.Write"];
+    ? ["来源", "模型", "输入", "输出", "缓存读", "缓存写"]
+    : ["来源", "模型", "输入", "输出", "缓存读取", "缓存写入"];
   const aligns: Array<"left" | "right"> = ["left", "left", "right", "right", "right", "right"];
   if (hasAnyReasoning) {
-    headers.push(tableOptions.compactHeaders ? "Rsn" : "Reasoning");
+    headers.push(tableOptions.compactHeaders ? "推理" : "推理 token");
     aligns.push("right");
   }
-  headers.push(tableOptions.compactHeaders ? "Tok" : "Total", "Cost");
+  headers.push(tableOptions.compactHeaders ? "token" : "总计", "费用");
   aligns.push("right", "right");
 
   const rows: string[][] = [];
@@ -318,7 +403,7 @@ export function formatQuotaStatsReport(params: {
   if (rows.length > 0) {
     sections.push({
       id: "models",
-      title: "Models",
+      title: "模型",
       blocks: [
         {
           kind: "table",
@@ -353,8 +438,8 @@ export function formatQuotaStatsReport(params: {
         {
           kind: "table",
           headers: tableOptions.compactHeaders
-            ? ["Rel", "Parent", "Session", "Cost", "Tok", "Msgs", "Title"]
-            : ["Relation", "Parent", "Session", "Cost", "Tokens", "Msgs", "Title"],
+            ? ["关系", "父级", "会话", "费用", "token", "消息", "标题"]
+            : ["关系", "父级", "会话", "费用", "token", "消息数", "标题"],
           aligns: ["left", "left", "left", "right", "right", "right", "left"],
           widthMode: TABLE_WIDTH_MODE,
           rows: sessionTreeRows,
@@ -398,34 +483,34 @@ export function formatQuotaStatsReport(params: {
 
     sections.push({
       id: "top-sessions",
-      title: "Top Sessions",
+      title: "主要会话",
       blocks:
         sessionRows.length > 0
           ? [
               {
                 kind: "table",
                 headers: tableOptions.compactHeaders
-                  ? ["Cur", "Session", "Cost", "Tok", "Msgs", "Title"]
-                  : ["Current", "Session", "Cost", "Tokens", "Msgs", "Title"],
+                  ? ["当前", "会话", "费用", "token", "消息", "标题"]
+                  : ["当前会话", "会话", "费用", "token", "消息数", "标题"],
                 aligns: ["left", "left", "right", "right", "right", "left"],
                 widthMode: TABLE_WIDTH_MODE,
                 rows: sessionRows,
               },
             ]
-          : [{ kind: "lines", lines: ["(no sessions)"] }],
+          : [{ kind: "lines", lines: ["（暂无会话）"] }],
     });
   }
 
   if (r.unpriced.length > 0) {
     sections.push({
       id: "unpriced-models",
-      title: "Unpriced Models",
+      title: "未定价模型",
       blocks: [
         {
           kind: "table",
           headers: tableOptions.compactHeaders
-            ? ["Source", "Model", "Map", "Reason", "Tok", "Msgs"]
-            : ["Source", "Model", "Mapped", "Reason", "Tokens", "Msgs"],
+            ? ["来源", "模型", "映射", "原因", "token", "消息"]
+            : ["来源", "模型", "已映射", "原因", "token", "消息数"],
           aligns: ["left", "left", "left", "left", "right", "right"],
           widthMode: TABLE_WIDTH_MODE,
           rows: r.unpriced.slice(0, 20).map((u) => {
@@ -447,13 +532,13 @@ export function formatQuotaStatsReport(params: {
   if (r.unknown.length > 0) {
     sections.push({
       id: "unknown-pricing",
-      title: "Unknown Pricing",
+      title: "未知价格",
       blocks: [
         {
           kind: "table",
           headers: tableOptions.compactHeaders
-            ? ["Source", "Model", "Map", "Tok", "Msgs"]
-            : ["Source", "Model", "Mapped", "Tokens", "Msgs"],
+            ? ["来源", "模型", "映射", "token", "消息"]
+            : ["来源", "模型", "已映射", "token", "消息数"],
           aligns: ["left", "left", "left", "right", "right"],
           widthMode: TABLE_WIDTH_MODE,
           rows: r.unknown.slice(0, 20).map((u) => {
@@ -482,7 +567,7 @@ export function formatQuotaStatsReport(params: {
         },
         {
           kind: "lines",
-          lines: ["Run /quota_status to see the full pricing diagnostics report."],
+          lines: ["运行 /quota_status 查看完整的价格诊断报告。"],
         },
       ],
     });

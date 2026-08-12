@@ -4,24 +4,24 @@
  * Fetches quota data from MiniMax API for coding plan users.
  */
 
+import { sanitizeDisplayText } from "../lib/display-sanitize.js";
 import type {
   QuotaProvider,
   QuotaProviderContext,
   QuotaProviderMatchContext,
   QuotaProviderResult,
 } from "../lib/entries.js";
+import { fetchWithTimeout } from "../lib/http.js";
 import {
   DEFAULT_MINIMAX_AUTH_CACHE_MAX_AGE_MS,
   getMiniMaxAuthDiagnostics,
   getMiniMaxChinaAuthDiagnostics,
-  resolveMiniMaxAuthCached,
-  resolveMiniMaxChinaAuthCached,
   type MiniMaxAuthDiagnostics,
   type ResolvedMiniMaxAuth,
+  resolveMiniMaxAuthCached,
+  resolveMiniMaxChinaAuthCached,
 } from "../lib/minimax-auth.js";
 import { getMiniMaxQuotaEndpoint, type MiniMaxQuotaEndpointId } from "../lib/minimax-endpoints.js";
-import { sanitizeDisplayText } from "../lib/display-sanitize.js";
-import { fetchWithTimeout } from "../lib/http.js";
 import {
   isAnyProviderIdAvailable,
   isCanonicalProviderAvailable,

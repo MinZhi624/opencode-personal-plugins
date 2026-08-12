@@ -93,7 +93,10 @@ export function extractCursorModelPart(rawModelId) {
     const lastSlash = trimmed.lastIndexOf("/");
     if (lastSlash === -1)
         return trimmed.toLowerCase();
-    return trimmed.slice(lastSlash + 1).trim().toLowerCase();
+    return trimmed
+        .slice(lastSlash + 1)
+        .trim()
+        .toLowerCase();
 }
 export function getCursorPlanDisplayName(plan) {
     switch (plan) {
@@ -108,7 +111,9 @@ export function getCursorPlanDisplayName(plan) {
     }
 }
 export function getEffectiveCursorIncludedApiUsd(params) {
-    if (typeof params.overrideUsd === "number" && Number.isFinite(params.overrideUsd) && params.overrideUsd >= 0) {
+    if (typeof params.overrideUsd === "number" &&
+        Number.isFinite(params.overrideUsd) &&
+        params.overrideUsd >= 0) {
         return params.overrideUsd;
     }
     if (params.plan === "none")
@@ -138,4 +143,3 @@ export function resolveCursorModel(rawModelId) {
     }
     return { kind: "official", ...official, pool: "api" };
 }
-//# sourceMappingURL=cursor-pricing.js.map

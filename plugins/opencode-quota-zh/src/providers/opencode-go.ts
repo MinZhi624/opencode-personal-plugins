@@ -11,18 +11,18 @@ import type {
   QuotaProviderResult,
   QuotaToastEntry,
 } from "../lib/entries.js";
-import type { OpenCodeGoResult, OpenCodeGoWindowKey } from "../lib/types.js";
+import { queryOpenCodeGoQuota } from "../lib/opencode-go.js";
 import {
   DEFAULT_OPENCODE_GO_CONFIG_CACHE_MAX_AGE_MS,
   getOpenCodeGoConfigDiagnostics,
   resolveOpenCodeGoConfigCached,
 } from "../lib/opencode-go-config.js";
-import { queryOpenCodeGoQuota } from "../lib/opencode-go.js";
 import { normalizeQuotaProviderId } from "../lib/provider-metadata.js";
+import type { OpenCodeGoResult, OpenCodeGoWindowKey } from "../lib/types.js";
 import {
   attemptedErrorResult,
-  configStatusDetails,
   attemptedResult,
+  configStatusDetails,
   notAttemptedResult,
   withStatusDetails,
 } from "./result-helpers.js";

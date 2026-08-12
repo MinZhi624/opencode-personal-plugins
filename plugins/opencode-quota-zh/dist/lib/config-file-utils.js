@@ -156,4 +156,3 @@ export function isQuotaPluginSpec(spec, kind) {
         ? normalized.includes("opencode-quota/dist/tui.tsx")
         : normalized.includes("opencode-quota/dist/index.js");
 }
-//# sourceMappingURL=config-file-utils.js.map

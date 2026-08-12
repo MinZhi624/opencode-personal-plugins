@@ -2,9 +2,9 @@
  * Type definitions for opencode-quota plugin
  */
 
-import type { QuotaProviderDefinition } from "./quota-providers.js";
 import type { QuotaFormatStyle } from "./quota-format-style.js";
 import { DEFAULT_QUOTA_FORMAT_STYLE } from "./quota-format-style.js";
+import type { QuotaProviderDefinition } from "./quota-providers.js";
 
 // =============================================================================
 // Configuration Types
@@ -55,6 +55,31 @@ export interface QuotaExportConfig {
    *   $XDG_CACHE_HOME/opencode/quota-export.json
    */
   path: string;
+}
+
+export interface TuiPromptBarConfig {
+  enabled: boolean;
+}
+
+/** Canonical v2 opt-in prompt bar section (Ticket 07). Defaults off. */
+export interface PromptBarConfig {
+  enabled: boolean;
+}
+
+/** Canonical v2 startup hint section (Ticket 07). Defaults on. */
+export interface StartupHintConfig {
+  enabled: boolean;
+}
+
+/** Canonical v2 quota alert section (Ticket 07 contract; evaluation arrives in Tickets 09/11). */
+export interface QuotaAlertConfig {
+  enabled: boolean;
+  /** Global percent-remaining danger threshold (0..100); current value <= threshold is dangerous. */
+  percentRemainingThreshold: number;
+  /** Null = no repeat within an alert episode; otherwise integer minutes >= 15. */
+  repeatAfterMinutes: number | null;
+  /** Provider -> ISO 4217 currency -> positive amount threshold. */
+  balanceThresholds: Record<string, Record<string, number>>;
 }
 
 export interface QuotaTelemetryConfig {
@@ -172,6 +197,21 @@ export interface QuotaToastConfig {
   /** Opt-in compact quota/status text for TUI prompt/home surfaces. */
   tuiCompactStatus: TuiCompactStatusConfig;
 
+  /** Quota progress bar rendered under the TUI prompt. Default: disabled. */
+  tuiPromptBar: TuiPromptBarConfig;
+
+  /** Canonical v2 startup hint surface. Default: enabled. */
+  startupHint: StartupHintConfig;
+
+  /**
+   * Canonical v2 prompt bar section. Mirrors tuiPromptBar (the upstream v4.6.1
+   * name, which now reports a migration diagnostic); default: disabled.
+   */
+  promptBar: PromptBarConfig;
+
+  /** Canonical v2 quota alert section. Evaluation lands in Tickets 09/11. */
+  alerts: QuotaAlertConfig;
+
   /** Bundled-only maintainer announcement surfaces. */
   maintainerAnnouncements: MaintainerAnnouncementsConfig;
 
@@ -238,6 +278,21 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
     sessionPrompt: true,
     suppressWhenNativeProviderQuota: true,
     maxWidth: 96,
+  },
+  tuiPromptBar: {
+    enabled: false,
+  },
+  startupHint: {
+    enabled: true,
+  },
+  promptBar: {
+    enabled: false,
+  },
+  alerts: {
+    enabled: true,
+    percentRemainingThreshold: 0,
+    repeatAfterMinutes: null,
+    balanceThresholds: {},
   },
   maintainerAnnouncements: {
     enabled: true,

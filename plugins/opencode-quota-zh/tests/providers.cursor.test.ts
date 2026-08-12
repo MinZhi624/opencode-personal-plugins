@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-
-import { expectAttemptedWithNoErrors, expectNotAttempted } from "./helpers/provider-assertions.js";
-import { visibleEntries } from "./helpers/provider-assertions.js";
 import { cursorProvider } from "../src/providers/cursor.js";
+import {
+  expectAttemptedWithNoErrors,
+  expectNotAttempted,
+  visibleEntries,
+} from "./helpers/provider-assertions.js";
 
 vi.mock("../src/lib/provider-availability.js", () => ({
   isCanonicalProviderAvailable: vi.fn(),

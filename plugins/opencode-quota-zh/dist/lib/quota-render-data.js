@@ -1,16 +1,16 @@
-import { isPercentEntry } from "./entries.js";
-import { fetchSessionTokensForDisplay } from "./session-tokens.js";
-import { getQuotaProviderDisplayLabel, normalizeQuotaProviderId } from "./provider-metadata.js";
+import { getAnthropicNoDataMessage } from "../providers/anthropic.js";
+import { getProviders } from "../providers/registry.js";
 import { isCursorProviderId } from "./cursor-pricing.js";
+import { isPercentEntry } from "./entries.js";
+import { formatGroupedHeader } from "./grouped-header-format.js";
+import { getQuotaProviderDisplayLabel, normalizeQuotaProviderId } from "./provider-metadata.js";
+import { classifyQuotaWindowText } from "./quota-entry-display.js";
+import { getQuotaFormatStyleDefinition } from "./quota-format-style.js";
+import { createQuotaProviderRuntimeContext } from "./quota-runtime-context.js";
 import { fetchQuotaProviderResult } from "./quota-state.js";
 import { retainQuotaTelemetryProviders } from "./quota-telemetry.js";
-import { createQuotaProviderRuntimeContext } from "./quota-runtime-context.js";
 import { createRuntimeProviderIdResolver, } from "./runtime-provider-ids.js";
-import { getQuotaFormatStyleDefinition } from "./quota-format-style.js";
-import { formatGroupedHeader } from "./grouped-header-format.js";
-import { getProviders } from "../providers/registry.js";
-import { getAnthropicNoDataMessage } from "../providers/anthropic.js";
-import { classifyQuotaWindowText } from "./quota-entry-display.js";
+import { fetchSessionTokensForDisplay } from "./session-tokens.js";
 async function getProviderAvailability(params) {
     try {
         return {
@@ -190,6 +190,9 @@ export async function collectQuotaStatusLiveProbes(params) {
             errors: results[index].errors.map((error) => ({ ...error })),
             ...(results[index].statusDetails
                 ? { statusDetails: results[index].statusDetails.map((detail) => ({ ...detail })) }
+                : {}),
+            ...(results[index].rawDetails
+                ? { rawDetails: results[index].rawDetails.map((detail) => ({ ...detail })) }
                 : {}),
             ...(results[index].presentation
                 ? { presentation: { ...results[index].presentation } }
@@ -396,6 +399,7 @@ export async function collectQuotaRenderData(params) {
             attemptedAny: false,
             hasExplicitProviderIssues: false,
             data: null,
+            results: [],
         };
     }
     if (selection.waitingForCurrentSelection) {
@@ -410,6 +414,7 @@ export async function collectQuotaRenderData(params) {
             attemptedAny: false,
             hasExplicitProviderIssues: false,
             data: null,
+            results: [],
         };
     }
     const availability = await Promise.all(selection.filtered.map((provider) => getProviderAvailability({
@@ -436,6 +441,7 @@ export async function collectQuotaRenderData(params) {
             attemptedAny: false,
             hasExplicitProviderIssues: explicitProviderIssues.length > 0,
             data: packageQuotaRenderData({ entries: [], errors: explicitProviderIssues }),
+            results: [],
         };
     }
     const results = await fetchProviderResults({
@@ -510,6 +516,6 @@ export async function collectQuotaRenderData(params) {
         allWindowsData,
         singleWindowData,
         sessionTokenError,
+        results,
     };
 }
-//# sourceMappingURL=quota-render-data.js.map

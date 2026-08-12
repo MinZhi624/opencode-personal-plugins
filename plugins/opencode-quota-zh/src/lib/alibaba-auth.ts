@@ -4,8 +4,8 @@ import {
   getGlobalOpencodeConfigCandidatePaths,
   resolveApiKeyFromEnvAndConfig,
 } from "./api-key-resolver.js";
-import { getAuthPaths, readAuthFileCached } from "./opencode-auth.js";
 import { sanitizeDisplayText } from "./display-sanitize.js";
+import { getAuthPaths, readAuthFileCached } from "./opencode-auth.js";
 import type { AlibabaAuthData, AlibabaCodingPlanTier, AuthData } from "./types.js";
 
 export const DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS = 5_000;
@@ -78,7 +78,7 @@ function getAlibabaAuthEntry(auth: AuthData | null | undefined): unknown {
   if (!root) return undefined;
 
   for (const key of ALIBABA_AUTH_KEYS) {
-    if (Object.prototype.hasOwnProperty.call(root, key)) {
+    if (Object.hasOwn(root, key)) {
       return root[key];
     }
   }

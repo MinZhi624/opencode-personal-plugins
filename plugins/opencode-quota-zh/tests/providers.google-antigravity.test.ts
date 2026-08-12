@@ -1,14 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-
-import {
-  expectAttemptedWithErrorLabel,
-  expectNotAttempted,
-} from "./helpers/provider-assertions.js";
-import { visibleEntries } from "./helpers/provider-assertions.js";
 import { formatQuotaCommand } from "../src/lib/quota-command-format.js";
 import { formatQuotaRowsGrouped } from "../src/lib/toast-format-grouped.js";
 import { buildCompactQuotaStatusLine } from "../src/lib/tui-compact-format.js";
 import { googleAntigravityProvider } from "../src/providers/google-antigravity.js";
+import {
+  expectAttemptedWithErrorLabel,
+  expectNotAttempted,
+  visibleEntries,
+} from "./helpers/provider-assertions.js";
 
 vi.mock("../src/lib/google.js", () => ({
   hasAntigravityQuotaRuntimeAvailable: vi.fn(),

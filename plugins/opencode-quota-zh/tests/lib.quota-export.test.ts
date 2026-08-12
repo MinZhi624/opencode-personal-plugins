@@ -37,11 +37,11 @@ vi.mock("../src/lib/quota-state.js", async () => {
 // --------------- imports ---------------
 
 import { writeJsonAtomic } from "../src/lib/atomic-json.js";
+import { buildQuotaExport, resolveExportPath, writeQuotaExport } from "../src/lib/quota-export.js";
 import {
   accountingContractExport,
   accountingContractResult,
 } from "./fixtures/accounting-contract.js";
-import { resolveExportPath, buildQuotaExport, writeQuotaExport } from "../src/lib/quota-export.js";
 
 // --------------- helpers ---------------
 
@@ -88,6 +88,27 @@ describe("resolveExportPath", () => {
     );
     expect(resolveExportPath("/etc/opencode/export.json")).toBe("/etc/opencode/export.json");
     expect(resolveExportPath("relative/path/quota.json")).toBe("relative/path/quota.json");
+  });
+
+  it("expands Windows-style home-relative paths across platforms", () => {
+    expect(resolveExportPath("~\\exports\\quota.json")).toBe(
+      join(homedir(), "exports", "quota.json"),
+    );
+    expect(resolveExportPath("~\\exports\\\\nested\\quota.json")).toBe(
+      join(homedir(), "exports", "nested", "quota.json"),
+    );
+    expect(resolveExportPath("~\\")).toBe(homedir());
+  });
+
+  it("leaves unsupported tilde and ordinary backslash paths unchanged", () => {
+    expect(resolveExportPath("~")).toBe("~");
+    expect(resolveExportPath("~user/exports")).toBe("~user/exports");
+    expect(resolveExportPath("relative\\path.json")).toBe("relative\\path.json");
+    expect(resolveExportPath("C:\\exports\\quota.json")).toBe("C:\\exports\\quota.json");
+    expect(resolveExportPath("\\\\server\\share\\quota.json")).toBe(
+      "\\\\server\\share\\quota.json",
+    );
+    expect(resolveExportPath("~/literal\\name.json")).toBe(join(homedir(), "literal\\name.json"));
   });
 });
 
@@ -152,6 +173,7 @@ describe("buildQuotaExport", () => {
     expect(exportData.version).toBe(2);
     expect(exportData.fromCache).toBe(true);
     expect(exportData.exportedAt).toBe(Math.floor(Date.now() / 1000));
+    expect(exportData.integrity).toBe("complete");
 
     const provider = exportData.providers.copilot;
     expect(provider).toBeDefined();
@@ -241,6 +263,61 @@ describe("buildQuotaExport", () => {
       ],
       errors: [{ label: "bob…", message: "Unauthorized" }],
     });
+  });
+
+  it("exports Kilo Pass raw accounting details without adding them to human entries", async () => {
+    const rawDetails = [
+      { key: "base_credits_usd", value: "$10.00" },
+      { key: "usage_usd", value: "$12.00" },
+      { key: "bonus_credits_usd", value: "$0.00" },
+      { key: "remaining_usd", value: "$0.00" },
+      { key: "overage_usd", value: "$2.00" },
+      { key: "reset_at", value: "2026-07-01T00:00:00.000Z" },
+    ];
+    mockReadCachedProviderResult.mockResolvedValue({
+      hit: true,
+      result: {
+        attempted: true,
+        entries: [
+          {
+            accounting: { ...QUOTA_ACCOUNTING, authority: "locally_derived" },
+            name: "Kilo Gateway Credits",
+            percentRemaining: 0,
+            resetTimeIso: "2026-07-01T00:00:00.000Z",
+          },
+          {
+            accounting: { ...QUOTA_ACCOUNTING, authority: "locally_derived" },
+            kind: "value",
+            name: "Kilo Gateway Remaining Credits",
+            value: "$0.00",
+          },
+        ],
+        errors: [],
+        rawDetails,
+      },
+      timestamp: Date.now(),
+    });
+
+    const actual = await buildQuotaExport({
+      providers: [createMockProvider("kilo")],
+      ctx: createMockContext(),
+      ttlMs: 60_000,
+      fromCache: true,
+    });
+
+    const provider = actual.providers.kilo;
+    expect(provider).toMatchObject({
+      status: "ok",
+      rawDetails,
+      entries: [
+        { name: "Kilo Gateway Credits", percentRemaining: 0 },
+        { name: "Kilo Gateway Remaining Credits", value: "$0.00" },
+      ],
+    });
+    if (provider?.status === "ok") {
+      expect(JSON.stringify(provider.entries)).not.toContain("$2.00");
+      expect(JSON.stringify(provider.entries)).not.toContain("overage");
+    }
   });
 
   it("matches the v2 all-result-types JSON golden", async () => {
@@ -535,6 +612,53 @@ describe("buildQuotaExport", () => {
 
     // Oldest is "a" at 10:00, now is 12:00 → 2h = 7200s
     expect(exportData.cacheAgeSeconds).toBe(7200);
+  });
+
+  it("computes export integrity through the unified snapshot semantics", async () => {
+    // One provider with fresh entries, one cache miss → partial.
+    mockReadCachedProviderResult
+      .mockResolvedValueOnce({
+        hit: true,
+        result: {
+          attempted: true,
+          entries: [{ accounting: QUOTA_ACCOUNTING, name: "A", percentRemaining: 90 }],
+          errors: [],
+        },
+        timestamp: Date.now(),
+      })
+      .mockResolvedValueOnce({ hit: false });
+
+    const partial = await buildQuotaExport({
+      providers: [createMockProvider("a"), createMockProvider("b")],
+      ctx: createMockContext(),
+      ttlMs: 60_000,
+      fromCache: true,
+    });
+    expect(partial.integrity).toBe("partial");
+
+    // A cache hit that only contains errors is not fresh data → unknown.
+    mockReadCachedProviderResult.mockReset();
+    mockReadCachedProviderResult.mockResolvedValue({
+      hit: true,
+      result: { attempted: true, entries: [], errors: [{ label: "E", message: "err" }] },
+      timestamp: Date.now(),
+    });
+    const failed = await buildQuotaExport({
+      providers: [createMockProvider("a")],
+      ctx: createMockContext(),
+      ttlMs: 60_000,
+      fromCache: true,
+    });
+    expect(failed.integrity).toBe("unknown");
+
+    // No providers monitored → unknown, never fabricated as complete.
+    const empty = await buildQuotaExport({
+      providers: [],
+      ctx: createMockContext(),
+      ttlMs: 60_000,
+      fromCache: true,
+    });
+    expect(empty.integrity).toBe("unknown");
   });
 });
 

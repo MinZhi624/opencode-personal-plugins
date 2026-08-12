@@ -90,7 +90,8 @@ const PROVIDER_CATALOG_SOURCE = {
       authentication: "opencode_auth_api_key",
       authFallbacks: ["env_api_key", "global_opencode_config"],
       quota: "remote_api",
-      notes: "Queries the documented Kilo profile balance API; reports personal USD balance only",
+      notes:
+        "Queries Kilo Pass state first, then falls back to the documented personal Gateway balance when no active subscription exists",
     },
   },
   cursor: {

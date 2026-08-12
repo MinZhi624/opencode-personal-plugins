@@ -118,4 +118,3 @@ export function formatYmd(ymd) {
     const d = String(ymd.d).padStart(2, "0");
     return `${y}-${m}-${d}`;
 }
-//# sourceMappingURL=command-parsing.js.map

@@ -32,6 +32,13 @@ import { renderCommandHeading } from "./format-utils.js";
 import type { PricingSnapshotSource } from "./types.js";
 import { ALL_WINDOWS_FORMAT_STYLE } from "./quota-format-style.js";
 import {
+  buildUnifiedQuotaSnapshot,
+  EMPTY_QUOTA_PROJECTION_STATE,
+  projectQuotaSnapshot,
+  type QuotaSnapshotProjection,
+  type UnifiedQuotaSnapshot,
+} from "./quota-snapshot.js";
+import {
   collectConcreteEnabledProviderIds,
   collectQuotaRenderData,
   collectQuotaStatusLiveProbes,
@@ -120,44 +127,35 @@ const TOKEN_REPORT_COMMANDS: readonly TokenReportCommandSpec[] = [
   {
     id: "tokens_today",
     template: "/tokens_today",
-    description: "Token + deterministic cost summary for today (calendar day, local timezone).",
-    title: "Tokens used (Today) (/tokens_today)",
-    metadataTitle: "Tokens used (Today)",
+    description: "查看今天的 token 和费用统计（按本地日历日）。",
+    title: "今日 token 用量（/tokens_today）",
+    metadataTitle: "今日 token 用量",
     kind: "today",
-  },
-  {
-    id: "tokens_daily",
-    template: "/tokens_daily",
-    description: "Token + deterministic cost summary for the last 24 hours (rolling).",
-    title: "Tokens used (Last 24 Hours) (/tokens_daily)",
-    metadataTitle: "Tokens used (Last 24 Hours)",
-    kind: "rolling",
-    windowMs: 24 * 60 * 60 * 1000,
   },
   {
     id: "tokens_weekly",
     template: "/tokens_weekly",
-    description: "Token + deterministic cost summary for the last 7 days (rolling).",
-    title: "Tokens used (Last 7 Days) (/tokens_weekly)",
-    metadataTitle: "Tokens used (Last 7 Days)",
+    description: "查看最近 7 天的 token 和费用统计。",
+    title: "最近 7 天 token 用量（/tokens_weekly）",
+    metadataTitle: "最近 7 天 token 用量",
     kind: "rolling",
     windowMs: 7 * 24 * 60 * 60 * 1000,
   },
   {
     id: "tokens_monthly",
     template: "/tokens_monthly",
-    description: "Token + deterministic cost summary for the last 30 days (rolling).",
-    title: "Tokens used (Last 30 Days) (/tokens_monthly)",
-    metadataTitle: "Tokens used (Last 30 Days)",
+    description: "查看最近 30 天的 token 和费用统计。",
+    title: "最近 30 天 token 用量（/tokens_monthly）",
+    metadataTitle: "最近 30 天 token 用量",
     kind: "rolling",
     windowMs: 30 * 24 * 60 * 60 * 1000,
   },
   {
     id: "tokens_all",
     template: "/tokens_all",
-    description: "Token + deterministic cost summary for all locally saved OpenCode history.",
-    title: "Tokens used (All Time) (/tokens_all)",
-    metadataTitle: "Tokens used (All Time)",
+    description: "查看本地保存的全部 OpenCode 历史 token 统计。",
+    title: "全部 token 用量（/tokens_all）",
+    metadataTitle: "全部 token 用量",
     kind: "all",
     topModels: 12,
     topSessions: 12,
@@ -165,30 +163,10 @@ const TOKEN_REPORT_COMMANDS: readonly TokenReportCommandSpec[] = [
   {
     id: "tokens_session",
     template: "/tokens_session",
-    description: "Token + deterministic cost summary for current session only.",
-    title: "Tokens used (Current Session) (/tokens_session)",
-    metadataTitle: "Tokens used (Current Session)",
+    description: "查看当前会话的 token 和费用统计。",
+    title: "当前会话 token 用量（/tokens_session）",
+    metadataTitle: "当前会话 token 用量",
     kind: "session",
-  },
-  {
-    id: "tokens_session_all",
-    template: "/tokens_session_all",
-    description:
-      "Token + deterministic cost summary for current session and all descendant child/subagent sessions.",
-    title: "Tokens used (Current Session Tree) (/tokens_session_all)",
-    metadataTitle: "Tokens used (Current Session Tree)",
-    kind: "session_tree",
-  },
-  {
-    id: "tokens_between",
-    template: "/tokens_between",
-    description:
-      "Token + deterministic cost report between two YYYY-MM-DD dates (local timezone, inclusive).",
-    titleForRange: (startYmd: Ymd, endYmd: Ymd) => {
-      return `Tokens used (${formatYmd(startYmd)} .. ${formatYmd(endYmd)}) (/tokens_between)`;
-    },
-    metadataTitle: "Tokens used (Date Range)",
-    kind: "between",
   },
 ] as const;
 
@@ -209,35 +187,27 @@ export const QUOTA_DIALOG_COMMANDS: readonly QuotaDialogCommandSpec[] = [
   {
     id: "quota",
     slashName: "quota",
-    title: "OpenCode Quota",
-    description: "Show deterministic quota output.",
+    title: "OpenCode 额度",
+    description: "查看当前额度。",
     dialogSize: "xlarge",
     requiresSession: true,
   },
   {
     id: "quota_status",
     slashName: "quota_status",
-    title: "OpenCode Quota Status",
-    description: "Diagnostics for quota, TUI, pricing, and local storage.",
+    title: "OpenCode 额度状态",
+    description: "诊断额度、TUI、价格和本地存储。",
     dialogSize: "xlarge",
     requiresSession: true,
     acceptsArguments: true,
   },
   {
-    id: "quota_announcements",
-    slashName: "quota_announcements",
-    title: "OpenCode Quota Announcements",
-    description: "List active bundled maintainer announcements.",
-    dialogSize: "xlarge",
-    acceptsArguments: true,
-  },
-  {
     id: "pricing_refresh",
     slashName: "pricing_refresh",
-    title: "OpenCode Quota Pricing Refresh",
-    description: "Refresh the local runtime pricing snapshot from models.dev.",
-    dialogSize: "xlarge",
-    acceptsArguments: true,
+    title: "刷新模型价格",
+    description: "强制刷新 models.dev 模型 API 价格快照。",
+    dialogSize: "large",
+    requiresSession: false,
   },
   ...TOKEN_REPORT_COMMANDS.map(
     (spec): QuotaDialogCommandSpec => ({
@@ -274,18 +244,18 @@ function describeQuotaCommandCurrentSelection(params: {
   currentProviderID?: string;
 }): string {
   if (isCursorProviderId(params.currentProviderID)) {
-    return `current provider: ${params.currentProviderID}`;
+    return `当前 Provider：${params.currentProviderID}`;
   }
   if (params.currentModel) {
-    return `current model: ${params.currentModel}`;
+    return `当前模型：${params.currentModel}`;
   }
-  return "current session";
+  return "当前会话";
 }
 
 function buildQuotaCommandUnavailableMessage(result: CollectQuotaRenderDataResult): string {
   const selection = result.selection;
   if (!selection) {
-    return "Quota unavailable\n\nNo enabled quota providers are configured.\n\nRun /quota_status for diagnostics.";
+    return "额度不可用\n\n没有配置启用的额度 Provider。\n\n运行 /quota_status 查看诊断信息。";
   }
 
   if (selection.filteringByCurrentSelection && selection.filtered.length === 0) {
@@ -293,7 +263,7 @@ function buildQuotaCommandUnavailableMessage(result: CollectQuotaRenderDataResul
       currentModel: selection.currentModel,
       currentProviderID: selection.currentProviderID,
     });
-    return `Quota unavailable\n\nNo enabled quota providers matched the ${detail}.\n\nRun /quota_status for diagnostics.`;
+    return `额度不可用\n\n没有启用的额度 Provider 匹配${detail}。\n\n运行 /quota_status 查看诊断信息。`;
   }
 
   const availableIds = result.availability
@@ -308,26 +278,41 @@ function buildQuotaCommandUnavailableMessage(result: CollectQuotaRenderDataResul
         })}`
       : "";
     return (
-      `Quota unavailable\n\nNo provider data available${scopedDetail}. ` +
-      "Make sure you are logged in to a supported provider (Copilot, OpenAI, etc.).\n\n" +
-      "Run /quota_status for diagnostics."
+      `额度不可用\n\n没有可用的 Provider 数据${scopedDetail}。` +
+      "请确认已登录支持的 Provider（Copilot、OpenAI 等）。\n\n" +
+      "运行 /quota_status 查看诊断信息。"
     );
   }
 
   return (
-    `Quota unavailable\n\nNo provider data available for detected providers (${availableIds.join(", ")}). ` +
-    "This may be a temporary API error.\n\n" +
-    "Run /quota_status for diagnostics."
+    `额度不可用\n\n检测到的 Provider 没有可用数据（${availableIds.join(", ")}）。` +
+    "这可能是暂时的 API 错误。\n\n" +
+    "运行 /quota_status 查看诊断信息。"
   );
 }
 
+/**
+ * Fetch /quota data and run it through the Ticket 07 unified snapshot /
+ * projection pipeline.
+ *
+ * The snapshot is built from the already-collected availability + raw
+ * provider results (no extra I/O) and projected with an injected clock. The
+ * projection is a pure pass-through of the current state, so /quota consumes
+ * the same pipeline the startup hint uses; the returned payloads are consumed
+ * by `formatQuotaCommand` and keep the pre-migration full output semantics.
+ */
 async function fetchQuotaCommandData(params: {
   runtime: QuotaRuntimeContext;
+  generatedAtMs: number;
   setLastSessionTokenError?: (error: SessionTokenError | undefined) => void;
-}): Promise<CollectQuotaRenderDataResult> {
+}): Promise<{
+  result: CollectQuotaRenderDataResult;
+  snapshot: UnifiedQuotaSnapshot | null;
+  projection: QuotaSnapshotProjection | null;
+}> {
   const { runtime } = params;
   const request = createQuotaRuntimeRequestContext(runtime);
-  const quotaResult = await collectQuotaRenderData({
+  const result = await collectQuotaRenderData({
     client: runtime.client,
     resolveRuntimeProviderIds: runtime.resolveRuntimeProviderIds,
     config: runtime.config,
@@ -339,10 +324,36 @@ async function fetchQuotaCommandData(params: {
   });
 
   if (runtime.config.showSessionTokens && request.sessionID) {
-    params.setLastSessionTokenError?.(quotaResult.sessionTokenError);
+    params.setLastSessionTokenError?.(result.sessionTokenError);
   }
 
-  return quotaResult;
+  let snapshot: UnifiedQuotaSnapshot | null = null;
+  let projection: QuotaSnapshotProjection | null = null;
+  if (result.selection) {
+    // Mirrors the Ticket 07 TUI startup-hint wiring: `results` is aligned
+    // with `active`; absent results mean no fresh observation for that
+    // provider.
+    snapshot = buildUnifiedQuotaSnapshot({
+      monitoredProviderIds: result.selection.providers.map((provider) => provider.id),
+      availability: result.availability.map((item) => ({
+        providerId: item.provider.id,
+        ok: item.ok,
+        ...(item.error ? { error: true } : {}),
+      })),
+      results: result.active.map((provider, index) => ({
+        providerId: provider.id,
+        result: result.results?.[index] ?? { attempted: false, entries: [], errors: [] },
+      })),
+    });
+    projection = projectQuotaSnapshot({
+      config: runtime.config,
+      snapshot,
+      now: new Date(params.generatedAtMs),
+      state: EMPTY_QUOTA_PROJECTION_STATE,
+    });
+  }
+
+  return { result, snapshot, projection };
 }
 
 async function kickPricingRefresh(params: {
@@ -722,14 +733,14 @@ function buildTokenReportUnavailableOutput(params: {
 }): string {
   const lines = [
     renderCommandHeading({
-      title: `Token report unavailable (${params.command})`,
+      title: `Token 报告不可用（${params.command}）`,
       generatedAtMs: params.generatedAtMs,
     }),
     "",
-    "session_lookup_error:",
-    `- session_id: ${params.error.sessionID}`,
-    `- error: ${params.error.message}`,
-    `- checked_path: ${params.error.checkedPath}`,
+    "会话查找错误：",
+    `- 会话 ID：${params.error.sessionID}`,
+    `- 错误：${params.error.message}`,
+    `- 检查路径：${params.error.checkedPath}`,
   ];
 
   return lines.join("\n");
@@ -925,25 +936,28 @@ export async function buildQuotaDialogCommandOutput(params: {
   if (params.command === "quota") {
     const reportData = await fetchQuotaCommandData({
       runtime,
+      generatedAtMs,
       setLastSessionTokenError: params.setLastSessionTokenError,
     });
     if (
-      !reportData.data ||
-      (reportData.selection?.filteringByCurrentSelection &&
-        reportData.selection.filtered.length === 0)
+      !reportData.result.data ||
+      (reportData.result.selection?.filteringByCurrentSelection &&
+        reportData.result.selection.filtered.length === 0)
     ) {
       return outputResult({
         command: params.command,
-        output: buildQuotaCommandUnavailableMessage(reportData),
+        output: buildQuotaCommandUnavailableMessage(reportData.result),
       });
     }
 
     return outputResult({
       command: params.command,
       output: formatQuotaCommand({
-        ...reportData.data,
+        ...reportData.result.data,
         generatedAtMs,
         percentDisplayMode: runtime.config.percentDisplayMode,
+        ...(reportData.snapshot ? { snapshot: reportData.snapshot } : {}),
+        ...(reportData.projection ? { projection: reportData.projection } : {}),
       }),
     });
   }
@@ -953,7 +967,7 @@ export async function buildQuotaDialogCommandOutput(params: {
     if (!parsed.ok) {
       return outputResult({
         command: params.command,
-        output: `Invalid arguments for /quota_status\n\n${parsed.error}\n\nExample:\n/quota_status {"refreshGoogleTokens": true}`,
+        output: `/quota_status 参数无效\n\n${parsed.error}\n\n示例：\n/quota_status {"refreshGoogleTokens": true}`,
       });
     }
 

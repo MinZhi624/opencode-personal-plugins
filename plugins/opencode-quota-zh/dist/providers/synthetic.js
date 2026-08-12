@@ -2,8 +2,8 @@
  * Synthetic provider wrapper.
  */
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
-import { getSyntheticKeyDiagnostics, hasSyntheticApiKeyConfigured, querySyntheticQuota, } from "../lib/synthetic.js";
 import { modelProviderIncludesAny } from "../lib/provider-model-matching.js";
+import { getSyntheticKeyDiagnostics, hasSyntheticApiKeyConfigured, querySyntheticQuota, } from "../lib/synthetic.js";
 import { attemptedResult, mapNullableProviderResult, withStatusDetails } from "./result-helpers.js";
 function formatSyntheticRoundedValue(value) {
     if (!Number.isFinite(value))
@@ -76,4 +76,3 @@ export const syntheticProvider = {
         return withStatusDetails(providerResult, [{ key: "synthetic api key", value: detail }]);
     },
 };
-//# sourceMappingURL=synthetic.js.map

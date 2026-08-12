@@ -21,6 +21,11 @@ import {
 } from "./format-utils.js";
 import { formatGroupedHeader } from "./grouped-header-format.js";
 import { groupQuotaEntries } from "./grouped-entry-normalization.js";
+import type {
+  QuotaSnapshotProjection,
+  StartupHintOverallState,
+  UnifiedQuotaSnapshot,
+} from "./quota-snapshot.js";
 import {
   renderPlainTextReport,
   type ReportDocument,
@@ -34,11 +39,11 @@ import { classifyQuotaWindowText, type QuotaWindowKind } from "./quota-entry-dis
  * Uses seconds/minutes/hours/days format for /quota command.
  */
 function formatResetTimeSeconds(diffSeconds: number): string {
-  if (!Number.isFinite(diffSeconds) || diffSeconds <= 0) return "now";
-  if (diffSeconds < 60) return `${Math.ceil(diffSeconds)}s`;
-  if (diffSeconds < 3600) return `${Math.ceil(diffSeconds / 60)}m`;
-  if (diffSeconds < 86400) return `${Math.round(diffSeconds / 3600)}h`;
-  return `${Math.round(diffSeconds / 86400)}d`;
+  if (!Number.isFinite(diffSeconds) || diffSeconds <= 0) return "现在";
+  if (diffSeconds < 60) return `${Math.ceil(diffSeconds)}秒`;
+  if (diffSeconds < 3600) return `${Math.ceil(diffSeconds / 60)}分钟`;
+  if (diffSeconds < 86400) return `${Math.round(diffSeconds / 3600)}小时`;
+  return `${Math.round(diffSeconds / 86400)}天`;
 }
 
 function formatResetsIn(iso?: string): string {
@@ -46,7 +51,7 @@ function formatResetsIn(iso?: string): string {
   const t = new Date(iso).getTime();
   if (!Number.isFinite(t)) return "";
   const diffSeconds = (t - Date.now()) / 1000;
-  return ` | resets in ${formatResetTimeSeconds(diffSeconds)}`;
+  return ` | ${formatResetTimeSeconds(diffSeconds)}后重置`;
 }
 
 export const QUOTA_COMMAND_BAR_WIDTH = 10;
@@ -59,12 +64,57 @@ function normalizeMetricText(value?: string): string {
 const COMMAND_WINDOW_LABELS: Readonly<Partial<Record<QuotaWindowKind, string>>> = {
   rpm: "RPM",
   five_hour: "5h",
-  hour: "Hour",
-  week: "Week",
-  day: "Day",
-  month: "Month",
-  year: "Year",
+  hour: "小时",
+  week: "周",
+  day: "天",
+  month: "月",
+  year: "年",
 };
+
+const SNAPSHOT_INTEGRITY_LABELS: Readonly<Record<UnifiedQuotaSnapshot["integrity"], string>> = {
+  complete: "完整",
+  partial: "部分",
+  unknown: "未知",
+};
+
+const SNAPSHOT_STATE_LABELS: Readonly<Record<StartupHintOverallState, string>> = {
+  ok: "正常",
+  partial: "部分可用",
+  unknown: "未知",
+  none: "无",
+};
+
+/**
+ * Snapshot section rendered from the Ticket 07 unified snapshot + projection
+ * pipeline. Additive: row rendering keeps using the full entry data so the
+ * pre-migration /quota output stays semantically equivalent.
+ */
+function buildSnapshotSection(params: {
+  snapshot: UnifiedQuotaSnapshot;
+  projection?: QuotaSnapshotProjection;
+}): ReportSection {
+  const providerCount = params.snapshot.providers.length;
+  const freshCount = params.snapshot.providers.filter(
+    (provider) => provider.quality === "fresh",
+  ).length;
+  const state = params.projection?.startupHint.state;
+  const statePart = state ? ` · 总体状态：${SNAPSHOT_STATE_LABELS[state]}` : "";
+  return {
+    id: "snapshot",
+    title: "统一快照",
+    blocks: [
+      {
+        kind: "lines",
+        lines: [
+          `  v${params.snapshot.version} · 完整性：${
+            SNAPSHOT_INTEGRITY_LABELS[params.snapshot.integrity]
+          }${statePart}`,
+          `  监控 Provider：${providerCount}（正常 ${freshCount} · 未知 ${providerCount - freshCount}） · 额度窗口：${params.snapshot.windows.length}`,
+        ],
+      },
+    ],
+  };
+}
 
 function getCommandWindowLabel(entry: QuotaToastEntry): string | null {
   const kind = classifyQuotaWindowText(normalizeMetricText(entry.label || entry.name));
@@ -75,33 +125,33 @@ function getCommandMetricLabel(entry: QuotaToastEntry): string {
   const window = getCommandWindowLabel(entry);
   const resultType = entry.accounting?.resultType;
 
-  if (resultType === "balance") return "Balance";
-  if (resultType === "status") return "Status";
+  if (resultType === "balance") return "余额";
+  if (resultType === "status") return "状态";
 
   const explicit = normalizeMetricText(entry.label);
   const metricLabel = normalizeMetricText(entry.metricLabel);
   const noun =
     resultType === "budget"
-      ? "budget"
+      ? "预算"
       : resultType === "usage"
-        ? "usage"
+        ? "用量"
         : resultType === "spend"
-          ? "spend"
+          ? "花费"
           : resultType === "quota" || resultType === "rate_limit"
-            ? "quota"
+            ? "额度"
             : "";
 
   if (noun) {
     return window ? `${window} ${noun}` : metricLabel || noun[0]!.toUpperCase() + noun.slice(1);
   }
-  if (window) return `${window} quota`;
+  if (window) return `${window} 额度`;
 
-  return explicit || (isValueEntry(entry) ? "Value" : "Quota");
+  return explicit || (isValueEntry(entry) ? "数值" : "额度");
 }
 
 function formatCommandDetails(entry: QuotaToastEntry, rightWidth: number): string {
   const right = entry.right?.trim();
-  const reset = formatResetsIn(entry.resetTimeIso).replace(/^ \| resets in /u, "reset ");
+  const reset = formatResetsIn(entry.resetTimeIso).replace(/^ \| /u, "");
   if (right && reset) return ` | ${padRight(right, rightWidth)} | ${reset}`;
   if (right) return ` | ${right}`;
   if (reset) return ` | ${reset}`;
@@ -114,10 +164,24 @@ function buildQuotaCommandDocument(params: {
   sessionTokens?: SessionTokensData;
   generatedAtMs?: number;
   percentDisplayMode?: PercentDisplayMode;
+  /** Ticket 07 unified snapshot; renders the snapshot summary section when present. */
+  snapshot?: UnifiedQuotaSnapshot;
+  /** Ticket 07 projection of `snapshot`; contributes the overall state label. */
+  projection?: QuotaSnapshotProjection;
 }): ReportDocument {
   const groups = groupQuotaEntries(params.entries, "quota");
 
-  const sections: ReportSection[] = groups.map((group, index) => {
+  const sections: ReportSection[] = [];
+  if (params.snapshot) {
+    sections.push(
+      buildSnapshotSection({
+        snapshot: params.snapshot,
+        projection: params.projection,
+      }),
+    );
+  }
+
+  for (const [index, group] of groups.entries()) {
     const lines: string[] = [];
     const rightWidth = Math.max(0, ...group.entries.map((row) => row.right?.trim().length ?? 0));
     for (const row of group.entries) {
@@ -138,12 +202,12 @@ function buildQuotaCommandDocument(params: {
         `  ${label}  ${bar(displayedPercent, QUOTA_COMMAND_BAR_WIDTH)}  ${padLeft(pctLabel, 9)}${details}`,
       );
     }
-    return {
+    sections.push({
       id: `group-${index}`,
       title: `→ ${formatGroupedHeader(group.group)}`,
       blocks: [{ kind: "lines", lines }],
-    };
-  });
+    });
+  }
 
   if (params.sessionTokens && params.sessionTokens.models.length > 0) {
     sections.push({
@@ -153,11 +217,11 @@ function buildQuotaCommandDocument(params: {
         {
           kind: "lines",
           lines: params.sessionTokens.models.map((model) => {
-            const metrics = [`${formatTokenCount(model.input)} in`];
+            const metrics = [`${formatTokenCount(model.input)} 输入`];
             if ((model.cachedInput ?? 0) > 0) {
-              metrics.push(`${formatTokenCount(model.cachedInput ?? 0)} cached`);
+              metrics.push(`${formatTokenCount(model.cachedInput ?? 0)} 缓存`);
             }
-            metrics.push(`${formatTokenCount(model.output)} out`);
+            metrics.push(`${formatTokenCount(model.output)} 输出`);
             return `  ${model.modelID}: ${metrics.join(" | ")}`;
           }),
         },
@@ -168,7 +232,7 @@ function buildQuotaCommandDocument(params: {
   if (params.errors.length > 0) {
     sections.push({
       id: "errors",
-      title: "Partial failures",
+      title: "部分失败",
       blocks: [
         {
           kind: "lines",
@@ -185,7 +249,7 @@ function buildQuotaCommandDocument(params: {
         blocks: [
           {
             kind: "lines",
-            lines: [`Quota (/quota) ${formatLocalCallTimestamp(params.generatedAtMs)}`],
+            lines: [`额度（/quota）${formatLocalCallTimestamp(params.generatedAtMs)}`],
           },
         ],
       },
@@ -200,6 +264,10 @@ export function formatQuotaCommand(params: {
   sessionTokens?: SessionTokensData;
   generatedAtMs?: number;
   percentDisplayMode?: PercentDisplayMode;
+  /** Ticket 07 unified snapshot; renders the snapshot summary section when present. */
+  snapshot?: UnifiedQuotaSnapshot;
+  /** Ticket 07 projection of `snapshot`; contributes the overall state label. */
+  projection?: QuotaSnapshotProjection;
 }): string {
   return renderPlainTextReport(buildQuotaCommandDocument(params));
 }

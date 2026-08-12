@@ -49,4 +49,3 @@ export function formatGoogleAccountErrors(errors, style, labels) {
         message: error.error,
     }));
 }
-//# sourceMappingURL=google-account-format.js.map

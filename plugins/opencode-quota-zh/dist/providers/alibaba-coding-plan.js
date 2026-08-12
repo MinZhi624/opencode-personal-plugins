@@ -1,7 +1,7 @@
-import { ALIBABA_CODING_PLAN_STATE_VERSION, computeAlibabaCodingPlanQuota, getAlibabaCodingPlanQuotaPath, readAlibabaCodingPlanQuotaState, } from "../lib/qwen-local-quota.js";
 import { DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS, getAlibabaCodingPlanAuthDiagnostics, isAlibabaModelId, resolveAlibabaCodingPlanAuthCached, } from "../lib/alibaba-auth.js";
-import { attemptedErrorResult, attemptedResult, inspectGeneratedCounterFile, notAttemptedResult, statusDetailsFromRecord, withStatusDetails, } from "./result-helpers.js";
 import { findQuotaProviderDefinition } from "../lib/quota-providers.js";
+import { ALIBABA_CODING_PLAN_STATE_VERSION, computeAlibabaCodingPlanQuota, getAlibabaCodingPlanQuotaPath, readAlibabaCodingPlanQuotaState, } from "../lib/qwen-local-quota.js";
+import { attemptedErrorResult, attemptedResult, inspectGeneratedCounterFile, notAttemptedResult, statusDetailsFromRecord, withStatusDetails, } from "./result-helpers.js";
 function tierLabel(tier) {
     return tier === "pro" ? "Pro" : "Lite";
 }
@@ -119,4 +119,3 @@ export const alibabaCodingPlanProvider = {
         return withStatusDetails(attemptedResult(entries), statusDetails);
     },
 };
-//# sourceMappingURL=alibaba-coding-plan.js.map

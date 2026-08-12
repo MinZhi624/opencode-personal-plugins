@@ -193,6 +193,38 @@ describe("dev build boundary", () => {
   }, 15_000);
 });
 
+describe("runtime build boundary", () => {
+  it("regenerates dist/ from src/ with the single supported TUI entry and no dev artifacts", () => {
+    const result = run(npmInvocation(), ["run", "build:quota-zh:runtime"], REPO_ROOT);
+    expect(result.stderr, `runtime build failed:\n${result.stdout}\n${result.stderr}`).toBe("");
+
+    const distFiles = walk(RUNTIME_DIST).map((file) => relative(RUNTIME_DIST, file).replaceAll("\\", "/")).sort();
+    expect(distFiles).toContain("index.js");
+    expect(distFiles).toContain("lib/config.js");
+    expect(distFiles).toContain("data/modelsdev-pricing.min.json");
+    expect(distFiles).toContain("bin/opencode-quota.js");
+    expect(distFiles).toContain("tui.tsx");
+    expect(distFiles).toContain("quota-zh-sidebar.tsx");
+
+    // Exactly one supported TUI entry pair: raw TSX files loaded by OpenCode.
+    for (const artifact of ["tui.js", "tui.jsx", "tui.d.ts", "quota-zh-sidebar.jsx"]) {
+      expect(existsSync(join(RUNTIME_DIST, artifact)), `unexpected TUI artifact: ${artifact}`).toBe(false);
+    }
+    for (const file of distFiles) {
+      if (file === "tui.tsx" || file === "quota-zh-sidebar.tsx") continue;
+      for (const suffix of [".ts", ".tsx", ".d.ts", ".map", ".jsx"]) {
+        expect(file.endsWith(suffix), `non-production artifact in dist: ${file}`).toBe(false);
+      }
+    }
+  }, 60_000);
+
+  it("compares the committed dist/ byte-for-byte with a clean build (--check gate)", () => {
+    const result = run(npmInvocation(), ["run", "build:quota-zh:runtime", "--", "--check"], REPO_ROOT);
+    expect(result.stderr, `runtime reproducibility check failed:\n${result.stdout}\n${result.stderr}`).toBe("");
+    expect(result.stdout).toContain("byte-identical to clean build");
+  }, 60_000);
+});
+
 describe("runtime staging boundary", () => {
   it("accepts --check and rejects quota-zh source/fixtures/dev config in the staged runtime", () => {
     // node.exe is directly spawnable everywhere; only shim CLIs (npm/tsc) need

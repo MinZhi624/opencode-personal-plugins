@@ -1,6 +1,6 @@
 import { abbreviateDisplayedModelName } from "./format-utils.js";
 import { renderMarkdownReport, } from "./report-document.js";
-import { emptyTokenBuckets, totalTokenBuckets } from "./token-buckets.js";
+import { addTokenBuckets, emptyTokenBuckets, totalTokenBuckets } from "./token-buckets.js";
 /** Use markdown-conceal for proper TUI alignment (strips markdown syntax for width calc) */
 const TABLE_WIDTH_MODE = "markdown-conceal";
 function fmtUsd(n) {
@@ -10,6 +10,30 @@ function fmtUsd(n) {
 }
 function hasRenderableSessionUsage(row) {
     return totalTokenBuckets(row.tokens) > 0 || row.costUsd > 0;
+}
+function sumSessionUsageRows(rows) {
+    let tokens = emptyTokenBuckets();
+    let costUsd = 0;
+    let messageCount = 0;
+    for (const row of rows) {
+        tokens = addTokenBuckets(tokens, row.tokens);
+        costUsd += row.costUsd;
+        messageCount += row.messageCount;
+    }
+    return { tokens, costUsd, messageCount };
+}
+/**
+ * One-line pricing snapshot identity (snapshot repricing). The aggregation
+ * records which snapshot priced the estimates; showing it here makes
+ * historical estimates reproducible: re-running after a snapshot update
+ * re-prices against the current snapshot and reports the new identity.
+ */
+function formatPricingSnapshotLine(pricing) {
+    const time = pricing.generatedAt > 0 ? fmtLocalDateTime(pricing.generatedAt) : "未记录";
+    return `定价快照：${pricing.source}（${time}）`;
+}
+function pricingSnapshotLineBlock(pricing) {
+    return pricing ? [{ kind: "lines", lines: [formatPricingSnapshotLine(pricing)] }] : [];
 }
 function appendSessionRow(sessionRows, row, current = "") {
     sessionRows.push([
@@ -184,10 +208,22 @@ export function formatQuotaStatsReport(params) {
                         ],
                     ],
                 },
+                ...pricingSnapshotLineBlock(r.pricing),
             ],
         });
     }
     else if (sessionTreeMode) {
+        const sessionUsageByID = new Map(r.bySession.map((row) => [row.sessionID, row]));
+        const rootNode = sessionTree.nodes.find((node) => node.depth === 0) ?? sessionTree.nodes[0];
+        const descendantNodes = sessionTree.nodes.filter((node) => node.depth > 0);
+        const rootRow = rootNode ? sessionUsageByID.get(rootNode.sessionID) : undefined;
+        const rootUsage = rootRow ?? { tokens: emptyTokenBuckets(), costUsd: 0, messageCount: 0 };
+        const descendantUsage = sumSessionUsageRows(descendantNodes
+            .map((node) => sessionUsageByID.get(node.sessionID))
+            .filter((row) => row !== undefined));
+        const treeUsage = sumSessionUsageRows(sessionTree.nodes
+            .map((node) => sessionUsageByID.get(node.sessionID))
+            .filter((row) => row !== undefined));
         sections.push({
             id: "summary",
             blocks: [
@@ -207,6 +243,40 @@ export function formatQuotaStatsReport(params) {
                         ],
                     ],
                 },
+                // Task-tree API list-price estimate: root session, subagents, and the
+                // task-tree total are shown and computed separately.
+                {
+                    kind: "table",
+                    headers: tableOptions.compactHeaders
+                        ? ["关系", "消息", "会话", "token", "费用"]
+                        : ["关系", "消息数", "会话数", "token", "费用"],
+                    aligns: ["left", "right", "right", "right", "right"],
+                    widthMode: TABLE_WIDTH_MODE,
+                    rows: [
+                        [
+                            "本会话",
+                            fmtCompact(rootUsage.messageCount),
+                            "1",
+                            fmtCompact(totalTokenBuckets(rootUsage.tokens)),
+                            fmtUsd(rootUsage.costUsd),
+                        ],
+                        [
+                            "子代理",
+                            fmtCompact(descendantUsage.messageCount),
+                            fmtCompact(descendantNodes.length),
+                            fmtCompact(totalTokenBuckets(descendantUsage.tokens)),
+                            fmtUsd(descendantUsage.costUsd),
+                        ],
+                        [
+                            "任务树合计",
+                            fmtCompact(treeUsage.messageCount),
+                            fmtCompact(sessionTree.nodes.length),
+                            fmtCompact(totalTokenBuckets(treeUsage.tokens)),
+                            fmtUsd(treeUsage.costUsd),
+                        ],
+                    ],
+                },
+                ...pricingSnapshotLineBlock(r.pricing),
             ],
         });
     }
@@ -231,6 +301,7 @@ export function formatQuotaStatsReport(params) {
                         ],
                     ],
                 },
+                ...pricingSnapshotLineBlock(r.pricing),
             ],
         });
     }
@@ -371,8 +442,8 @@ export function formatQuotaStatsReport(params) {
                     {
                         kind: "table",
                         headers: tableOptions.compactHeaders
-                        ? ["当前", "会话", "费用", "token", "消息", "标题"]
-                        : ["当前会话", "会话", "费用", "token", "消息数", "标题"],
+                            ? ["当前", "会话", "费用", "token", "消息", "标题"]
+                            : ["当前会话", "会话", "费用", "token", "消息数", "标题"],
                         aligns: ["left", "left", "right", "right", "right", "left"],
                         widthMode: TABLE_WIDTH_MODE,
                         rows: sessionRows,
@@ -457,4 +528,3 @@ export function formatQuotaStatsReport(params) {
     };
     return renderMarkdownReport(document);
 }
-//# sourceMappingURL=quota-stats-format.js.map

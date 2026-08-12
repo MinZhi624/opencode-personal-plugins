@@ -75,11 +75,7 @@ export function resetFsConfigMocks(mocks: FsConfigMocks): void {
   mocks.readFile.mockReset();
 }
 
-export function mockTrustedConfigFile(
-  mocks: FsConfigMocks,
-  path: string,
-  contents: string,
-): void {
+export function mockTrustedConfigFile(mocks: FsConfigMocks, path: string, contents: string): void {
   mockExistingConfigPath(mocks, path);
   mocks.readFile.mockImplementation(async (candidatePath: string) => {
     if (candidatePath !== path) {

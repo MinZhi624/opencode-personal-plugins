@@ -33,6 +33,19 @@ function normalizedProviderIds(providerIds) {
     }
     return out;
 }
+export function getMaintainerAnnouncementTargetProviderIds(params) {
+    const out = [];
+    const seen = new Set();
+    for (const announcement of params?.announcements ?? BUNDLED_MAINTAINER_ANNOUNCEMENTS) {
+        for (const providerId of normalizedProviderIds(announcement.providerIds ?? [])) {
+            if (seen.has(providerId))
+                continue;
+            seen.add(providerId);
+            out.push(providerId);
+        }
+    }
+    return out;
+}
 function isHttpsUrl(value) {
     if (typeof value !== "string") {
         return false;
@@ -125,4 +138,3 @@ export function formatMaintainerAnnouncementHomeCountLine(activeCount) {
     }
     return `Notice: ${activeCount} maintainer announcements available. Run /quota_announcements.`;
 }
-//# sourceMappingURL=maintainer-announcements.js.map

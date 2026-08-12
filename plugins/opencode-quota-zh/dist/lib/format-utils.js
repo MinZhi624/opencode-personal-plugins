@@ -121,8 +121,8 @@ const MS_PER_HOUR = 3_600_000;
 /**
  * Format a reset countdown for toast display.
  *
-     * Returns human-readable Chinese time such as "2天5小时" or "3小时45分钟".
-     * When reset time is in the past or invalid, returns "已重置".
+ * Returns human-readable Chinese time such as "2天5小时" or "3小时45分钟".
+ * When reset time is in the past or invalid, returns "已重置".
  */
 export function formatResetCountdown(iso, opts) {
     if (!iso)
@@ -165,4 +165,3 @@ export function isResetTimeDecimals(value) {
         value >= 0 &&
         value <= MAX_RESET_TIME_DECIMALS);
 }
-//# sourceMappingURL=format-utils.js.map

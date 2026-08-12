@@ -12,4 +12,3 @@ export function pickFirstExistingPath(candidates) {
     // Deterministic fallback for diagnostics.
     return candidates[0] ?? "";
 }
-//# sourceMappingURL=path-pick.js.map

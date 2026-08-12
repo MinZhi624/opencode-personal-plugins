@@ -38,6 +38,13 @@ vi.mock("../src/lib/modelsdev-pricing.js", () => ({
       ? { input: 1, output: 1, reasoning: 1, cache_read: 1, cache_write: 1 }
       : null,
   ),
+  getPricingSnapshotMeta: vi.fn(() => ({
+    source: "bundled",
+    generatedAt: 0,
+    providers: ["openai"],
+    units: "USD per 1M tokens",
+  })),
+  getPricingSnapshotSource: vi.fn(() => "bundled"),
 }));
 
 vi.mock("../src/lib/cursor-pricing.js", () => ({
@@ -384,5 +391,48 @@ describe("aggregateUsage session scoping", () => {
         tokens: expect.objectContaining({ input: 7, output: 2 }),
       }),
     ]);
+  });
+
+  it("records the active pricing snapshot identity used for repricing", async () => {
+    const storage = await import("../src/lib/opencode-storage.js");
+    (storage.iterAssistantMessagesForSession as any).mockResolvedValue([
+      {
+        sessionID: "ses_root",
+        role: "assistant",
+        providerID: "openai",
+        modelID: "gpt-5",
+        tokens: {
+          input: 10,
+          output: 5,
+          reasoning: 2,
+          cache: { read: 4, write: 1 },
+        },
+      },
+      {
+        sessionID: "ses_root",
+        role: "assistant",
+        providerID: "openai",
+        modelID: "gpt-5",
+        tokens: { input: 3, output: 3, cache: { read: 6, write: 0 } },
+      },
+    ]);
+
+    const result = await aggregateUsage({ sessionID: "ses_root" });
+
+    // Five token kinds stay complete and priced per message; the aggregation
+    // records which pricing snapshot produced the estimate so re-running
+    // after a snapshot update deterministically re-prices.
+    expect(result.totals.priced).toEqual({
+      input: 13,
+      output: 8,
+      reasoning: 2,
+      cache_read: 10,
+      cache_write: 1,
+    });
+    expect(result.pricing).toEqual({
+      source: "bundled",
+      generatedAt: 0,
+      units: "USD per 1M tokens",
+    });
   });
 });

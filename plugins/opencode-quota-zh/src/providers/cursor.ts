@@ -1,3 +1,15 @@
+import {
+  CURSOR_CANONICAL_PLUGIN_PACKAGE,
+  inspectCursorAuthPresence,
+  inspectCursorOpenCodeIntegration,
+} from "../lib/cursor-detection.js";
+import {
+  getCursorPlanDisplayName,
+  getEffectiveCursorIncludedApiUsd,
+  isCursorModelId,
+  isCursorProviderId,
+} from "../lib/cursor-pricing.js";
+import { getCurrentCursorUsageSummary } from "../lib/cursor-usage.js";
 import type {
   QuotaProvider,
   QuotaProviderContext,
@@ -6,18 +18,6 @@ import type {
 } from "../lib/entries.js";
 import { fmtUsdAmount } from "../lib/format-utils.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
-import {
-  getEffectiveCursorIncludedApiUsd,
-  getCursorPlanDisplayName,
-  isCursorModelId,
-  isCursorProviderId,
-} from "../lib/cursor-pricing.js";
-import {
-  CURSOR_CANONICAL_PLUGIN_PACKAGE,
-  inspectCursorAuthPresence,
-  inspectCursorOpenCodeIntegration,
-} from "../lib/cursor-detection.js";
-import { getCurrentCursorUsageSummary } from "../lib/cursor-usage.js";
 import {
   attemptedResult,
   notAttemptedResult,

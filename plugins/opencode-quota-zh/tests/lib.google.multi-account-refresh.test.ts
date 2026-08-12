@@ -364,7 +364,9 @@ describe("google antigravity multi-account refresh", () => {
 
     expect(fetchSpy).toHaveBeenCalledTimes(2);
     const secondCall = fetchSpy.mock.calls[1];
-    expect(secondCall[0]).toBe("https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels");
+    expect(secondCall[0]).toBe(
+      "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+    );
     const bodyObj = JSON.parse(secondCall[1].body);
     expect(bodyObj.project).toBe("managed-proj");
   });

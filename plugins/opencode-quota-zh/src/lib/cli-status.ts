@@ -1,9 +1,9 @@
-import type { QuotaRuntimeClient } from "./quota-runtime-context.js";
+import { createCliQuotaClient, resolveCliRoots } from "./cli-show.js";
 
 import { getQuotaProviderShape } from "./provider-metadata.js";
-import { resolveQuotaRuntimeContext } from "./quota-runtime-context.js";
 import { buildStatusReportData } from "./quota-dialog-commands.js";
-import { createCliQuotaClient, resolveCliRoots } from "./cli-show.js";
+import type { QuotaRuntimeClient } from "./quota-runtime-context.js";
+import { resolveQuotaRuntimeContext } from "./quota-runtime-context.js";
 
 export interface RunCliStatusCommandOptions {
   argv?: string[];

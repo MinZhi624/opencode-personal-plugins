@@ -1,7 +1,7 @@
 import { sanitizeDisplaySnippet, sanitizeDisplayText } from "./display-sanitize.js";
 import { clampPercent } from "./format-utils.js";
 import { fetchWithTimeout } from "./http.js";
-import { resolveKimiAuthCached, DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS } from "./kimi-auth.js";
+import { DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS, resolveKimiAuthCached } from "./kimi-auth.js";
 const KIMI_USAGE_URL = "https://api.kimi.com/coding/v1/usages";
 const USER_AGENT = "OpenCode-Quota-Toast/1.0";
 function getFiniteNumber(value) {
@@ -208,4 +208,3 @@ export async function queryKimiQuota(options = {}) {
         error: describeUnexpectedPayload(result.topLevelKeys),
     };
 }
-//# sourceMappingURL=kimi.js.map

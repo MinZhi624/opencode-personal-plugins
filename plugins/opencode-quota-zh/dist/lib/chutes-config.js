@@ -1,5 +1,5 @@
-import { getAuthPaths, readAuthFile } from "./opencode-auth.js";
 import { createProviderApiKeyResolver, getGlobalOpencodeConfigCandidatePaths, } from "./api-key-resolver.js";
+import { getAuthPaths, readAuthFile } from "./opencode-auth.js";
 const ALLOWED_CHUTES_ENV_VARS = ["CHUTES_API_KEY"];
 const CHUTES_PROVIDER_KEYS = ["chutes"];
 export { getGlobalOpencodeConfigCandidatePaths as getOpencodeConfigCandidatePaths } from "./api-key-resolver.js";
@@ -25,4 +25,3 @@ export async function hasChutesApiKey() {
 export async function getChutesKeyDiagnostics() {
     return chutesApiKeyResolver.diagnostics();
 }
-//# sourceMappingURL=chutes-config.js.map

@@ -7,8 +7,8 @@
 import { existsSync } from "fs";
 import { sanitizeDisplayText } from "./display-sanitize.js";
 import { resolveEnvTemplate } from "./env-template.js";
-import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
 import { buildOpenCodeConfigCandidates, readOpenCodeConfigCandidate, } from "./opencode-config-read.js";
+import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
 function buildOpencodeConfigCandidates(configDirs) {
     return buildOpenCodeConfigCandidates({
         directories: configDirs,
@@ -59,7 +59,7 @@ export function getFirstAuthEntryValue(auth, authKeys) {
     if (!root)
         return undefined;
     for (const authKey of authKeys) {
-        if (Object.prototype.hasOwnProperty.call(root, authKey)) {
+        if (Object.hasOwn(root, authKey)) {
             return root[authKey];
         }
     }
@@ -296,4 +296,3 @@ export async function getApiKeyDiagnostics(config) {
         checkedPaths,
     };
 }
-//# sourceMappingURL=api-key-resolver.js.map

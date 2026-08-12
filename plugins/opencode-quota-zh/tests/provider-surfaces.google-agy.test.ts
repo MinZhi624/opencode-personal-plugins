@@ -147,7 +147,7 @@ describe("Google AGY provider surfaces", () => {
       expect(output.indexOf("Weekly")).toBeLessThan(output.indexOf("Five-hour"));
     }
     for (const header of headers) expect(command).toContain(header);
-    expect(command.indexOf("Week quota")).toBeLessThan(command.indexOf("5h quota"));
+    expect(command.indexOf("周 额度")).toBeLessThan(command.indexOf("5h 额度"));
     expect(compact).toBe(
       "AGY (ali…): Gemini 7d 99%, 5h 100% | " +
         "AGY (ali…): Claude/GPT 7d 82%, 5h 100% | " +

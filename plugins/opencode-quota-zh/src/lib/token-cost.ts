@@ -12,10 +12,7 @@ function perToken(usdPer1M?: number): number {
   return typeof usdPer1M === "number" ? usdPer1M / 1_000_000 : 0;
 }
 
-export function calculateUsdFromTokenBuckets(
-  rates: CostBuckets,
-  tokens: TokenBucketLike,
-): number {
+export function calculateUsdFromTokenBuckets(rates: CostBuckets, tokens: TokenBucketLike): number {
   const inputRate = perToken(rates.input);
   const outputRate = perToken(rates.output);
   const cacheReadRate = perToken(rates.cache_read ?? rates.input);

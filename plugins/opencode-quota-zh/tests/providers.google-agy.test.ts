@@ -1,12 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-
+import { googleAgyProvider } from "../src/providers/google-agy.js";
 import {
   expectAttemptedWithErrorLabel,
   expectAttemptedWithNoErrors,
   expectNotAttempted,
   visibleEntries,
 } from "./helpers/provider-assertions.js";
-import { googleAgyProvider } from "../src/providers/google-agy.js";
 
 vi.mock("../src/lib/google-agy.js", () => ({
   hasAgyQuotaRuntimeAvailable: vi.fn(),

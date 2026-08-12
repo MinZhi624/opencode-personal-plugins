@@ -256,4 +256,3 @@ export const copilotProvider = {
         return withStatusDetails(attemptedResult(entries, errors, presentation), statusDetails);
     },
 };
-//# sourceMappingURL=copilot.js.map

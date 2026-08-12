@@ -58,19 +58,19 @@ describe("quota provider four-surface formatting", () => {
       maxWidth: 200,
     });
 
-    expect(command).toMatch(/^Quota \(\/quota\)/);
+    expect(command).toMatch(/^额度（\/quota）/);
     expect(command).not.toContain("```");
-    expect(command).toMatch(/→ \[Duplicate label\]\n {2}Week quota/u);
+    expect(command).toMatch(/→ \[Duplicate label\]\n {2}周 额度/u);
     const providerRows = command
       .split("\n")
-      .filter((line) => line.includes("Week quota") || line.includes("Balance"));
+      .filter((line) => line.includes("周 额度") || line.includes("余额"));
     expect(providerRows).toHaveLength(2);
     expect(providerRows.every((line) => /^ {2}\S/u.test(line))).toBe(true);
     const bars = command.match(/[█░]+/gu) ?? [];
     expect(bars).toHaveLength(1);
     expect(Array.from(bars[0]!)).toHaveLength(10);
-    expect(command).toMatch(/Week quota\s+[█░]{10}\s+10% left \| reset /);
-    expect(command).toMatch(/Balance\s+\$4\.00/);
+    expect(command).toMatch(/周 额度\s+[█░]{10}\s+10% 剩余 \| \d+天后重置/);
+    expect(command).toMatch(/余额\s+\$4\.00/);
 
     for (const output of [command, toast, sidebar, compact]) {
       expect(output).toContain("10%");
@@ -79,6 +79,6 @@ describe("quota provider four-surface formatting", () => {
     expect(command).toContain("one source unavailable");
     expect(toast).toContain("one source unavailable");
     expect(sidebar).toContain("one source unavailable");
-    expect(compact).toContain("issue");
+    expect(compact).toContain("个问题");
   });
 });

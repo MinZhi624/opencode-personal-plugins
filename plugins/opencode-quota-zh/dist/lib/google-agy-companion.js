@@ -61,4 +61,3 @@ export async function resolveAgyClientCredentials() {
 export function clearAgyCompanionCacheForTests() {
     resolver.clearCacheForTests();
 }
-//# sourceMappingURL=google-agy-companion.js.map

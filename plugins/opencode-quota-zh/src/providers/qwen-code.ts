@@ -4,17 +4,18 @@ import type {
   QuotaProviderResult,
   QuotaToastEntry,
 } from "../lib/entries.js";
-import {
-  QWEN_LOCAL_QUOTA_STATE_VERSION,
-  computeQwenQuota,
-  getQwenLocalQuotaPath,
-  readQwenLocalQuotaState,
-} from "../lib/qwen-local-quota.js";
+import { findQuotaProviderDefinition } from "../lib/quota-providers.js";
 import {
   DEFAULT_QWEN_AUTH_CACHE_MAX_AGE_MS,
   isQwenCodeModelId,
   resolveQwenLocalPlanCached,
 } from "../lib/qwen-auth.js";
+import {
+  computeQwenQuota,
+  getQwenLocalQuotaPath,
+  QWEN_LOCAL_QUOTA_STATE_VERSION,
+  readQwenLocalQuotaState,
+} from "../lib/qwen-local-quota.js";
 import {
   attemptedResult,
   inspectGeneratedCounterFile,
@@ -22,7 +23,6 @@ import {
   statusDetailsFromRecord,
   withStatusDetails,
 } from "./result-helpers.js";
-import { findQuotaProviderDefinition } from "../lib/quota-providers.js";
 
 export const qwenCodeProvider: QuotaProvider = {
   id: "qwen-code",

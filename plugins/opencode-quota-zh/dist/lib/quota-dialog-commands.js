@@ -6,9 +6,10 @@ import { inspectTuiConfig } from "./tui-config-diagnostics.js";
 import { getPricingSnapshotMeta, getPricingSnapshotSource, getRuntimePricingRefreshStatePath, getRuntimePricingSnapshotPath, maybeRefreshPricingSnapshot, setPricingSnapshotAutoRefresh, setPricingSnapshotSelection, } from "./modelsdev-pricing.js";
 import { refreshGoogleTokensForAllAccounts } from "./google.js";
 import { isCursorProviderId } from "./cursor-pricing.js";
-import { parseOptionalJsonArgs, parseQuotaBetweenArgs, startOfLocalDayMs, startOfNextLocalDayMs, formatYmd, } from "./command-parsing.js";
+import { parseOptionalJsonArgs, parseQuotaBetweenArgs, startOfLocalDayMs, startOfNextLocalDayMs, } from "./command-parsing.js";
 import { renderCommandHeading } from "./format-utils.js";
 import { ALL_WINDOWS_FORMAT_STYLE } from "./quota-format-style.js";
+import { buildUnifiedQuotaSnapshot, EMPTY_QUOTA_PROJECTION_STATE, projectQuotaSnapshot, } from "./quota-snapshot.js";
 import { collectConcreteEnabledProviderIds, collectQuotaRenderData, collectQuotaStatusLiveProbes, matchesQuotaProviderCurrentSelection, } from "./quota-render-data.js";
 import { createQuotaProviderRuntimeContext, createQuotaRuntimeRequestContext, resolveQuotaRuntimeContext, } from "./quota-runtime-context.js";
 import { BUNDLED_MAINTAINER_ANNOUNCEMENTS, getMaintainerAnnouncementsSummary, } from "./maintainer-announcements.js";
@@ -157,10 +158,20 @@ function buildQuotaCommandUnavailableMessage(result) {
         "这可能是暂时的 API 错误。\n\n" +
         "运行 /quota_status 查看诊断信息。");
 }
+/**
+ * Fetch /quota data and run it through the Ticket 07 unified snapshot /
+ * projection pipeline.
+ *
+ * The snapshot is built from the already-collected availability + raw
+ * provider results (no extra I/O) and projected with an injected clock. The
+ * projection is a pure pass-through of the current state, so /quota consumes
+ * the same pipeline the startup hint uses; the returned payloads are consumed
+ * by `formatQuotaCommand` and keep the pre-migration full output semantics.
+ */
 async function fetchQuotaCommandData(params) {
     const { runtime } = params;
     const request = createQuotaRuntimeRequestContext(runtime);
-    const quotaResult = await collectQuotaRenderData({
+    const result = await collectQuotaRenderData({
         client: runtime.client,
         resolveRuntimeProviderIds: runtime.resolveRuntimeProviderIds,
         config: runtime.config,
@@ -171,9 +182,34 @@ async function fetchQuotaCommandData(params) {
         providers: runtime.providers,
     });
     if (runtime.config.showSessionTokens && request.sessionID) {
-        params.setLastSessionTokenError?.(quotaResult.sessionTokenError);
+        params.setLastSessionTokenError?.(result.sessionTokenError);
     }
-    return quotaResult;
+    let snapshot = null;
+    let projection = null;
+    if (result.selection) {
+        // Mirrors the Ticket 07 TUI startup-hint wiring: `results` is aligned
+        // with `active`; absent results mean no fresh observation for that
+        // provider.
+        snapshot = buildUnifiedQuotaSnapshot({
+            monitoredProviderIds: result.selection.providers.map((provider) => provider.id),
+            availability: result.availability.map((item) => ({
+                providerId: item.provider.id,
+                ok: item.ok,
+                ...(item.error ? { error: true } : {}),
+            })),
+            results: result.active.map((provider, index) => ({
+                providerId: provider.id,
+                result: result.results?.[index] ?? { attempted: false, entries: [], errors: [] },
+            })),
+        });
+        projection = projectQuotaSnapshot({
+            config: runtime.config,
+            snapshot,
+            now: new Date(params.generatedAtMs),
+            state: EMPTY_QUOTA_PROJECTION_STATE,
+        });
+    }
+    return { result, snapshot, projection };
 }
 async function kickPricingRefresh(params) {
     try {
@@ -584,22 +620,25 @@ export async function buildQuotaDialogCommandOutput(params) {
     if (params.command === "quota") {
         const reportData = await fetchQuotaCommandData({
             runtime,
+            generatedAtMs,
             setLastSessionTokenError: params.setLastSessionTokenError,
         });
-        if (!reportData.data ||
-            (reportData.selection?.filteringByCurrentSelection &&
-                reportData.selection.filtered.length === 0)) {
+        if (!reportData.result.data ||
+            (reportData.result.selection?.filteringByCurrentSelection &&
+                reportData.result.selection.filtered.length === 0)) {
             return outputResult({
                 command: params.command,
-                output: buildQuotaCommandUnavailableMessage(reportData),
+                output: buildQuotaCommandUnavailableMessage(reportData.result),
             });
         }
         return outputResult({
             command: params.command,
             output: formatQuotaCommand({
-                ...reportData.data,
+                ...reportData.result.data,
                 generatedAtMs,
                 percentDisplayMode: runtime.config.percentDisplayMode,
+                ...(reportData.snapshot ? { snapshot: reportData.snapshot } : {}),
+                ...(reportData.projection ? { projection: reportData.projection } : {}),
             }),
         });
     }
@@ -675,4 +714,3 @@ export async function buildQuotaDialogCommandOutput(params) {
     }
     return { state: "noop", command: params.command, reason: "disabled" };
 }
-//# sourceMappingURL=quota-dialog-commands.js.map

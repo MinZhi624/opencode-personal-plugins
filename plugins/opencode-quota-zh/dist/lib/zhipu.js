@@ -10,4 +10,3 @@ const ZHIPU_QUOTA = {
 export function queryZhipuQuota(options = {}) {
     return queryGlmCodingPlanQuota(ZHIPU_QUOTA, options);
 }
-//# sourceMappingURL=zhipu.js.map

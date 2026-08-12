@@ -1,6 +1,6 @@
 import { isIP } from "node:net";
-import { getQuotaProviderShape } from "./provider-metadata.js";
 import { lookupCost } from "./modelsdev-pricing.js";
+import { getQuotaProviderShape } from "./provider-metadata.js";
 import { resolvePricingKey } from "./quota-stats.js";
 export const QUOTA_PROVIDER_REMOTE_FORMATS = ["quota-v1", "openrouter-key-v1", "json-v1"];
 export const QUOTA_PROVIDER_MODES = ["remote-api", "local-estimate"];
@@ -104,7 +104,7 @@ function isPlainObject(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function hasOwnKey(value, key) {
-    return Object.prototype.hasOwnProperty.call(value, key);
+    return Object.hasOwn(value, key);
 }
 function isValidId(value) {
     return (typeof value === "string" &&
@@ -1164,4 +1164,3 @@ export function cloneQuotaProviders(definitions) {
 export function findQuotaProviderDefinition(definitions, id) {
     return definitions.find((definition) => definition.id === id);
 }
-//# sourceMappingURL=quota-providers.js.map

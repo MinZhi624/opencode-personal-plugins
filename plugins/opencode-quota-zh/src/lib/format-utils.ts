@@ -69,7 +69,7 @@ export function formatDisplayedPercentLabel(
   mode: PercentDisplayMode = "remaining",
 ): string {
   const displayedPercent = resolveDisplayedPercent(percentRemaining, mode);
-  return `${displayedPercent}% ${mode === "used" ? "used" : "left"}`;
+  return `${displayedPercent}% ${mode === "used" ? "已用" : "剩余"}`;
 }
 
 export const DISPLAYED_PERCENT_LABEL_WIDTH = "100% used".length;
@@ -161,15 +161,15 @@ const MS_PER_HOUR = 3_600_000;
 /**
  * Format a reset countdown for toast display.
  *
- * Returns human-readable time like "2d 5h" or "3h 45m".
- * When reset time is in the past or invalid, returns "reset".
+ * Returns human-readable Chinese time such as "2天5小时" or "3小时45分钟".
+ * When reset time is in the past or invalid, returns "已重置".
  */
 export function formatResetCountdown(iso?: string, opts?: FormatResetCountdownOptions): string {
   if (!iso) return opts?.missing ?? "";
   const resetDate = new Date(iso);
   const now = new Date();
   const diffMs = resetDate.getTime() - now.getTime();
-  if (!Number.isFinite(diffMs) || diffMs <= 0) return "reset";
+  if (!Number.isFinite(diffMs) || diffMs <= 0) return "已重置";
 
   const diffMinutes = Math.floor(diffMs / 60000);
   const days = Math.floor(diffMinutes / 1440);
@@ -179,21 +179,21 @@ export function formatResetCountdown(iso?: string, opts?: FormatResetCountdownOp
   if (opts?.compactRounded) {
     const decimals = opts.decimals;
     if (isResetTimeDecimals(decimals)) {
-      if (days > 0) return `${(diffMs / MS_PER_DAY).toFixed(decimals)}d`;
+      if (days > 0) return `${(diffMs / MS_PER_DAY).toFixed(decimals)}天`;
       const formattedHours = (diffMs / MS_PER_HOUR).toFixed(decimals);
-      if (Number(formattedHours) > 0) return `${formattedHours}h`;
-      return `${Math.max(1, Math.ceil(diffMs / 60_000))}m`;
+      if (Number(formattedHours) > 0) return `${formattedHours}小时`;
+      return `${Math.max(1, Math.ceil(diffMs / 60_000))}分钟`;
     }
 
-    if (days > 0) return `${days}d`;
+    if (days > 0) return `${days}天`;
     const halfHours = Math.ceil(diffMinutes / 30);
     const h = Math.floor(halfHours / 2);
-    if (h > 0) return halfHours % 2 === 1 ? `${h}.5h` : `${h}h`;
-    return `0.5h`;
+    if (h > 0) return halfHours % 2 === 1 ? `${h}.5小时` : `${h}小时`;
+    return "0.5小时";
   }
 
-  if (days > 0) return `${days}d ${hours}h`;
-  return `${hours}h ${minutes}m`;
+  if (days > 0) return `${days}天${hours}小时`;
+  return `${hours}小时${minutes}分钟`;
 }
 
 export const MAX_RESET_TIME_DECIMALS = 4;

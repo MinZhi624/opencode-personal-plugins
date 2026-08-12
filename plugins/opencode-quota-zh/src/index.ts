@@ -18,7 +18,7 @@ type V1PluginModule = {
 // loader, which iterates Object.values(mod) and can conflict with other
 // plugins that also use the legacy path.
 const pluginModule = {
-  id: "@slkiser/opencode-quota",
+  id: "@local/opencode-quota-zh",
   server: QuotaToastPlugin,
 } satisfies V1PluginModule;
 

@@ -39,4 +39,3 @@ export function shouldRenderHomeBottom(panel) {
 export function getHomeBottomAnnouncementText(panel) {
     return sanitizeSingleLineDisplayText(panel.announcementText ?? "");
 }
-//# sourceMappingURL=tui-panel-state.js.map

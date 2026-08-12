@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
-
-import { accountingContractResult } from "./fixtures/accounting-contract.js";
 import {
   groupQuotaEntries,
   normalizeGroupedQuotaEntries,
 } from "../src/lib/grouped-entry-normalization.js";
+import { accountingContractResult } from "./fixtures/accounting-contract.js";
 
 describe("normalizeGroupedQuotaEntries", () => {
   it("preserves accounting metadata while grouping and sorting", () => {

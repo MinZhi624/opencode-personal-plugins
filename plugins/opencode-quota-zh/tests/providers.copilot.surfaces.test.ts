@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
-
-import type { QuotaRenderData } from "../src/lib/quota-render-data.js";
-
 import { formatQuotaCommand } from "../src/lib/quota-command-format.js";
+import type { QuotaRenderData } from "../src/lib/quota-render-data.js";
 import { formatQuotaRowsGrouped } from "../src/lib/toast-format-grouped.js";
 import { buildCompactQuotaStatusLine } from "../src/lib/tui-compact-format.js";
 import { buildSidebarQuotaPanelLines } from "../src/lib/tui-sidebar-format.js";

@@ -2,9 +2,7 @@
  * Formatting helpers for quota toast output
  */
 
-import type { QuotaToastConfig } from "./types.js";
 import type { QuotaToastEntry, QuotaToastError, SessionTokensData } from "./entries.js";
-import type { QuotaFormatStyle } from "./quota-format-style.js";
 import { isValueEntry } from "./entries.js";
 import {
   bar,
@@ -16,13 +14,15 @@ import {
   padRight,
   resolveDisplayedPercent,
 } from "./format-utils.js";
-import { formatQuotaRowsGrouped } from "./toast-format-grouped.js";
+import { buildSingleWindowPercentEntryDisplayName } from "./quota-entry-display.js";
+import type { QuotaFormatStyle } from "./quota-format-style.js";
+import { getQuotaFormatStyleDefinition } from "./quota-format-style.js";
 import {
   renderSessionTokensLines,
   renderSidebarSessionTokenSummaryLines,
 } from "./session-tokens-format.js";
-import { getQuotaFormatStyleDefinition } from "./quota-format-style.js";
-import { buildSingleWindowPercentEntryDisplayName } from "./quota-entry-display.js";
+import { formatQuotaRowsGrouped } from "./toast-format-grouped.js";
+import type { QuotaToastConfig } from "./types.js";
 
 function buildClassicNameTimeLine(params: {
   leftText: string;

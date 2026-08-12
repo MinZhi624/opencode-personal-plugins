@@ -2,12 +2,12 @@
  * Chutes AI provider wrapper.
  */
 
-import type { QuotaProvider, QuotaProviderContext, QuotaProviderResult } from "../lib/entries.js";
 import {
   getChutesKeyDiagnostics,
-  queryChutesQuota,
   hasChutesApiKeyConfigured,
+  queryChutesQuota,
 } from "../lib/chutes.js";
+import type { QuotaProvider, QuotaProviderContext, QuotaProviderResult } from "../lib/entries.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
 import { modelProviderIncludesAny } from "../lib/provider-model-matching.js";
 import { attemptedResult, mapNullableProviderResult, withStatusDetails } from "./result-helpers.js";

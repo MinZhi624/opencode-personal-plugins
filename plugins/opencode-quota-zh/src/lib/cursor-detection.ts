@@ -2,14 +2,11 @@ import { existsSync } from "fs";
 import { readFile } from "fs/promises";
 import { homedir, platform } from "os";
 import { join } from "path";
-
+import { CURSOR_LEGACY_PROVIDER_ID } from "./cursor-pricing.js";
 import { parseJsonOrJsonc } from "./jsonc.js";
 import { getAuthPaths } from "./opencode-auth.js";
 import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
 import { getQuotaProviderRuntimeIds } from "./provider-metadata.js";
-import {
-  CURSOR_LEGACY_PROVIDER_ID,
-} from "./cursor-pricing.js";
 import type { AuthData, CursorOAuthAuthData } from "./types.js";
 
 export interface CursorAuthPresence {
@@ -83,7 +80,9 @@ function hasNonEmptyString(value: unknown): value is string {
 function isValidCursorOAuthEntry(value: unknown): value is CursorOAuthAuthData {
   if (!value || typeof value !== "object") return false;
   const entry = value as Record<string, unknown>;
-  return entry.type === "oauth" && (hasNonEmptyString(entry.refresh) || hasNonEmptyString(entry.access));
+  return (
+    entry.type === "oauth" && (hasNonEmptyString(entry.refresh) || hasNonEmptyString(entry.access))
+  );
 }
 
 export async function inspectCursorAuthPresence(): Promise<CursorAuthPresence> {
@@ -169,12 +168,13 @@ function pluginIncludesCursor(value: unknown): boolean {
 function providerConfigIncludesCursor(value: unknown): boolean {
   const providerConfig = asRecord(value);
   if (!providerConfig) return false;
-  return getQuotaProviderRuntimeIds("cursor").some((id) =>
-    Object.prototype.hasOwnProperty.call(providerConfig, id),
-  );
+  return getQuotaProviderRuntimeIds("cursor").some((id) => Object.hasOwn(providerConfig, id));
 }
 
-function parseOpenCodeConfig(raw: string, isJsonc: boolean): {
+function parseOpenCodeConfig(
+  raw: string,
+  isJsonc: boolean,
+): {
   plugin: unknown[];
   provider: Record<string, unknown> | null;
 } {

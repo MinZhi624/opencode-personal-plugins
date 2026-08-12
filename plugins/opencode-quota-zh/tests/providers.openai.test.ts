@@ -1,13 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-
+import { openaiProvider } from "../src/providers/openai.js";
 import {
   expectAttemptedWithErrorLabel,
   expectAttemptedWithNoErrors,
   expectNotAttempted,
+  visibleEntries,
 } from "./helpers/provider-assertions.js";
-import { visibleEntries } from "./helpers/provider-assertions.js";
 import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
-import { openaiProvider } from "../src/providers/openai.js";
 
 vi.mock("../src/lib/openai.js", () => ({
   DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS: 5_000,

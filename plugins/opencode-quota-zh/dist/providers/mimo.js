@@ -1,8 +1,8 @@
-import { DEFAULT_MIMO_CONFIG_CACHE_MAX_AGE_MS, getMimoConfigDiagnostics, resolveMimoConfigCached, } from "../lib/mimo-config.js";
-import { queryMimoDashboard } from "../lib/mimo.js";
 import { sanitizeSingleLineDisplaySnippet } from "../lib/display-sanitize.js";
+import { queryMimoDashboard } from "../lib/mimo.js";
+import { DEFAULT_MIMO_CONFIG_CACHE_MAX_AGE_MS, getMimoConfigDiagnostics, resolveMimoConfigCached, } from "../lib/mimo-config.js";
 import { getQuotaProviderRuntimeIds } from "../lib/provider-metadata.js";
-import { attemptedErrorResult, configStatusDetails, attemptedResult, notAttemptedResult, withStatusDetails, } from "./result-helpers.js";
+import { attemptedErrorResult, attemptedResult, configStatusDetails, notAttemptedResult, withStatusDetails, } from "./result-helpers.js";
 const MIMO_LABEL = "Xiaomi MiMo";
 const MIMO_RUNTIME_IDS = new Set(getQuotaProviderRuntimeIds("xiaomi"));
 const QUOTA_ACCOUNTING = {
@@ -124,4 +124,3 @@ export const xiaomiProvider = {
         return withStatusDetails(attemptedResult(entries, endpointErrors(result)), statusDetails);
     },
 };
-//# sourceMappingURL=mimo.js.map

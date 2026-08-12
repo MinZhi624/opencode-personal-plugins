@@ -117,4 +117,3 @@ export function groupQuotaEntries(entries, target) {
 export function normalizeGroupedQuotaEntries(entries, target) {
     return groupQuotaEntries(entries, target).flatMap((group) => group.entries);
 }
-//# sourceMappingURL=grouped-entry-normalization.js.map

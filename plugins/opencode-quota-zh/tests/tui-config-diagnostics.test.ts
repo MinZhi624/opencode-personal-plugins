@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const runtimeMocks = vi.hoisted(() => ({
   getOpencodeRuntimeDirCandidates: vi.fn(),
@@ -81,7 +81,9 @@ describe("inspectTuiConfig", () => {
     writeFileSync(
       join(projectDir, "tui.json"),
       JSON.stringify({
-        plugin: [["file:///Users/test/Downloads/GitHub/opencode-quota/dist/tui.tsx", { debug: true }]],
+        plugin: [
+          ["file:///Users/test/Downloads/GitHub/opencode-quota/dist/tui.tsx", { debug: true }],
+        ],
       }),
       "utf8",
     );

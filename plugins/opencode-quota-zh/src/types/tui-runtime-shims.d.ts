@@ -1,6 +1,9 @@
 declare module "@opentui/solid" {
   export namespace JSX {
     interface Element {}
+    interface ElementChildrenAttribute {
+      children: {};
+    }
     interface IntrinsicElements {
       box: any;
       text: any;
@@ -19,6 +22,9 @@ declare module "@opentui/solid" {
 declare module "@opentui/solid/jsx-runtime" {
   export namespace JSX {
     interface Element {}
+    interface ElementChildrenAttribute {
+      children: {};
+    }
     interface IntrinsicElements {
       box: any;
       text: any;
@@ -41,6 +47,11 @@ declare module "solid-js" {
     when: T | undefined | null | false;
     children?: any;
     fallback?: any;
+  }): any;
+  export function For<T>(props: {
+    each: T | undefined | null | false;
+    fallback?: any;
+    children?: (item: T extends readonly (infer U)[] ? U : never, index: () => number) => any;
   }): any;
 }
 
@@ -94,6 +105,8 @@ declare module "@opencode-ai/plugin/tui" {
       current: {
         text: unknown;
         textMuted: unknown;
+        error: unknown;
+        warning: unknown;
       };
     };
     route: {

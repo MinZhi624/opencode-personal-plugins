@@ -17,7 +17,7 @@ import {
 
 const TEST_RUNTIME_ROOT = "/tmp/opencode-quota-google-antigravity-surfaces";
 
-let provider: (typeof import("../src/providers/google-antigravity.js"))["googleAntigravityProvider"];
+let provider: typeof import("../src/providers/google-antigravity.js")["googleAntigravityProvider"];
 
 const mocks = vi.hoisted(() => ({
   loadConfig: vi.fn(),
@@ -143,13 +143,15 @@ async function collectSurfaceOutputs() {
   );
   const command = getPromptText(client);
 
+  // Ticket 07: no routine toast on session.idle; the passive surfaces are the
+  // /quota command, the TUI sidebar and the compact status line.
   await hooks.event?.({
     event: {
       type: "session.idle",
       properties: { sessionID: "antigravity-session" },
     },
   });
-  const toast = getToastMessage(client);
+  expect(client.tui.showToast).not.toHaveBeenCalled();
 
   const tuiApi = {
     state: {
@@ -167,7 +169,7 @@ async function collectSurfaceOutputs() {
   const sidebar = [...surfaces.sidebar.lines, ...(surfaces.sidebar.linesExpanded ?? [])].join("\n");
   const compact = surfaces.compact.status === "ready" ? surfaces.compact.text : "";
 
-  return { command, toast, sidebar, compact, surfaces, hooks };
+  return { command, sidebar, compact, surfaces, hooks };
 }
 
 describe("Google Antigravity provider surfaces", () => {
@@ -213,15 +215,15 @@ describe("Google Antigravity provider surfaces", () => {
   });
 
   it("keeps two same-family accounts distinct without redundant family wording", async () => {
-    const { command, toast, sidebar, compact, surfaces, hooks } = await collectSurfaceOutputs();
+    const { command, sidebar, compact, surfaces, hooks } = await collectSurfaceOutputs();
 
-    for (const output of [command, toast, sidebar, compact]) {
+    for (const output of [command, sidebar, compact]) {
       expectNoProviderMisattribution(output);
       expect(output).toContain("Antigravity (ali…)");
       expect(output).toContain("Antigravity (bob…)");
     }
-    expect(command.match(/\n  Quota\s/gu)).toHaveLength(2);
-    expect(toast).not.toMatch(/\n(?:5h|7d|Weekly|Five-hour)\s/u);
+    expect(command.match(/\n {2}Quota\s/gu)).toHaveLength(2);
+    // Ticket 07: no routine toast carries window rows; compact keeps them out.
     expect(surfaces.sidebar.status).toBe("ready");
     expect(sidebar.match(/\nQuota\s/gu)).toHaveLength(2);
     expect(surfaces.compact.status).toBe("ready");
@@ -251,8 +253,8 @@ describe("Google Antigravity provider surfaces", () => {
       errors: [],
     });
 
-    const { command, toast, sidebar, compact, hooks } = await collectSurfaceOutputs();
-    for (const output of [command, toast, sidebar, compact]) {
+    const { command, sidebar, compact, hooks } = await collectSurfaceOutputs();
+    for (const output of [command, sidebar, compact]) {
       expect(output).toMatch(/\bClaude\b/u);
       expect(output).toMatch(/\bG3Pro\b/u);
     }
@@ -280,8 +282,8 @@ describe("Google Antigravity provider surfaces", () => {
       errors: [],
     });
 
-    const { command, toast, sidebar, compact, hooks } = await collectSurfaceOutputs();
-    for (const output of [command, toast, sidebar, compact]) {
+    const { command, sidebar, compact, hooks } = await collectSurfaceOutputs();
+    for (const output of [command, sidebar, compact]) {
       expect(output).toMatch(/Antigravity \(ali…\).*Claude/su);
       expect(output).toMatch(/Antigravity \(bob…\).*G3Pro/su);
     }
@@ -309,8 +311,8 @@ describe("Google Antigravity provider surfaces", () => {
       errors: [],
     });
 
-    const { command, toast, sidebar, compact, hooks } = await collectSurfaceOutputs();
-    for (const output of [command, toast, sidebar, compact]) {
+    const { command, sidebar, compact, hooks } = await collectSurfaceOutputs();
+    for (const output of [command, sidebar, compact]) {
       expectNoProviderMisattribution(output);
       expect(output).toContain("Antigravity (alice… 1)");
       expect(output).toContain("Antigravity (alice… 2)");

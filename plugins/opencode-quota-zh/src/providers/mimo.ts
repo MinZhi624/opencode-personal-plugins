@@ -1,3 +1,4 @@
+import { sanitizeSingleLineDisplaySnippet } from "../lib/display-sanitize.js";
 import type {
   AccountingMetadata,
   QuotaProvider,
@@ -5,11 +6,6 @@ import type {
   QuotaToastEntry,
   QuotaToastError,
 } from "../lib/entries.js";
-import {
-  DEFAULT_MIMO_CONFIG_CACHE_MAX_AGE_MS,
-  getMimoConfigDiagnostics,
-  resolveMimoConfigCached,
-} from "../lib/mimo-config.js";
 import type {
   MimoBalance,
   MimoDashboardResult,
@@ -17,12 +13,16 @@ import type {
   MimoPlanDetail,
 } from "../lib/mimo.js";
 import { queryMimoDashboard } from "../lib/mimo.js";
-import { sanitizeSingleLineDisplaySnippet } from "../lib/display-sanitize.js";
+import {
+  DEFAULT_MIMO_CONFIG_CACHE_MAX_AGE_MS,
+  getMimoConfigDiagnostics,
+  resolveMimoConfigCached,
+} from "../lib/mimo-config.js";
 import { getQuotaProviderRuntimeIds } from "../lib/provider-metadata.js";
 import {
   attemptedErrorResult,
-  configStatusDetails,
   attemptedResult,
+  configStatusDetails,
   notAttemptedResult,
   withStatusDetails,
 } from "./result-helpers.js";

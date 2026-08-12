@@ -1,12 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-
+import { chutesProvider } from "../src/providers/chutes.js";
 import {
   expectAttemptedWithErrorLabel,
   expectAttemptedWithNoErrors,
   expectNotAttempted,
+  visibleEntries,
 } from "./helpers/provider-assertions.js";
-import { visibleEntries } from "./helpers/provider-assertions.js";
-import { chutesProvider } from "../src/providers/chutes.js";
 
 vi.mock("../src/lib/chutes.js", () => ({
   queryChutesQuota: vi.fn(),

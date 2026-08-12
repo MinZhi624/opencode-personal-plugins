@@ -23,11 +23,11 @@ vi.mock("../src/lib/http.js", () => ({
 }));
 
 import {
-  OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR,
   _parseDataSlotBillingData,
   _parseDataSlotPaymentData,
   _parseSsrBillingData,
   _parseSsrPaymentData,
+  OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR,
   queryOpenCodeZenQuota,
 } from "../src/lib/opencode-zen.js";
 
@@ -175,16 +175,16 @@ describe("queryOpenCodeZenQuota", () => {
     });
   });
 
-  it.each(["", "<html><body>Nothing here</body></html>"])(
-    "returns a stable parse error for malformed or empty HTML",
-    async (html) => {
-      mocks.fetchResponse.mockResolvedValueOnce(response(html));
-      await expect(queryOpenCodeZenQuota("wrk_abc", "cookie")).resolves.toEqual({
-        success: false,
-        error: expect.stringContaining("Could not parse OpenCode Zen billing data"),
-      });
-    },
-  );
+  it.each([
+    "",
+    "<html><body>Nothing here</body></html>",
+  ])("returns a stable parse error for malformed or empty HTML", async (html) => {
+    mocks.fetchResponse.mockResolvedValueOnce(response(html));
+    await expect(queryOpenCodeZenQuota("wrk_abc", "cookie")).resolves.toEqual({
+      success: false,
+      error: expect.stringContaining("Could not parse OpenCode Zen billing data"),
+    });
+  });
 
   it("does not expose an HTTP response body", async () => {
     const secretBody = "private-html-body-cookie-secret";

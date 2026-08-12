@@ -1,5 +1,5 @@
-import { getAuthPaths, readAuthFile } from "./opencode-auth.js";
 import { createProviderApiKeyResolver, getGlobalOpencodeConfigCandidatePaths, } from "./api-key-resolver.js";
+import { getAuthPaths, readAuthFile } from "./opencode-auth.js";
 const ALLOWED_DEEPSEEK_ENV_VARS = ["DEEPSEEK_API_KEY"];
 const DEEPSEEK_PROVIDER_KEYS = ["deepseek"];
 export { getGlobalOpencodeConfigCandidatePaths as getOpencodeConfigCandidatePaths } from "./api-key-resolver.js";
@@ -25,4 +25,3 @@ export async function hasDeepSeekApiKey() {
 export async function getDeepSeekKeyDiagnostics() {
     return deepseekApiKeyResolver.diagnostics();
 }
-//# sourceMappingURL=deepseek-auth.js.map

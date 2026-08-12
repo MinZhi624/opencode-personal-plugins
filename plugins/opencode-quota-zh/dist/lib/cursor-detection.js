@@ -2,11 +2,11 @@ import { existsSync } from "fs";
 import { readFile } from "fs/promises";
 import { homedir, platform } from "os";
 import { join } from "path";
+import { CURSOR_LEGACY_PROVIDER_ID } from "./cursor-pricing.js";
 import { parseJsonOrJsonc } from "./jsonc.js";
 import { getAuthPaths } from "./opencode-auth.js";
 import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
 import { getQuotaProviderRuntimeIds } from "./provider-metadata.js";
-import { CURSOR_LEGACY_PROVIDER_ID, } from "./cursor-pricing.js";
 export const CURSOR_CANONICAL_PLUGIN_PACKAGE = "@playwo/opencode-cursor-oauth";
 const CURSOR_LEGACY_PLUGIN_PACKAGES = ["opencode-cursor", "opencode-cursor-oauth"];
 const CURSOR_COMPAT_PLUGIN_PACKAGES = new Set([
@@ -60,7 +60,7 @@ function isValidCursorOAuthEntry(value) {
     if (!value || typeof value !== "object")
         return false;
     const entry = value;
-    return entry.type === "oauth" && (hasNonEmptyString(entry.refresh) || hasNonEmptyString(entry.access));
+    return (entry.type === "oauth" && (hasNonEmptyString(entry.refresh) || hasNonEmptyString(entry.access)));
 }
 export async function inspectCursorAuthPresence() {
     const authCandidatePaths = getAuthPaths();
@@ -140,7 +140,7 @@ function providerConfigIncludesCursor(value) {
     const providerConfig = asRecord(value);
     if (!providerConfig)
         return false;
-    return getQuotaProviderRuntimeIds("cursor").some((id) => Object.prototype.hasOwnProperty.call(providerConfig, id));
+    return getQuotaProviderRuntimeIds("cursor").some((id) => Object.hasOwn(providerConfig, id));
 }
 function parseOpenCodeConfig(raw, isJsonc) {
     const parsed = asRecord(parseJsonOrJsonc(raw, isJsonc));
@@ -183,4 +183,3 @@ export async function inspectCursorOpenCodeIntegration() {
         checkedPaths,
     };
 }
-//# sourceMappingURL=cursor-detection.js.map

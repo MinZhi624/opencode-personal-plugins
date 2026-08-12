@@ -1,27 +1,27 @@
 import crypto from "node:crypto";
-import { readAuthFileCached } from "./opencode-auth.js";
-import { fetchWithTimeout } from "./http.js";
-import { mapWithConcurrency } from "./map-with-concurrency.js";
+import {
+  type AgyConfiguredCredentials,
+  clearAgyCompanionCacheForTests,
+  inspectAgyCompanionPresence,
+  resolveAgyClientCredentials,
+} from "./google-agy-companion.js";
 import {
   getCachedAccessToken,
   makeAccountCacheKey,
   setCachedAccessToken,
 } from "./google-token-cache.js";
-import {
-  clearAgyCompanionCacheForTests,
-  inspectAgyCompanionPresence,
-  resolveAgyClientCredentials,
-  type AgyConfiguredCredentials,
-} from "./google-agy-companion.js";
+import { fetchWithTimeout } from "./http.js";
+import { mapWithConcurrency } from "./map-with-concurrency.js";
+import { readAuthFileCached } from "./opencode-auth.js";
 import type {
   AuthData,
+  GeminiCliOAuthAuthData,
+  GoogleAccountError,
   GoogleAgyAuthSourceKey,
   GoogleAgyQuotaBucket,
   GoogleAgyQuotaSummaryBucket,
   GoogleAgyQuotaSummaryResponse,
   GoogleAgyResult,
-  GoogleAccountError,
-  GeminiCliOAuthAuthData,
 } from "./types.js";
 
 export const DEFAULT_AGY_AUTH_CACHE_MAX_AGE_MS = 5_000;

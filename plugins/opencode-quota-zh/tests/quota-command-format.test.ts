@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { formatQuotaCommand, QUOTA_COMMAND_BAR_WIDTH } from "../src/lib/quota-command-format.js";
+import type {
+  QuotaSnapshotProjection,
+  UnifiedQuotaSnapshot,
+} from "../src/lib/quota-snapshot.js";
 
 function accounting(
   resultType: "quota" | "rate_limit" | "usage" | "spend" | "budget" | "balance" | "status",
@@ -80,7 +84,7 @@ describe("formatQuotaCommand", () => {
     });
 
     const lines = out.split("\n");
-    expect(lines[0]).toMatch(/^Quota \(\/quota\) \d{2}:\d{2} \d{2}\/\d{2}\/\d{4}$/);
+    expect(lines[0]).toMatch(/^额度（\/quota）\d{2}:\d{2} \d{2}\/\d{2}\/\d{4}$/);
     expect(lines[0]).not.toMatch(/^#/u);
     expect(lines[1]).toBe("");
     const providerHeaderIndexes = lines.flatMap((line, index) =>
@@ -93,23 +97,23 @@ describe("formatQuotaCommand", () => {
     expect(out.match(/[█░]{10}/gu)).toHaveLength(4);
     expect(lines.slice(2).join("\n")).toMatchInlineSnapshot(`
       "→ [Copilot] (personal)
-        Quota         █████████░   86% left | 42/300 | reset 12h
+        额度            █████████░     86% 剩余 | 42/300 | 12小时后重置
 
       → [Copilot] (business)
-        Usage         9 used | 2026-01 | org=acme-corp | user=alice | reset 17d
+        用量            9 used | 2026-01 | org=acme-corp | user=alice | 17天后重置
 
       → [OpenAI] (Pro)
-        5h quota      ████░░░░░░   42% left | reset 2h
-        Week quota    ████████░░   81% left | reset 3d
+        5h 额度         ████░░░░░░     42% 剩余 | 2小时后重置
+        周 额度          ████████░░     81% 剩余 | 3天后重置
 
       → [Antigravity (acct)]
-        Claude        ███████░░░   67% left | reset 3h
+        Claude        ███████░░░     67% 剩余 | 3小时后重置
 
-      Session input/output tokens
-        openai/gpt-5: 1.2K in | 456 cached | 567 out
-        github-copilot/claude-sonnet-4.5: 987 in | 654 out
+      会话 token（输入/输出）
+        openai/gpt-5: 1.2K 输入 | 456 缓存 | 567 输出
+        github-copilot/claude-sonnet-4.5: 987 输入 | 654 输出
 
-      Partial failures
+      部分失败
         Z.ai: Authentication expired"
     `);
   });
@@ -156,11 +160,11 @@ describe("formatQuotaCommand", () => {
       errors: [],
     });
 
-    expect(out).toMatch(/\n  Quota\s/u);
-    expect(out.match(/\n  Quota\s/gu)).toHaveLength(2);
-    expect(out).toMatch(/\n  Usage\s/u);
-    expect(out).toMatch(/\n  Budget\s/u);
-    expect(out).toMatch(/\n  Spend\s/u);
+    expect(out).toMatch(/\n  额度\s/u);
+    expect(out.match(/\n  额度\s/gu)).toHaveLength(2);
+    expect(out).toMatch(/\n  用量\s/u);
+    expect(out).toMatch(/\n  预算\s/u);
+    expect(out).toMatch(/\n  花费\s/u);
     expect(out).not.toMatch(/\n  (?:Credits|Requests|Tokens|Charges)\s/u);
   });
 
@@ -190,11 +194,11 @@ describe("formatQuotaCommand", () => {
       errors: [],
     });
 
-    expect(out.indexOf("5h quota")).toBeGreaterThanOrEqual(0);
-    expect(out.indexOf("Week quota")).toBeGreaterThanOrEqual(0);
+    expect(out.indexOf("5h 额度")).toBeGreaterThanOrEqual(0);
+    expect(out.indexOf("周 额度")).toBeGreaterThanOrEqual(0);
     expect(out.indexOf("Code Review")).toBeGreaterThanOrEqual(0);
-    expect(out.indexOf("5h quota")).toBeLessThan(out.indexOf("Week quota"));
-    expect(out.indexOf("Week quota")).toBeLessThan(out.indexOf("Code Review"));
+    expect(out.indexOf("5h 额度")).toBeLessThan(out.indexOf("周 额度"));
+    expect(out.indexOf("周 额度")).toBeLessThan(out.indexOf("Code Review"));
   });
 
   it("locks rendered grouped /quota ordering for Qwen and OpenAI provider groups", () => {
@@ -232,8 +236,8 @@ describe("formatQuotaCommand", () => {
     expect(out.indexOf("→ [OpenAI] (Pro)")).toBeGreaterThanOrEqual(0);
     expect(out.indexOf("→ [Qwen] (free)")).toBeLessThan(out.indexOf("→ [OpenAI] (Pro)"));
 
-    expect(out.indexOf("RPM quota")).toBeLessThan(out.indexOf("Day quota"));
-    expect(out.indexOf("5h quota")).toBeLessThan(out.indexOf("Week quota"));
+    expect(out.indexOf("RPM 额度")).toBeLessThan(out.indexOf("天 额度"));
+    expect(out.indexOf("5h 额度")).toBeLessThan(out.indexOf("周 额度"));
   });
 
   it("honors used percent display mode in /quota percent rows", () => {
@@ -248,8 +252,8 @@ describe("formatQuotaCommand", () => {
       percentDisplayMode: "used",
     });
 
-    expect(out).toContain("Status        ██░░░░░░░░   19% used");
-    expect(out).not.toContain("81% left");
+    expect(out).toContain("Status        ██░░░░░░░░     19% 已用");
+    expect(out).not.toContain("81% 剩余");
   });
 
   it("clamps the bar but preserves over-quota used percentage meaning", () => {
@@ -264,7 +268,7 @@ describe("formatQuotaCommand", () => {
       percentDisplayMode: "used",
     });
 
-    expect(out).toContain("Status        ██████████  125% used");
+    expect(out).toContain("Status        ██████████    125% 已用");
   });
 
   it("uses fixed labels and aligned equal-width bars", () => {
@@ -298,9 +302,9 @@ describe("formatQuotaCommand", () => {
       errors: [],
     });
 
-    expect(out).toContain("Day quota");
-    expect(out).toContain("Day budget");
-    expect(out).toContain("Balance");
+    expect(out).toContain("天 额度");
+    expect(out).toContain("天 预算");
+    expect(out).toContain("余额");
 
     const percentLines = out.split("\n").filter((line) => /[█░]/u.test(line));
     const bars = percentLines.map((line) => line.match(/[█░]+/u)![0]);
@@ -347,11 +351,11 @@ describe("formatQuotaCommand", () => {
         totalOutput: 45,
       },
     });
-    const rows = output.split("\n").filter((line) => line.includes(" | reset "));
+    const rows = output.split("\n").filter((line) => line.includes("后重置"));
 
     expect(rows).toEqual([
-      "  5h quota      ██████░░░░   60% left | 2/5  | reset 5h",
-      "  Day quota     ████████░░   80% left | 2/10 | reset 11h",
+      "  5h 额度         ██████░░░░     60% 剩余 | 2/5  | 5小时后重置",
+      "  天 额度          ████████░░     80% 剩余 | 2/10 | 11小时后重置",
     ]);
     expect(output).not.toContain("```");
     expect(output).not.toMatch(/^## /mu);
@@ -360,11 +364,14 @@ describe("formatQuotaCommand", () => {
       rows[0]!.indexOf("2/"),
       rows[0]!.indexOf("2/"),
     ]);
-    expect(rows.map((line) => line.indexOf("reset"))).toEqual([
-      rows[0]!.indexOf("reset"),
-      rows[0]!.indexOf("reset"),
+    // Chinese runtime units shift the reset column when the hour count grows
+    // a digit (5小时 vs 11小时); the usage/right column stays aligned.
+    expect(rows.map((line) => line.indexOf("2/"))).toEqual([40, 40]);
+    expect(rows.map((line) => line.indexOf("后重置"))).toEqual([
+      rows[0]!.indexOf("后重置"),
+      rows[0]!.indexOf("后重置") + 1,
     ]);
-    expect(output).toContain("openai/gpt-5: 123 in | 45 out");
+    expect(output).toContain("openai/gpt-5: 123 输入 | 45 输出");
     expect(output).toContain("Example: secondary source failed");
   });
 
@@ -386,7 +393,7 @@ describe("formatQuotaCommand", () => {
     });
 
     // /quota keeps its own formatter (hour-rounded here), not toast compact rounding.
-    expect(out).toContain("reset 3h");
+    expect(out).toContain("3小时后重置");
   });
 
   it("aligns reset columns when usage values have different widths", () => {
@@ -417,14 +424,15 @@ describe("formatQuotaCommand", () => {
       errors: [],
     });
 
-    const metricLines = out.split("\n").filter((line) => line.includes(" | reset "));
+    const metricLines = out.split("\n").filter((line) => line.includes(" | "));
     expect(metricLines).toHaveLength(2);
-    expect(metricLines[0]).toContain(" | 2/5  | reset 5h");
-    expect(metricLines[1]).toContain(" | 2/10 | reset 11h");
+    expect(metricLines[0]).toContain(" | 2/5  | 5小时后重置");
+    expect(metricLines[1]).toContain(" | 2/10 | 11小时后重置");
     expect(metricLines[0]!.indexOf("2/5")).toBe(metricLines[1]!.indexOf("2/10"));
-    expect(metricLines.map((line) => line.indexOf("reset"))).toEqual([
-      metricLines[0]!.indexOf("reset"),
-      metricLines[0]!.indexOf("reset"),
+    // v1.0.1 Chinese runtime: the reset column is not digit-aligned (5小时 vs 11小时).
+    expect(metricLines.map((line) => line.indexOf("后重置"))).toEqual([
+      metricLines[0]!.indexOf("后重置"),
+      metricLines[0]!.indexOf("后重置") + 1,
     ]);
   });
 
@@ -449,10 +457,99 @@ describe("formatQuotaCommand", () => {
 
     const metric = out.split("\n").find((line) => line.includes("12345678901234567890"))!;
     expect(metric).toContain(
-      "Quota         █████████░   86% left | 12345678901234567890 | reset 12h",
+      "额度            █████████░     86% 剩余 | 12345678901234567890 | 12小时后重置",
     );
     expect(metric).toMatch(/^ {2}\S/u);
     expect(metric).not.toContain("```");
     expect(Array.from(metric).length).toBeLessThanOrEqual(76);
+  });
+
+  it("renders the Ticket 07 unified snapshot section when snapshot and projection are provided", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-15T12:00:00.000Z"));
+
+    const snapshot: UnifiedQuotaSnapshot = {
+      version: 1,
+      // Real unified snapshot semantics: 2 monitored providers, only 1 fresh
+      // (anthropic failed) → integrity is "partial", never "complete".
+      integrity: "partial",
+      providers: [
+        { providerId: "openai", quality: "fresh", errors: [] },
+        { providerId: "anthropic", quality: "failed", errors: [{ label: "Anthropic", message: "boom" }] },
+      ],
+      windows: [
+        {
+          metricType: "percent_remaining",
+          providerId: "openai",
+          providerLabel: "OpenAI",
+          windowLabel: "5h",
+          percentRemaining: 42,
+          quality: "fresh",
+          authority: "provider_reported",
+        },
+      ],
+    };
+    const projection: QuotaSnapshotProjection = {
+      startupHint: {
+        state: "partial",
+        providerCount: 2,
+        unknownCount: 1,
+        mostRelevant: {
+          providerId: "openai",
+          providerLabel: "OpenAI",
+          windowLabel: "5h",
+          percentRemaining: 42,
+        },
+      },
+      alertPlan: { version: 1, notifications: [] },
+      nextState: { version: 1, alertEpisodes: [] },
+    };
+
+    const out = formatQuotaCommand({
+      entries: [
+        {
+          accounting: accounting("quota"),
+          name: "OpenAI (Pro) 5h",
+          group: "OpenAI (Pro)",
+          label: "5h:",
+          percentRemaining: 42,
+        },
+      ],
+      errors: [{ label: "Anthropic", message: "boom" }],
+      snapshot,
+      projection,
+    });
+
+    expect(out).toContain("统一快照");
+    expect(out).toContain("v1 · 完整性：部分 · 总体状态：部分可用");
+    expect(out).toContain("监控 Provider：2（正常 1 · 未知 1） · 额度窗口：1");
+    // Pre-migration rows stay semantically equivalent.
+    expect(out).toContain("5h 额度");
+    expect(out).toContain("42% 剩余");
+    expect(out).toContain("Anthropic: boom");
+  });
+
+  it("omits the overall state when no projection is provided", () => {
+    const snapshot: UnifiedQuotaSnapshot = {
+      version: 1,
+      integrity: "complete",
+      providers: [{ providerId: "openai", quality: "fresh", errors: [] }],
+      windows: [],
+    };
+
+    const out = formatQuotaCommand({
+      entries: [
+        {
+          accounting: accounting("quota"),
+          name: "OpenAI Pro",
+          percentRemaining: 81,
+        },
+      ],
+      errors: [],
+      snapshot,
+    });
+
+    expect(out).toContain("v1 · 完整性：完整");
+    expect(out).not.toContain("总体状态");
   });
 });

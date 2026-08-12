@@ -1,6 +1,6 @@
+import { rm } from "fs/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { QuotaProviderResult } from "../src/lib/entries.js";
-import { rm } from "fs/promises";
 
 const TEST_RUNTIME_ROOT = "/tmp/opencode-quota-render-data-tests";
 const TEST_ACCOUNTING = {
@@ -823,6 +823,7 @@ describe("collectQuotaRenderData shared quota state", () => {
     const firstProvider = testProvider("synthetic", {
       attempted: false,
       statusDetails: [{ key: "api_key_source", value: "auth.json" }],
+      rawDetails: [{ key: "usage_usd", value: "$2.50" }],
     });
     const duplicateProvider = testProvider("synthetic", {
       errors: [{ label: "Synthetic", message: "must not be used" }],
@@ -842,6 +843,7 @@ describe("collectQuotaRenderData shared quota state", () => {
           entries: [],
           errors: [],
           statusDetails: [{ key: "api_key_source", value: "auth.json" }],
+          rawDetails: [{ key: "usage_usd", value: "$2.50" }],
         },
       },
       {
@@ -851,6 +853,7 @@ describe("collectQuotaRenderData shared quota state", () => {
           entries: [],
           errors: [],
           statusDetails: [{ key: "api_key_source", value: "auth.json" }],
+          rawDetails: [{ key: "usage_usd", value: "$2.50" }],
         },
       },
     ]);

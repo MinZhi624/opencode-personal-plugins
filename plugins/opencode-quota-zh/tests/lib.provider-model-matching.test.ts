@@ -41,18 +41,13 @@ describe("provider model matching helpers", () => {
   });
 
   it("supports provider prefix fragment checks", () => {
-    expect(providerIdIncludesAny("github-copilot", ["copilot", "google"])).
-      toBe(true);
-    expect(modelProviderIncludesAny("opencode-google-auth/gemini", ["google"]))
-      .toBe(true);
-    expect(modelProviderIncludesAny("anthropic/claude-3", ["google"]))
-      .toBe(false);
+    expect(providerIdIncludesAny("github-copilot", ["copilot", "google"])).toBe(true);
+    expect(modelProviderIncludesAny("opencode-google-auth/gemini", ["google"])).toBe(true);
+    expect(modelProviderIncludesAny("anthropic/claude-3", ["google"])).toBe(false);
   });
 
   it("supports full-model substring checks", () => {
-    expect(modelIncludesAny("github-copilot/claude-sonnet", ["copilot", "gemini"]))
-      .toBe(true);
-    expect(modelIncludesAny("openai/gpt-4.1", ["gemini", "claude"]))
-      .toBe(false);
+    expect(modelIncludesAny("github-copilot/claude-sonnet", ["copilot", "gemini"])).toBe(true);
+    expect(modelIncludesAny("openai/gpt-4.1", ["gemini", "claude"])).toBe(false);
   });
 });

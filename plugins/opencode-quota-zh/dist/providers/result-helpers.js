@@ -113,4 +113,3 @@ export function groupedPercentWindowEntries(params) {
     }
     return entries;
 }
-//# sourceMappingURL=result-helpers.js.map

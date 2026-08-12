@@ -189,4 +189,3 @@ export function buildCompactQuotaStatusLine(params) {
     }
     return truncateSingleLine(segments.join(COMPACT_SEGMENT_SEPARATOR), maxWidth);
 }
-//# sourceMappingURL=tui-compact-format.js.map
