@@ -146,11 +146,7 @@ describe("projectQuotaSnapshot (unified quota snapshot seam)", () => {
     });
 
     const text = formatStartupHintText(projection.startupHint, FIXED_NOW);
-    expect(text).toContain("整体正常");
-    expect(text).toContain("DeepSeek");
-    expect(text).toContain("12% 剩余");
-    expect(text).toContain("2 个 Provider");
-    expect(text).toContain("/quota");
+    expect(text).toBe("额度：DeepSeek 5h额度剩余 12%，2 小时后重置。输入 /quota 查看详情。");
   });
 
   it("shows no startup hint when no provider is monitored", () => {
@@ -172,7 +168,7 @@ describe("projectQuotaSnapshot (unified quota snapshot seam)", () => {
     expect(formatStartupHintText(projection.startupHint, FIXED_NOW)).toBeNull();
   });
 
-  it("summarizes partial failure with an unknown count without hiding fresh providers", () => {
+  it("formats the lowest fresh percent in a partial projection without unknown-count copy", () => {
     const snapshot = buildUnifiedQuotaSnapshot({
       monitoredProviderIds: ["deepseek", "nanogpt", "openai"],
       availability: [
@@ -231,13 +227,13 @@ describe("projectQuotaSnapshot (unified quota snapshot seam)", () => {
     expect(projection.startupHint.mostRelevant?.providerId).toBe("nanogpt");
 
     const text = formatStartupHintText(projection.startupHint, FIXED_NOW);
-    expect(text).toContain("部分可用");
-    expect(text).toContain("3 个 Provider");
-    expect(text).toContain("1 个状态未知");
-    expect(text).toContain("/quota");
+    expect(text).toBe("额度：NanoGPT 额度剩余 9%。输入 /quota 查看详情。");
+    expect(text).not.toContain("部分可用");
+    expect(text).not.toContain("状态未知");
+    expect(text).not.toContain("最相关");
   });
 
-  it("reports total failure as a passive unknown diagnostic, never as exhaustion", () => {
+  it("hides the startup hint when every provider failed, never inferring exhaustion", () => {
     const snapshot = buildUnifiedQuotaSnapshot({
       monitoredProviderIds: ["deepseek", "nanogpt"],
       availability: [
@@ -272,11 +268,8 @@ describe("projectQuotaSnapshot (unified quota snapshot seam)", () => {
     expect(projection.startupHint.unknownCount).toBe(2);
     expect(projection.startupHint.mostRelevant).toBeUndefined();
 
-    const text = formatStartupHintText(projection.startupHint, FIXED_NOW);
-    expect(text).toContain("额度状态未知");
-    expect(text).toContain("/quota");
-    expect(text).not.toMatch(/%\s*剩余/);
-    expect(text).not.toContain("0%");
+    // No fresh percent window: hide instead of a diagnostic or inferred 0%.
+    expect(formatStartupHintText(projection.startupHint, FIXED_NOW)).toBeNull();
   });
 
   it("never selects unreliable windows as the most relevant item", () => {
@@ -401,6 +394,33 @@ describe("projectQuotaSnapshot (unified quota snapshot seam)", () => {
     expect(projection.nextState).toBe(EMPTY_QUOTA_PROJECTION_STATE);
   });
 
+  it("formats the concise fresh-percent sentence for an OpenAI Weekly 85% window", () => {
+    const snapshot: UnifiedQuotaSnapshot = {
+      version: QUOTA_SNAPSHOT_VERSION,
+      integrity: "complete",
+      providers: [{ providerId: "openai", quality: "fresh", errors: [] }],
+      windows: [
+        percentWindow({
+          providerId: "openai",
+          providerLabel: "OpenAI",
+          percentRemaining: 85,
+          windowLabel: "Weekly:",
+          resetTimeIso: "2026-08-17T22:00:00.000Z",
+        }),
+      ],
+    };
+    const projection = projectQuotaSnapshot({
+      config: makeConfig(),
+      snapshot,
+      now: FIXED_NOW,
+      state: EMPTY_QUOTA_PROJECTION_STATE,
+    });
+
+    expect(formatStartupHintText(projection.startupHint, FIXED_NOW)).toBe(
+      "额度：OpenAI 周额度剩余 85%，166 小时后重置。输入 /quota 查看详情。",
+    );
+  });
+
   it("is deterministic: identical inputs produce identical outputs", () => {
     const snapshot = buildUnifiedQuotaSnapshot({
       monitoredProviderIds: ["deepseek"],
@@ -430,5 +450,157 @@ describe("projectQuotaSnapshot (unified quota snapshot seam)", () => {
     expect(formatStartupHintText(first.startupHint, FIXED_NOW)).toBe(
       formatStartupHintText(second.startupHint, FIXED_NOW),
     );
+  });
+});
+
+describe("formatStartupHintText (fresh lowest-percent window only)", () => {
+  function project(snapshot: UnifiedQuotaSnapshot) {
+    return projectQuotaSnapshot({
+      config: makeConfig(),
+      snapshot,
+      now: FIXED_NOW,
+      state: EMPTY_QUOTA_PROJECTION_STATE,
+    }).startupHint;
+  }
+
+  it("selects the lowest fresh percent across competing windows", () => {
+    const snapshot: UnifiedQuotaSnapshot = {
+      version: QUOTA_SNAPSHOT_VERSION,
+      integrity: "complete",
+      providers: [
+        { providerId: "deepseek", quality: "fresh", errors: [] },
+        { providerId: "nanogpt", quality: "fresh", errors: [] },
+      ],
+      windows: [
+        percentWindow({
+          providerId: "nanogpt",
+          providerLabel: "NanoGPT",
+          percentRemaining: 80,
+          windowLabel: "Weekly:",
+        }),
+        percentWindow({
+          providerId: "deepseek",
+          providerLabel: "DeepSeek",
+          percentRemaining: 12,
+          windowLabel: "5h:",
+        }),
+      ],
+    };
+
+    const payload = project(snapshot);
+    expect(payload.mostRelevant?.providerId).toBe("deepseek");
+    expect(formatStartupHintText(payload, FIXED_NOW)).toBe(
+      "额度：DeepSeek 5h额度剩余 12%。输入 /quota 查看详情。",
+    );
+  });
+
+  it("keeps the first window when competing fresh percents tie", () => {
+    const snapshot: UnifiedQuotaSnapshot = {
+      version: QUOTA_SNAPSHOT_VERSION,
+      integrity: "complete",
+      providers: [
+        { providerId: "nanogpt", quality: "fresh", errors: [] },
+        { providerId: "deepseek", quality: "fresh", errors: [] },
+      ],
+      windows: [
+        percentWindow({
+          providerId: "nanogpt",
+          providerLabel: "NanoGPT",
+          percentRemaining: 30,
+          windowLabel: "Daily:",
+        }),
+        percentWindow({
+          providerId: "deepseek",
+          providerLabel: "DeepSeek",
+          percentRemaining: 30,
+          windowLabel: "5h:",
+        }),
+      ],
+    };
+
+    const payload = project(snapshot);
+    expect(payload.mostRelevant?.providerId).toBe("nanogpt");
+    expect(formatStartupHintText(payload, FIXED_NOW)).toBe(
+      "额度：NanoGPT 天额度剩余 30%。输入 /quota 查看详情。",
+    );
+  });
+
+  it("hides when a fresh provider only reports a balance, never a percent window", () => {
+    const snapshot: UnifiedQuotaSnapshot = {
+      version: QUOTA_SNAPSHOT_VERSION,
+      integrity: "complete",
+      providers: [{ providerId: "openai", quality: "fresh", errors: [] }],
+      windows: [
+        {
+          metricType: "balance",
+          providerId: "openai",
+          providerLabel: "OpenAI",
+          currency: "USD",
+          amount: 5,
+          quality: "fresh",
+          authority: "provider_reported",
+        },
+      ],
+    };
+
+    expect(formatStartupHintText(project(snapshot), FIXED_NOW)).toBeNull();
+  });
+
+  it("omits the reset countdown when no reset time is reported", () => {
+    const snapshot: UnifiedQuotaSnapshot = {
+      version: QUOTA_SNAPSHOT_VERSION,
+      integrity: "complete",
+      providers: [{ providerId: "deepseek", quality: "fresh", errors: [] }],
+      windows: [
+        percentWindow({
+          providerId: "deepseek",
+          providerLabel: "DeepSeek",
+          percentRemaining: 30,
+        }),
+      ],
+    };
+
+    expect(formatStartupHintText(project(snapshot), FIXED_NOW)).toBe(
+      "额度：DeepSeek 额度剩余 30%。输入 /quota 查看详情。",
+    );
+  });
+
+  it("omits only the window segment for an unclassifiable label, never raw colons", () => {
+    const snapshot: UnifiedQuotaSnapshot = {
+      version: QUOTA_SNAPSHOT_VERSION,
+      integrity: "complete",
+      providers: [{ providerId: "openai", quality: "fresh", errors: [] }],
+      windows: [
+        percentWindow({
+          providerId: "openai",
+          providerLabel: "OpenAI",
+          percentRemaining: 70,
+          windowLabel: "Foobar:",
+        }),
+      ],
+    };
+
+    const text = formatStartupHintText(project(snapshot), FIXED_NOW);
+    expect(text).toBe("额度：OpenAI 额度剩余 70%。输入 /quota 查看详情。");
+    expect(text).not.toContain("Foobar");
+    expect(text).not.toContain("（）");
+  });
+
+  it("never infers 0% exhaustion from a fresh window rounding to zero", () => {
+    const snapshot: UnifiedQuotaSnapshot = {
+      version: QUOTA_SNAPSHOT_VERSION,
+      integrity: "complete",
+      providers: [{ providerId: "openai", quality: "fresh", errors: [] }],
+      windows: [
+        percentWindow({
+          providerId: "openai",
+          providerLabel: "OpenAI",
+          percentRemaining: 0.4,
+          windowLabel: "Weekly:",
+        }),
+      ],
+    };
+
+    expect(formatStartupHintText(project(snapshot), FIXED_NOW)).toBeNull();
   });
 });
