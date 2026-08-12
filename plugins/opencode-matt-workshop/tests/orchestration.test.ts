@@ -80,6 +80,7 @@ describe("controlled Workshop orchestration seam", () => {
     expect(accepted.acceptanceStatus).toBe("accepted")
     expect(git.accept).toHaveBeenCalledOnce()
     expect(client.session.promptAsync).toHaveBeenCalledTimes(2)
+    expect(client.session.promptAsync.mock.calls[1][0].body.agent).toBe("foreman")
   })
 
   it("refuses acceptance without successful Foreman Gate evidence", async () => {

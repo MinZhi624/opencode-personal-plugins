@@ -9,6 +9,8 @@ catch {
     throw new Error(`${label} must be valid JSON`);
 } };
 const render = (value) => JSON.stringify(value, null, 2);
+const testBudget = z.object({ allowedTestPaths: z.array(z.string()), focusedCommands: z.array(z.string()).min(1), fullSuiteCommands: z.array(z.string()).default([]), maxNewTestFiles: z.number().int().nonnegative(), maxNewTestCases: z.number().int().nonnegative(), allowFullSuite: z.boolean().default(false) });
+const sliceBudgets = z.object({ turnWarning: z.number().int().positive().max(40).default(40), turnLimit: z.number().int().positive().max(60).default(60), wallWarningMinutes: z.number().positive().max(15).default(15), wallLimitMinutes: z.number().positive().max(20).default(20), noProgressMinutes: z.number().positive().max(5).default(5) }).default({ turnWarning: 40, turnLimit: 60, wallWarningMinutes: 15, wallLimitMinutes: 20, noProgressMinutes: 5 });
 export function buildWorkshopTools(input, manager) {
     const runner = new CommandRunner();
     const command = (name, role, gate = false) => tool({
@@ -56,13 +58,16 @@ export function buildWorkshopTools(input, manager) {
     return {
         workshop_submit_slice: tool({
             description: "Submit exactly one structured Delegable Slice. Returns a Task Handle immediately after admission.",
-            args: { slice_spec_json: z.string().min(2) },
-            execute: async (args, context) => render(await manager.submitSlice(parseJson(args.slice_spec_json, "SliceSpec"), context.sessionID, context.directory)),
+            args: { sliceId: z.string().min(1), ticketRef: z.string().optional(), objective: z.string().min(10), acceptanceConditions: z.array(z.string()).min(1), blockers: z.array(z.string()).default([]), writeSet: z.array(z.string()).min(1), verificationPlan: z.array(z.string()).min(1), testBudget, contextRefs: z.array(z.string()).default([]), integrationCheckpoint: z.string().optional(), budgets: sliceBudgets },
+            execute: async (args, context) => { if (context.agent !== "foreman")
+                throw new Error("Only Foreman can submit a Delegable Slice"); return render(await manager.submitSlice(args, context.sessionID, context.directory, context.agent)); },
         }),
+        workshop_submit_slice_json: tool({ description: "Compatibility entry for an existing JSON SliceSpec. Prefer workshop_submit_slice.", args: { slice_spec_json: z.string().min(2) }, execute: async (args, context) => { if (context.agent !== "foreman")
+                throw new Error("Only Foreman can submit a Delegable Slice"); return render(await manager.submitSlice(parseJson(args.slice_spec_json, "SliceSpec"), context.sessionID, context.directory, context.agent)); } }),
         workshop_submit_assignment: tool({
             description: "Submit one structured Inspector, Archivist, or Surveyor Assignment. Returns a Task Handle.",
             args: { assignment_spec_json: z.string().min(2) },
-            execute: async (args, context) => render(await manager.submitAssignment(parseJson(args.assignment_spec_json, "AssignmentSpec"), context.sessionID, context.directory)),
+            execute: async (args, context) => render(await manager.submitAssignment(parseJson(args.assignment_spec_json, "AssignmentSpec"), context.sessionID, context.directory, context.agent)),
         }),
         workshop_task_status: tool({ description: "Read one controlled Task Handle.", args: { task_id: z.string().min(1) }, execute: async (args) => render(manager.get(args.task_id)) }),
         workshop_task_cancel: tool({ description: "Cancel one controlled Task Handle and its Worker session.", args: { task_id: z.string().min(1) }, execute: async (args) => render(await manager.cancel(args.task_id)) }),

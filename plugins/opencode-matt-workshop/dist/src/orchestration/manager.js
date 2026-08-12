@@ -22,7 +22,7 @@ export class OrchestrationManager {
         this.supportPool = new FifoPool(options.maxParallelSupport);
         this.rolePools = Object.fromEntries(Object.entries(options.supportRoleLimits ?? supportRoleLimit).map(([role, limit]) => [role, new FifoPool(limit)]));
     }
-    async submitSlice(raw, parentSessionId, directory) {
+    async submitSlice(raw, parentSessionId, directory, parentAgent = "foreman") {
         const spec = sliceSpecSchema.parse(raw);
         const taskId = `slice:${parentSessionId}:${spec.sliceId}`;
         const existing = this.tasks.get(taskId);
@@ -43,25 +43,25 @@ export class OrchestrationManager {
                 this.sessionTasks.delete(existing.sessionId);
         }
         const workspace = existing?.directory ? { directory: existing.directory, integration: existing.integration } : await this.git.createSlice(parentSessionId, spec.sliceId, directory, spec.integrationCheckpoint);
-        const task = this.makeTask(taskId, "slice", "maker", spec.objective, workspace.directory, parentSessionId, spec);
+        const task = this.makeTask(taskId, "slice", "maker", spec.objective, workspace.directory, parentSessionId, parentAgent, spec);
         task.integration = workspace.integration;
         this.tasks.set(task.taskId, task);
         void this.start(task, this.makerPool);
         return this.public(task);
     }
-    async submitAssignment(raw, parentSessionId, directory) {
+    async submitAssignment(raw, parentSessionId, directory, parentAgent) {
         const spec = assignmentSpecSchema.parse(raw);
         const taskId = `assignment:${parentSessionId}:${spec.assignmentId}`;
         if (this.tasks.has(taskId))
             throw new Error(`Duplicate Assignment identity: ${spec.assignmentId}`);
-        const task = this.makeTask(taskId, "assignment", spec.role, spec.objective, directory, parentSessionId, spec);
+        const task = this.makeTask(taskId, "assignment", spec.role, spec.objective, directory, parentSessionId, parentAgent, spec);
         this.tasks.set(task.taskId, task);
         void this.startSupport(task);
         return this.public(task);
     }
-    makeTask(taskId, kind, role, title, directory, parentSessionId, spec) {
+    makeTask(taskId, kind, role, title, directory, parentSessionId, parentAgent, spec) {
         const now = Date.now(), budgets = spec.budgets;
-        return { taskId, kind, role, title, directory, parentSessionId, spec, runStatus: "queued", acceptanceStatus: "not_evaluated", abort: new AbortController(), gateEvidence: [], activeElapsedMs: 0, notified: false, progress: { phase: "queued", turns: 0, turnLimit: budgets.turnLimit, elapsedMs: 0, wallLimitMs: budgets.wallLimitMinutes * 60_000, lastProgressAt: now, changedPaths: 0 } };
+        return { taskId, kind, role, title, directory, parentSessionId, parentAgent, spec, runStatus: "queued", acceptanceStatus: "not_evaluated", abort: new AbortController(), gateEvidence: [], activeElapsedMs: 0, notified: false, progress: { phase: "queued", turns: 0, turnLimit: budgets.turnLimit, elapsedMs: 0, wallLimitMs: budgets.wallLimitMinutes * 60_000, lastProgressAt: now, changedPaths: 0 } };
     }
     async startSupport(task) {
         const rolePool = this.rolePools[task.role];
@@ -303,7 +303,7 @@ export class OrchestrationManager {
         if (task.notified)
             return;
         task.notified = true;
-        await this.client.session.promptAsync({ path: { id: task.parentSessionId }, body: { noReply: true, parts: [{ type: "text", text: `[Workshop Task Handle ${task.taskId}] ${task.runStatus}${task.result ? ` / ${task.result.outcome}` : ""}. Read workshop_task_status before Acceptance Gate.` }] } }).catch(() => { task.notified = false; });
+        await this.client.session.promptAsync({ path: { id: task.parentSessionId }, body: { agent: task.parentAgent, noReply: true, parts: [{ type: "text", text: `[Workshop Task Handle ${task.taskId}] ${task.runStatus}${task.result ? ` / ${task.result.outcome}` : ""}. Read workshop_task_status before Acceptance Gate.` }] } }).catch(() => { task.notified = false; });
     }
     async validateSliceChanges(task) {
         const spec = task.spec;
@@ -323,5 +323,5 @@ export class OrchestrationManager {
             violations.push(`Test Budget case limit exceeded: ${task.result?.newTestCases} > ${spec.testBudget.maxNewTestCases}`);
         return { changedPaths, violations };
     }
-    public(task) { const { abort: _abort, releaseSlot: _release, spec: _spec, parentSessionId: _parent, integration: _integration, gateEvidence: _gate, activeSince: _active, activeElapsedMs: _elapsed, notified: _notified, approvalTimer: _approval, ...snapshot } = task; return structuredClone(snapshot); }
+    public(task) { const { abort: _abort, releaseSlot: _release, spec: _spec, parentSessionId: _parent, parentAgent: _parentAgent, integration: _integration, gateEvidence: _gate, activeSince: _active, activeElapsedMs: _elapsed, notified: _notified, approvalTimer: _approval, ...snapshot } = task; return structuredClone(snapshot); }
 }
