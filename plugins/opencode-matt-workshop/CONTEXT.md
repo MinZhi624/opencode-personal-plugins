@@ -44,6 +44,21 @@ _Avoid_: repository, source tree
 Session-bound coordination that delegates through OpenCode without owning a durable task runtime.
 _Avoid_: agent team, workflow engine
 
+**Task Handle**:
+The process-local control and observation interface for one controlled Worker run. It separates Task Run Status, result outcome, and acceptance.
+
+**Task Run Status**:
+The execution lifecycle of a controlled Worker run, independent of whether its work result is complete or accepted.
+
+**Verification Plan**:
+The Foreman's declared checks and evidence strategy for one Delegable Slice.
+
+**Test Budget**:
+The declared focused commands, permitted test paths, and bounded test additions for one Delegable Slice.
+
+**Integration Branch**:
+The temporary Git branch where the Foreman combines accepted Slice checkpoints before user-approved final integration.
+
 ## Role Language
 
 **Primary Agent**:
@@ -128,3 +143,6 @@ _Avoid_: final review, approval step
 - A Maker completes one Delegable Slice at a time.
 - A Parallel Wave contains Delegable Slices with mutually exclusive Write Sets.
 - A Ticket Result must pass the Acceptance Gate before the Foreman accepts it.
+- A Task Handle becoming result-ready does not make its Ticket Result accepted.
+- The Foreman defines the Verification Plan and Test Budget before submitting a Delegable Slice.
+- Accepted Delegable Slices become checkpoint commits on the Integration Branch.
