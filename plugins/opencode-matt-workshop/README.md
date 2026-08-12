@@ -1,6 +1,6 @@
 # OpenCode Matt Workshop
 
-A local OpenCode adapter for all [Matt Pocock promoted Skills](https://github.com/mattpocock/skills), pinned to upstream `v1.2.2`. It provides three user-facing Primary Agents and four hidden Worker Agents without adding a durable orchestration runtime.
+A local OpenCode adapter for all [Matt Pocock promoted Skills](https://github.com/mattpocock/skills), pinned to upstream `v1.2.2`. It provides three user-facing Primary Agents, four hidden Worker Agents, and process-local controlled Worker orchestration without adding a durable task runtime.
 
 ## Roles
 
@@ -34,7 +34,11 @@ Reference the local TypeScript entry from a project's `opencode.jsonc`:
       "/absolute/path/to/opencode-matt-workshop/src/index.ts",
       {
         "replace_builtin_agents": true,
-        "max_parallel_makers": 3,
+        "max_parallel_makers": 2,
+        "max_parallel_support": 6,
+        "max_parallel_inspectors": 4,
+        "max_parallel_archivists": 2,
+        "max_parallel_surveyors": 2,
         "agents": {
           "drafter": { "model": "openai/gpt-5.6-sol", "variant": "high" },
           "foreman": { "model": "openai/gpt-5.6-terra", "variant": "medium" },
@@ -53,6 +57,18 @@ Reference the local TypeScript entry from a project's `opencode.jsonc`:
 Model overrides are optional. Without them, every role inherits the surrounding OpenCode model. DeepSeek V4 Flash cannot accept image or PDF attachments; temporarily override the relevant role with an attachment-capable OpenAI model for visual work.
 
 Quit and restart OpenCode after changing plugin configuration. OpenCode loads config-time files only at startup.
+
+## Controlled orchestration
+
+Foreman starts Maker only through `workshop_submit_slice`. A structured SliceSpec defines one Delegable Slice, its Write Set, Verification Plan, Test Budget, context references, Integration checkpoint, and hard budgets. Workshop creates a fresh Git worktree, returns a Task Handle, and prevents overlapping active Write Sets.
+
+Maker returns a structured Ticket Result. `completed` means result-ready, not accepted. Foreman runs Gate Commands through `workshop_run_gate_command`, then explicitly accepts the Slice to create and integrate one checkpoint commit.
+
+Inspector, Archivist, and Surveyor use the lighter `workshop_submit_assignment` contract and separate Support Worker concurrency. Direct Worker `task` and direct role `bash` are denied; role commands run through Workshop's controlled command tools.
+
+Controlled commands use time, output, process-group, and systemd/cgroup resource controls. Unknown project commands are allowed; dangerous commands are denied and explicit external side effects ask once per operation. This is a reliability control, not a security sandbox. Controlled code-changing flows require Linux or WSL with a systemd user manager and cgroup v2.
+
+Workshop v3 is the permission fact source. Remove machine-local plugins that overwrite Workshop role permissions after installation; a later config hook can still override OpenCode config after Workshop's own hook has run.
 
 ## Commands
 

@@ -10,7 +10,12 @@
       {
         // Set false if you want to keep OpenCode's built-in build/plan agents.
         "replace_builtin_agents": true,
-        "max_parallel_makers": 3
+        "max_parallel_makers": 2,
+        "max_parallel_support": 6,
+        "max_parallel_inspectors": 4,
+        "max_parallel_archivists": 2,
+        "max_parallel_surveyors": 2,
+        "permission_template_version": "3"
       }
     ]
   ]
