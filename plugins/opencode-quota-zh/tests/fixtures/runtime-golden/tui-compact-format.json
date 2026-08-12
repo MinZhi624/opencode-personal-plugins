@@ -1,0 +1,10 @@
+{
+  "_fixture": {
+    "runtime": "plugins/opencode-quota-zh/dist (pre-Ticket-01 Chinese v1.0.1 runtime)",
+    "surface": "TUI compact status line (normal, narrow, error-only)",
+    "clock": "2026-08-11T12:00:00.000Z"
+  },
+  "normal": "Copilot 62% | OpenAI 80% | OpenCode Go - $42.50 | token 1.2K (500) 输入 / 200 输出 | +1 个问题",
+  "narrow": "Copilot 62% | token 1.2K (500) 输入 / 200…",
+  "errorOnly": "Anthropic: rate limit hit"
+}

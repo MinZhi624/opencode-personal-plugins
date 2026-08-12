@@ -18,7 +18,5 @@ export function parseJsonOrJsonc(content, isJsonc) {
  * Stringify data back to JSONC while preserving attached comments.
  */
 export function stringifyWithComments(data) {
-    // @ts-ignore - Types for comment-json might complain, but it returns a string
     return stringify(data, null, 2);
 }
-//# sourceMappingURL=jsonc.js.map

@@ -1,18 +1,18 @@
+import { sanitizeDisplayText } from "../lib/display-sanitize.js";
 import type {
   QuotaProvider,
   QuotaProviderContext,
   QuotaProviderResult,
   QuotaToastEntry,
 } from "../lib/entries.js";
-import type { GoogleAgyQuotaBucket } from "../lib/types.js";
-import { sanitizeDisplayText } from "../lib/display-sanitize.js";
-import { inspectAgyCompanionPresence } from "../lib/google-agy-companion.js";
 import {
   hasAgyQuotaRuntimeAvailable,
   inspectAgyAuthPresence,
   queryGoogleAgyQuota,
 } from "../lib/google-agy.js";
+import { inspectAgyCompanionPresence } from "../lib/google-agy-companion.js";
 import { parseProviderModelRef } from "../lib/provider-model-matching.js";
+import type { GoogleAgyQuotaBucket } from "../lib/types.js";
 import {
   createGoogleAccountLabelMap,
   formatGoogleAccountErrors,

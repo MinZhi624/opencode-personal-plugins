@@ -297,4 +297,3 @@ export function __resetQuotaTelemetryForTests() {
     }
     delete globalState[TELEMETRY_STATE_KEY];
 }
-//# sourceMappingURL=quota-telemetry.js.map

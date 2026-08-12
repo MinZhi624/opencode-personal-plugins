@@ -3,10 +3,10 @@
  */
 import { isValueEntry } from "./entries.js";
 import { bar, DISPLAYED_PERCENT_LABEL_WIDTH, formatDisplayedPercentLabel, formatResetCountdown, isResetTimeDecimals, padLeft, padRight, resolveDisplayedPercent, } from "./format-utils.js";
-import { formatQuotaRowsGrouped } from "./toast-format-grouped.js";
-import { renderSessionTokensLines, renderSidebarSessionTokenSummaryLines, } from "./session-tokens-format.js";
-import { getQuotaFormatStyleDefinition } from "./quota-format-style.js";
 import { buildSingleWindowPercentEntryDisplayName } from "./quota-entry-display.js";
+import { getQuotaFormatStyleDefinition } from "./quota-format-style.js";
+import { renderSessionTokensLines, renderSidebarSessionTokenSummaryLines, } from "./session-tokens-format.js";
+import { formatQuotaRowsGrouped } from "./toast-format-grouped.js";
 function buildClassicNameTimeLine(params) {
     if (!params.timeStr) {
         return params.leftText.slice(0, params.maxWidth);
@@ -171,4 +171,3 @@ export function formatQuotaRows(params) {
     }
     return lines.join("\n");
 }
-//# sourceMappingURL=format.js.map

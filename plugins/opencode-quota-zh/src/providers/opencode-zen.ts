@@ -1,3 +1,4 @@
+import { sanitizeDisplayText } from "../lib/display-sanitize.js";
 import type {
   AccountingMetadata,
   QuotaProvider,
@@ -6,20 +7,19 @@ import type {
   QuotaToastEntry,
 } from "../lib/entries.js";
 import {
+  OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR,
+  queryOpenCodeZenQuota,
+} from "../lib/opencode-zen.js";
+import {
   DEFAULT_OPENCODE_ZEN_CONFIG_CACHE_MAX_AGE_MS,
   getOpenCodeZenConfigDiagnostics,
   resolveOpenCodeZenConfigCached,
 } from "../lib/opencode-zen-config.js";
-import {
-  OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR,
-  queryOpenCodeZenQuota,
-} from "../lib/opencode-zen.js";
-import { sanitizeDisplayText } from "../lib/display-sanitize.js";
 import { normalizeQuotaProviderId } from "../lib/provider-metadata.js";
 import {
   attemptedErrorResult,
-  configStatusDetails,
   attemptedResult,
+  configStatusDetails,
   notAttemptedResult,
   withStatusDetails,
 } from "./result-helpers.js";

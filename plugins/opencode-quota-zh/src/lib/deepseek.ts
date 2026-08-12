@@ -5,33 +5,45 @@
  * Auth: Bearer token in Authorization header.
  */
 
-import type { QuotaError } from "./types.js";
+import {
+  type DeepSeekKeySource,
+  hasDeepSeekApiKey,
+  resolveDeepSeekApiKey,
+} from "./deepseek-auth.js";
 import { sanitizeDisplaySnippet, sanitizeDisplayText } from "./display-sanitize.js";
 import { fetchWithTimeout } from "./http.js";
-import {
-  resolveDeepSeekApiKey,
-  hasDeepSeekApiKey,
-  type DeepSeekKeySource,
-} from "./deepseek-auth.js";
+import type { QuotaError } from "./types.js";
 
 export type DeepSeekCurrency = "CNY" | "USD";
+
+/**
+ * Tri-state availability of the DeepSeek account. A missing `is_available`
+ * field stays "unknown" and must never be treated as explicit unavailability.
+ */
+export type DeepSeekAvailability = "available" | "unavailable" | "unknown";
 
 export interface DeepSeekBalanceInfo {
   currency: DeepSeekCurrency;
   totalBalance: string;
   grantedBalance: string;
   toppedUpBalance: string;
+  /**
+   * Structured numeric total balance in `currency` units for alert
+   * evaluation; null when the source string was missing or malformed so a
+   * broken response can never look like a zero balance.
+   */
+  totalBalanceAmount: number | null;
 }
 
 export interface DeepSeekBalanceResult {
-  isAvailable: boolean;
+  availability: DeepSeekAvailability;
   balanceInfos: DeepSeekBalanceInfo[];
 }
 
 export type DeepSeekResult =
   | {
       success: true;
-      isAvailable: boolean;
+      availability: DeepSeekAvailability;
       balanceInfos: DeepSeekBalanceInfo[];
     }
   | QuotaError
@@ -55,12 +67,27 @@ function getNonEmptyString(value: unknown): string | undefined {
 
 const DEEPSEEK_DECIMAL_BALANCE_RE = /^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/u;
 
-function normalizeDeepSeekBalance(value: unknown): string {
+interface NormalizedDeepSeekBalance {
+  /** Display string (normalized "0.00" fallback keeps existing display behavior). */
+  display: string;
+  /** Structured numeric value; null when the source string was invalid. */
+  amount: number | null;
+}
+
+function normalizeDeepSeekBalance(value: unknown): NormalizedDeepSeekBalance {
   const raw = getNonEmptyString(value);
   if (!raw || raw.length > 64 || !DEEPSEEK_DECIMAL_BALANCE_RE.test(raw)) {
-    return "0.00";
+    return { display: "0.00", amount: null };
   }
-  return raw;
+  const amount = Number(raw);
+  return { display: raw, amount: Number.isFinite(amount) ? amount : null };
+}
+
+function parseDeepSeekAvailability(value: unknown): DeepSeekAvailability {
+  if (typeof value === "boolean") {
+    return value ? "available" : "unavailable";
+  }
+  return "unknown";
 }
 
 function parseDeepSeekBalance(payload: unknown): DeepSeekBalanceResult {
@@ -68,7 +95,7 @@ function parseDeepSeekBalance(payload: unknown): DeepSeekBalanceResult {
     throw new Error("DeepSeek balance response returned an unexpected response shape");
   }
 
-  const isAvailable = typeof payload.is_available === "boolean" ? payload.is_available : false;
+  const availability = parseDeepSeekAvailability(payload.is_available);
 
   const balanceInfos: DeepSeekBalanceInfo[] = [];
   const rawInfos = payload.balance_infos;
@@ -80,16 +107,18 @@ function parseDeepSeekBalance(payload: unknown): DeepSeekBalanceResult {
       const currency = getNonEmptyString(info.currency);
       if (!currency || !["CNY", "USD"].includes(currency.toUpperCase())) continue;
 
+      const totalBalance = normalizeDeepSeekBalance(info.total_balance);
       balanceInfos.push({
         currency: currency.toUpperCase() as DeepSeekCurrency,
-        totalBalance: normalizeDeepSeekBalance(info.total_balance),
-        grantedBalance: normalizeDeepSeekBalance(info.granted_balance),
-        toppedUpBalance: normalizeDeepSeekBalance(info.topped_up_balance),
+        totalBalance: totalBalance.display,
+        grantedBalance: normalizeDeepSeekBalance(info.granted_balance).display,
+        toppedUpBalance: normalizeDeepSeekBalance(info.topped_up_balance).display,
+        totalBalanceAmount: totalBalance.amount,
       });
     }
   }
 
-  return { isAvailable, balanceInfos };
+  return { availability, balanceInfos };
 }
 
 async function fetchDeepSeekBalance(
@@ -146,9 +175,7 @@ export function formatDeepSeekBalanceValue(balance: {
  * @returns A typed result with success/error state, or null if no API key is configured.
  */
 export async function queryDeepSeekBalance(
-  options: {
-    requestTimeoutMs?: number;
-  } = {},
+  options: { requestTimeoutMs?: number } = {},
 ): Promise<DeepSeekResult> {
   const resolved = await resolveDeepSeekApiKey();
   if (!resolved) return null;
@@ -161,13 +188,13 @@ export async function queryDeepSeekBalance(
 
   return {
     success: true,
-    isAvailable: result.data.isAvailable,
+    availability: result.data.availability,
     balanceInfos: result.data.balanceInfos,
   };
 }
 
 export {
+  type DeepSeekKeySource,
   getDeepSeekKeyDiagnostics,
   hasDeepSeekApiKey as hasDeepSeekApiKeyConfigured,
-  type DeepSeekKeySource,
 } from "./deepseek-auth.js";

@@ -27,4 +27,3 @@ export async function getPackageVersion() {
     })();
     return cachedPromise;
 }
-//# sourceMappingURL=version.js.map

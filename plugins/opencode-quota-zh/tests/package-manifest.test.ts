@@ -38,9 +38,53 @@ const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url
   files?: string[];
   packageManager?: string;
   scripts?: Record<string, string>;
+  pnpm?: {
+    peerDependencyRules?: unknown;
+    strictPeerDependencies?: boolean;
+  };
 };
 
 const pnpmWorkspace = await readFile(new URL("../pnpm-workspace.yaml", import.meta.url), "utf8");
+const pnpmWorkspaceConfig = parse(pnpmWorkspace) as {
+  allowBuilds?: Record<string, boolean>;
+};
+const tsconfig = JSON.parse(
+  await readFile(new URL("../tsconfig.json", import.meta.url), "utf8"),
+) as {
+  compilerOptions?: { types?: string[] };
+};
+const typescriptValidator = await readFile(
+  new URL("../scripts/verify-typescript-version.mjs", import.meta.url),
+  "utf8",
+);
+const biomeConfig = JSON.parse(
+  await readFile(new URL("../biome.json", import.meta.url), "utf8"),
+) as {
+  $schema?: string;
+  linter?: {
+    domains?: Record<string, string>;
+    rules?: { recommended?: boolean };
+  };
+  overrides?: Array<{
+    includes?: string[];
+    linter?: { domains?: Record<string, string> };
+  }>;
+};
+const lefthookConfig = parse(
+  await readFile(new URL("../lefthook.yml", import.meta.url), "utf8"),
+) as Record<
+  "pre-commit" | "pre-push",
+  {
+    commands?: Record<string, { glob?: string; run?: string; stage_fixed?: boolean }>;
+  }
+>;
+const packageScriptSources = await Promise.all(
+  [
+    "../scripts/pack-release-package.mjs",
+    "../scripts/verify-package-contents.mjs",
+    "../scripts/verify-release-package.mjs",
+  ].map((path) => readFile(new URL(path, import.meta.url), "utf8")),
+);
 const ciWorkflow = parse(
   await readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8"),
 ) as Workflow;
@@ -57,6 +101,19 @@ const packedRealOtelFixture = await readFile(
   "utf8",
 );
 
+const VERIFY_COMMAND =
+  "pnpm run check && pnpm run verify:typescript-version && pnpm run verify:v4-history && pnpm run typecheck && pnpm run build && pnpm test && pnpm run test:four-surfaces && pnpm run verify:package-contents";
+const VERIFY_COMPONENT_COMMANDS = [
+  "pnpm run check",
+  "pnpm run verify:typescript-version",
+  "pnpm run verify:v4-history",
+  "pnpm run typecheck",
+  "pnpm run build",
+  "pnpm test",
+  "pnpm run test:four-surfaces",
+  "pnpm run verify:package-contents",
+];
+
 function namedStep(job: WorkflowJob, name: string): WorkflowStep {
   const step = job.steps?.find((candidate) => candidate.name === name);
   expect(step, `Missing workflow step: ${name}`).toBeDefined();
@@ -67,6 +124,22 @@ function stepIndex(job: WorkflowJob, name: string): number {
   return job.steps?.findIndex((candidate) => candidate.name === name) ?? -1;
 }
 
+function expectCanonicalVerificationOnly(job: WorkflowJob): void {
+  const runLines =
+    job.steps?.flatMap((step) =>
+      step.run
+        ? step.run
+            .split("\n")
+            .map((line) => line.trim())
+            .filter(Boolean)
+        : [],
+    ) ?? [];
+  expect(runLines.filter((line) => line === "pnpm verify")).toEqual(["pnpm verify"]);
+  for (const component of VERIFY_COMPONENT_COMMANDS) {
+    expect(runLines).not.toContain(component);
+  }
+}
+
 describe("package manifest compatibility", () => {
   it("requires pnpm 11+ development tooling while requiring Node 22+ at runtime", () => {
     const packageManagerMatch = pkg.packageManager?.match(/^pnpm@(\d+)\.\d+\.\d+(?:[+-].*)?$/);
@@ -74,16 +147,92 @@ describe("package manifest compatibility", () => {
     expect(packageManagerMatch).not.toBeNull();
     expect(Number(packageManagerMatch?.[1])).toBeGreaterThanOrEqual(11);
     expect(pkg.engines?.node).toBe(">=22.0.0");
-    expect(pkg.devDependencies?.typescript).toBe("^5.9.3");
+    expect(pkg.devDependencies?.typescript).toBe("7.0.2");
     expect(pkg.devDependencies?.yaml).toBe("^2.8.3");
   });
 
-  it("keeps the public plugin peer broad and the development type target exact", () => {
+  it("keeps the public plugin peer broad and reference-compatible development targets exact", () => {
     expect(pkg.peerDependencies?.["@opencode-ai/plugin"]).toBe("^1.4.3");
-    expect(pkg.devDependencies?.["@opencode-ai/plugin"]).toBe("1.18.1");
+    expect(pkg.devDependencies?.["@opencode-ai/plugin"]).toBe("1.18.11");
+    expect(pkg.dependencies?.["@opentui/core"]).toBe("0.4.5");
+    expect(pkg.dependencies?.["@opentui/solid"]).toBe("0.4.5");
     expect(readme).toContain("Node.js `>= 22` is required.");
     expect(readme).not.toContain("OpenCode `>= 1.4.3`");
     expect(pkg.engines).not.toHaveProperty("opencode");
+  });
+
+  it("keeps the TypeScript 7 toolchain explicit without suppressing the known peer mismatch", () => {
+    expect(tsconfig.compilerOptions?.types).toEqual(["node"]);
+    expect(typescriptValidator).toContain('const EXPECTED_TYPESCRIPT_VERSION = "7.0.2";');
+    expect(typescriptValidator).toContain('const EXPECTED_PLUGIN_VERSION = "1.18.11";');
+    expect(typescriptValidator).toContain('const EXPECTED_OPENTUI_VERSION = "0.4.5";');
+    expect(typescriptValidator).toContain('const BUN_FFI_TYPESCRIPT_PEER = "^5";');
+    expect(typescriptValidator).toContain("Known unmet peer:");
+    expect(typescriptValidator).not.toMatch(/TypeScript v4 freeze|\^5\.9/);
+    expect(pkg.pnpm?.peerDependencyRules).toBeUndefined();
+    expect(pkg.pnpm?.strictPeerDependencies).not.toBe(false);
+    expect(pnpmWorkspace).not.toMatch(
+      /peerDependencyRules|allowedVersions|ignoreMissing|strictPeerDependencies:\s*false/,
+    );
+  });
+
+  it("uses pinned Biome as the sole formatter and linter", async () => {
+    expect(pkg.devDependencies?.["@biomejs/biome"]).toBe("2.3.11");
+    expect(pkg.devDependencies).not.toHaveProperty("prettier");
+    expect(pkg.devDependencies).not.toHaveProperty("eslint");
+
+    expect(pkg.scripts?.format).toBe("biome format --write .");
+    expect(pkg.scripts?.["format:check"]).toBe("biome format .");
+    expect(pkg.scripts?.lint).toBe("biome lint .");
+    expect(pkg.scripts?.check).toBe("biome check .");
+    expect(pkg.scripts).not.toHaveProperty("verify:v4-formatting");
+
+    expect(biomeConfig.$schema).toBe("https://biomejs.dev/schemas/2.3.11/schema.json");
+    expect(biomeConfig.linter?.rules?.recommended).toBe(true);
+    expect(biomeConfig.linter?.domains?.solid).toBe("recommended");
+    expect(
+      biomeConfig.overrides?.some(
+        (override) =>
+          override.includes?.includes("tests/**/*.test.ts") &&
+          override.linter?.domains?.test === "recommended",
+      ),
+    ).toBe(true);
+
+    for (const path of [
+      "../.prettierignore",
+      "../.prettierrc.json",
+      "../scripts/verify-v4-formatting.mjs",
+    ]) {
+      await expect(access(new URL(path, import.meta.url))).rejects.toThrow();
+    }
+  });
+
+  it("uses Lefthook for staged Biome fixes and canonical pre-push verification", async () => {
+    expect(pkg.devDependencies?.lefthook).toBe("2.0.15");
+    expect(pkg.devDependencies).not.toHaveProperty("husky");
+    expect(pkg.devDependencies).not.toHaveProperty("lint-staged");
+    expect(pkg.scripts?.prepare).toBe("lefthook install");
+
+    expect(lefthookConfig["pre-commit"]?.commands).toEqual({
+      biome: {
+        glob: "*.{js,cjs,mjs,jsx,ts,tsx,json,jsonc,css}",
+        run: "pnpm exec biome check --write --no-errors-on-unmatched {staged_files}",
+        stage_fixed: true,
+      },
+    });
+    expect(lefthookConfig["pre-push"]?.commands).toEqual({
+      verify: {
+        run: "pnpm verify",
+      },
+    });
+
+    const packageScripts = packageScriptSources.join("\n");
+    expect(packageScripts).not.toContain("HUSKY");
+    expect(packageScripts).not.toContain("LEFTHOOK");
+
+    for (const path of ["../.husky", "../.lintstagedrc"]) {
+      await expect(access(new URL(path, import.meta.url))).rejects.toThrow();
+    }
   });
 
   it("ships the OpenTelemetry API while keeping the metrics SDK host-owned", () => {
@@ -112,19 +261,20 @@ describe("package manifest compatibility", () => {
     expect(pnpmWorkspace).toContain("minimumReleaseAgeStrict: true");
     expect(pnpmWorkspace).toContain("minimumReleaseAgeIgnoreMissingTime: false");
     expect(pnpmWorkspace).toContain("blockExoticSubdeps: true");
-    expect(pnpmWorkspace).toContain("allowBuilds:");
-    expect(pnpmWorkspace).toContain("esbuild: true");
-    expect(pnpmWorkspace).toContain("msgpackr-extract: true");
+    expect(pnpmWorkspaceConfig.allowBuilds).toEqual({
+      "better-sqlite3": true,
+      esbuild: true,
+      lefthook: true,
+      "msgpackr-extract": true,
+    });
   });
 
-  it("builds clean dist output before artifact-dependent tests", () => {
+  it("defines one ordered canonical repository gate and a release-only compatibility alias", () => {
     expect(pkg.scripts?.build).toContain("node scripts/clean-dist.mjs && tsc");
-
-    const releaseCheck = pkg.scripts?.["release:check"] ?? "";
-    expect(releaseCheck.indexOf("pnpm run build")).toBeGreaterThanOrEqual(0);
-    expect(releaseCheck.indexOf("pnpm test")).toBeGreaterThan(
-      releaseCheck.indexOf("pnpm run build"),
-    );
+    expect(pkg.scripts?.verify).toBe(VERIFY_COMMAND);
+    expect(pkg.scripts?.verify).not.toContain("verify:release-version");
+    expect(pkg.scripts?.verify).not.toContain("verify:release-package");
+    expect(pkg.scripts?.["release:check"]).toBe("pnpm verify && pnpm run verify:release-version");
   });
 
   it("ships explicit server, tui, and init bin entrypoints for OpenCode", () => {
@@ -183,22 +333,22 @@ describe("package manifest compatibility", () => {
 
     for (const [name, run] of [
       ["Install dependencies", "pnpm install --frozen-lockfile"],
-      ["Check formatting", "pnpm run format:check"],
-      ["Verify TypeScript version", "pnpm run verify:typescript-version"],
-      ["Verify v4 history privacy", "pnpm run verify:v4-history"],
-      ["Typecheck", "pnpm run typecheck"],
-      ["Build", "pnpm run build"],
-      ["Test", "pnpm test"],
-      ["Verify four-surface parity", "pnpm run test:four-surfaces"],
+      ["Run canonical verification", "pnpm verify"],
       ["Pack and audit exact npm artifact once", "pnpm run pack:release-package package-artifacts"],
     ]) {
       expect(namedStep(quality, name).run).toBe(run);
     }
 
-    expect(stepIndex(quality, "Test")).toBeGreaterThan(stepIndex(quality, "Build"));
-    expect(stepIndex(quality, "Pack and audit exact npm artifact once")).toBeGreaterThan(
-      stepIndex(quality, "Test"),
+    expectCanonicalVerificationOnly(quality);
+    expect(stepIndex(quality, "Run canonical verification")).toBeGreaterThan(
+      stepIndex(quality, "Install dependencies"),
     );
+    expect(stepIndex(quality, "Pack and audit exact npm artifact once")).toBeGreaterThan(
+      stepIndex(quality, "Run canonical verification"),
+    );
+    expect(
+      quality.steps?.filter((step) => step.run?.includes("pnpm run pack:release-package")),
+    ).toHaveLength(1);
 
     expect(namedStep(quality, "Upload exact npm artifact")).toEqual(
       expect.objectContaining({
@@ -326,9 +476,7 @@ describe("package manifest compatibility", () => {
       "Sync package version from release tag",
       "Verify package version matches release tag",
       "Install dependencies",
-      "Build",
-      "Test",
-      "Verify four-surface parity",
+      "Run canonical verification",
       "Pack and audit the release artifact once",
       "Upload exact release artifact",
     ];
@@ -350,9 +498,14 @@ describe("package manifest compatibility", () => {
     expect(namedStep(releasePackage, "Verify package version matches release tag").run).toBe(
       "pnpm run verify:release-version",
     );
+    expect(namedStep(releasePackage, "Run canonical verification").run).toBe("pnpm verify");
+    expectCanonicalVerificationOnly(releasePackage);
     expect(namedStep(releasePackage, "Pack and audit the release artifact once").run).toBe(
       "pnpm run pack:release-package package-artifacts",
     );
+    expect(
+      releasePackage.steps?.filter((step) => step.run?.includes("pnpm run pack:release-package")),
+    ).toHaveLength(1);
     expect(namedStep(releasePackage, "Upload exact release artifact").with).toEqual({
       name: "release-package",
       path: "package-artifacts/*",

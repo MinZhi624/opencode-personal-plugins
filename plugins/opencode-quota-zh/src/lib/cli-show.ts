@@ -1,26 +1,24 @@
 import { resolve } from "path";
-
-import type { QuotaRuntimeClient } from "./quota-runtime-context.js";
-import type { QuotaToastConfig } from "./types.js";
-
 import { hasAnthropicCredentialsConfigured } from "./anthropic.js";
-import { formatQuotaRows } from "./format.js";
-import { getQuotaProviderShape } from "./provider-metadata.js";
 import { findGitWorktreeRoot, getEffectiveConfigRoot } from "./config-file-utils.js";
+import { sanitizeQuotaRenderData } from "./display-sanitize.js";
+import { formatQuotaRows } from "./format.js";
+import { DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS, resolveKimiAuthCached } from "./kimi-auth.js";
 import {
   loadConfiguredOpenCodeConfig,
   loadConfiguredProviderIds,
 } from "./opencode-config-providers.js";
+import { getQuotaProviderShape } from "./provider-metadata.js";
+import { buildQuotaExport, createExportProviderContext } from "./quota-export.js";
 import { resolveQuotaFormatStyle } from "./quota-format-style.js";
-import { DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS, resolveKimiAuthCached } from "./kimi-auth.js";
-import { getPackageVersion } from "./version.js";
 import { collectQuotaRenderData } from "./quota-render-data.js";
-import { sanitizeQuotaRenderData } from "./display-sanitize.js";
+import type { QuotaRuntimeClient } from "./quota-runtime-context.js";
 import {
   createQuotaRuntimeRequestContext,
   resolveQuotaRuntimeContext,
 } from "./quota-runtime-context.js";
-import { buildQuotaExport, createExportProviderContext } from "./quota-export.js";
+import type { QuotaToastConfig } from "./types.js";
+import { getPackageVersion } from "./version.js";
 
 export interface RunCliShowCommandOptions {
   argv?: string[];

@@ -1,4 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type {
+  ProviderApiKeyContractDescriptor,
+  SimpleApiKeyContractModule,
+} from "./helpers/provider-api-key-contract.js";
+import {
+  authWithEntry,
+  configWithApiKey,
+  expectedTrustedConfigCandidates,
+  resetContractEnv,
+} from "./helpers/provider-api-key-contract.js";
 import {
   createRuntimePathsMockModule,
   getTrustedOpencodeConfigPaths,
@@ -8,17 +18,6 @@ import {
   mockTrustedConfigFile,
   resetFsConfigMocks,
 } from "./helpers/trusted-config-test-harness.js";
-import {
-  authWithEntry,
-  configWithApiKey,
-  expectedTrustedConfigCandidates,
-  resetContractEnv,
-} from "./helpers/provider-api-key-contract.js";
-
-import type {
-  ProviderApiKeyContractDescriptor,
-  SimpleApiKeyContractModule,
-} from "./helpers/provider-api-key-contract.js";
 
 const authMocks = vi.hoisted(() => ({
   readAuthFile: vi.fn(),

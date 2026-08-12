@@ -8,7 +8,10 @@
 
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
-
+import { sanitizeDisplaySnippet, sanitizeDisplayText } from "./display-sanitize.js";
+import { fetchWithTimeout } from "./http.js";
+import { readAuthFile } from "./opencode-auth.js";
+import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
 import type {
   AuthData,
   CopilotAuthData,
@@ -23,10 +26,6 @@ import type {
   CopilotTier,
   QuotaError,
 } from "./types.js";
-import { sanitizeDisplaySnippet, sanitizeDisplayText } from "./display-sanitize.js";
-import { fetchWithTimeout } from "./http.js";
-import { readAuthFile } from "./opencode-auth.js";
-import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
 
 const GITHUB_API_BASE_URL = "https://api.github.com";
 const GITHUB_API_VERSION = "2026-03-10";
@@ -260,7 +259,7 @@ function validateEnterpriseHost(value: unknown): { host?: string; error?: string
     }
     host = url.hostname.toLowerCase();
   } else {
-    if (/[\/:@?#]/.test(raw)) return invalid;
+    if (/[/:@?#]/.test(raw)) return invalid;
     host = raw.toLowerCase();
   }
 

@@ -1,6 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { homedir } from "os";
 import { join } from "path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
   getOpencodeRuntimeDirCandidates: () => ({
@@ -20,8 +20,8 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
 vi.mock("fs", () => ({ existsSync: vi.fn() }));
 vi.mock("fs/promises", () => ({ readFile: vi.fn() }));
 
-import { resolveQuotaProviderApiKey } from "../src/lib/quota-providers-remote.js";
 import type { RemoteApiQuotaProviderDefinition } from "../src/lib/quota-providers.js";
+import { resolveQuotaProviderApiKey } from "../src/lib/quota-providers-remote.js";
 
 function source(
   overrides: Partial<RemoteApiQuotaProviderDefinition> = {},

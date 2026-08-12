@@ -9,7 +9,10 @@
 import { readFile } from "fs/promises";
 import { join } from "path";
 
-import { getOpencodeRuntimeDirCandidates, getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
+import {
+  getOpencodeRuntimeDirCandidates,
+  getOpencodeRuntimeDirs,
+} from "./opencode-runtime-paths.js";
 
 import type { AuthData } from "./types.js";
 

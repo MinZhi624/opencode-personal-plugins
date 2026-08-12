@@ -4,4 +4,3 @@ export function isValueEntry(e) {
 export function isPercentEntry(e) {
     return !isValueEntry(e);
 }
-//# sourceMappingURL=entries.js.map

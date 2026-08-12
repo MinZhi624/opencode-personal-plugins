@@ -49,4 +49,3 @@ export async function writeTextAtomic(path, content, opts = {}) {
         }
     }
 }
-//# sourceMappingURL=atomic-json.js.map

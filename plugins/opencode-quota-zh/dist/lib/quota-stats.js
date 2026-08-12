@@ -1,8 +1,8 @@
-import { getOpenCodeDbPath, iterAssistantMessages, iterAssistantMessagesForSessions, iterAssistantMessagesForSession, readAllSessionsIndex, SessionNotFoundError, } from "./opencode-storage.js";
-import { hasCost, hasProvider, hasModel, isModelsDevProviderId, listProvidersForModelId, lookupCost, } from "./modelsdev-pricing.js";
 import { isCursorModelId, isCursorProviderId, lookupCursorLocalCost, resolveCursorModel, } from "./cursor-pricing.js";
-import { calculateUsdFromTokenBuckets } from "./token-cost.js";
+import { getPricingSnapshotMeta, getPricingSnapshotSource, hasCost, hasModel, hasProvider, isModelsDevProviderId, listProvidersForModelId, lookupCost, } from "./modelsdev-pricing.js";
+import { getOpenCodeDbPath, iterAssistantMessages, iterAssistantMessagesForSession, iterAssistantMessagesForSessions, readAllSessionsIndex, SessionNotFoundError, } from "./opencode-storage.js";
 import { addTokenBuckets, emptyTokenBuckets, tokenBucketsFromMessage } from "./token-buckets.js";
+import { calculateUsdFromTokenBuckets } from "./token-cost.js";
 // Re-export for consumers
 export { SessionNotFoundError } from "./opencode-storage.js";
 function normalizeModelId(raw) {
@@ -63,6 +63,7 @@ const SOURCE_PROVIDER_ALIASES = {
     "copilot-chat": "openai",
     chatgpt: "openai",
     codex: "openai",
+    "kimi-for-coding": "moonshotai",
     "zai-coding-plan": "zai",
     glm: "zai",
 };
@@ -147,6 +148,9 @@ function moonshotaiPricingCandidates(model) {
         if (freeCandidate.includes(".")) {
             candidates.push(freeCandidate.replace(/\./g, "-"));
         }
+    }
+    if (model === "k3" || model === "k3-256k") {
+        candidates.push("kimi-k3");
     }
     return candidates.filter((value, index, list) => list.indexOf(value) === index);
 }
@@ -598,6 +602,15 @@ export async function aggregateUsage(params) {
             a.tokens.reasoning +
             a.tokens.cache_read +
             a.tokens.cache_write));
+    // Record which pricing snapshot priced this aggregation. Lookups above ran
+    // synchronously against the active snapshot, so this identity is exactly the
+    // one used for the estimates; re-running after a snapshot update re-prices.
+    const pricingMeta = getPricingSnapshotMeta();
+    const pricing = {
+        source: getPricingSnapshotSource(),
+        generatedAt: pricingMeta.generatedAt,
+        units: pricingMeta.units,
+    };
     return {
         window: { sinceMs: params.sinceMs, untilMs: params.untilMs },
         totals: {
@@ -614,6 +627,7 @@ export async function aggregateUsage(params) {
         bySession: bySessionRows,
         unknown: unknownRows,
         unpriced: unpricedRows,
+        pricing,
     };
 }
 function summarizeSessionTokenMessages(sessionID, sessionMessages) {
@@ -683,4 +697,3 @@ export async function getSessionTreeTokenSummary(rootSessionID) {
     const sessionMessages = await iterAssistantMessagesForSessions({ sessionIDs });
     return summarizeSessionTokenMessages(rootSessionID, sessionMessages);
 }
-//# sourceMappingURL=quota-stats.js.map

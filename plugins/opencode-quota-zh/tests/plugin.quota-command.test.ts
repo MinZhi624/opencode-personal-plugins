@@ -392,8 +392,8 @@ describe("/quota command behavior", () => {
 
     expect(client.tui.showToast).toHaveBeenCalledTimes(1);
     const message = getToastMessage(client);
-    expect(message).toContain("19% used");
-    expect(message).not.toContain("81% left");
+    expect(message).toContain("19% 已用");
+    expect(message).not.toContain("81% 剩余");
   });
 
   it("honors percentDisplayMode for /quota output", async () => {
@@ -426,8 +426,77 @@ describe("/quota command behavior", () => {
       client,
       sessionID: "session-quota-percent-display-boundary",
     });
-    expect(injected).toContain("19% used");
-    expect(injected).not.toContain("81% left");
+    expect(injected).toContain("19% 已用");
+    expect(injected).not.toContain("81% 剩余");
+  });
+
+  it("renders the Ticket 07 unified snapshot section in /quota output", async () => {
+    mocks.loadConfig.mockResolvedValueOnce({
+      ...DEFAULT_CONFIG,
+      enabled: true,
+      enabledProviders: ["openai"],
+      showOnQuestion: false,
+      showSessionTokens: false,
+      minIntervalMs: 60_000,
+    });
+
+    const provider = {
+      id: "openai",
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn().mockResolvedValue({
+        attempted: true,
+        entries: [{ accounting: TEST_ACCOUNTING, name: "OpenAI Pro", percentRemaining: 81 }],
+        errors: [],
+      }),
+    };
+    mocks.getProviders.mockReturnValue([provider]);
+
+    const { QuotaToastPlugin } = await import("../src/plugin.js");
+    const client = createClient();
+    await QuotaToastPlugin({ client } as any);
+
+    const injected = await buildDialogOutput({
+      client,
+      sessionID: "session-quota-snapshot-section",
+    });
+
+    expect(injected).toContain("统一快照");
+    expect(injected).toContain("完整性：完整");
+    expect(injected).toContain("总体状态：正常");
+    expect(injected).toContain("监控 Provider：1（正常 1 · 未知 0） · 额度窗口：1");
+    expect(injected).toContain("81% 剩余");
+  });
+
+  it("reports failed provider observations through the snapshot section without hiding rows", async () => {
+    mocks.loadConfig.mockResolvedValueOnce({
+      ...DEFAULT_CONFIG,
+      enabled: true,
+      enabledProviders: ["openai"],
+      showOnQuestion: false,
+      showSessionTokens: false,
+      minIntervalMs: 60_000,
+    });
+
+    const provider = {
+      id: "openai",
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn().mockRejectedValue(new Error("boom")),
+    };
+    mocks.getProviders.mockReturnValue([provider]);
+
+    const { QuotaToastPlugin } = await import("../src/plugin.js");
+    const client = createClient();
+    await QuotaToastPlugin({ client } as any);
+
+    const injected = await buildDialogOutput({
+      client,
+      sessionID: "session-quota-snapshot-failed",
+    });
+
+    expect(injected).toContain("统一快照");
+    expect(injected).toContain("完整性：未知");
+    expect(injected).toContain("总体状态：未知");
+    expect(injected).toContain("OpenAI: Failed to read quota data");
   });
 
   it("rewrites default_agent only when one zero-width-normalized key matches", async () => {
@@ -544,7 +613,7 @@ describe("/quota command behavior", () => {
 
       expect(provider.fetch).toHaveBeenCalledTimes(2);
       expect(client.tui.showToast).toHaveBeenCalledTimes(2);
-      expect(getToastMessage(client, 1)).toContain("72% left");
+      expect(getToastMessage(client, 1)).toContain("72% 剩余");
     } finally {
       vi.useRealTimers();
     }
@@ -597,7 +666,7 @@ describe("/quota command behavior", () => {
 
       expect(provider.fetch).toHaveBeenCalledTimes(2);
       expect(client.tui.showToast).toHaveBeenCalledTimes(1);
-      expect(getToastMessage(client)).toContain("61% left");
+      expect(getToastMessage(client)).toContain("61% 剩余");
     } finally {
       vi.useRealTimers();
     }
@@ -652,7 +721,7 @@ describe("/quota command behavior", () => {
       expect(provider.isAvailable).toHaveBeenCalledTimes(2);
       expect(provider.fetch).toHaveBeenCalledTimes(1);
       expect(client.tui.showToast).toHaveBeenCalledTimes(2);
-      expect(getToastMessage(client, 1)).toContain("58% left");
+      expect(getToastMessage(client, 1)).toContain("58% 剩余");
     } finally {
       vi.useRealTimers();
     }
@@ -703,7 +772,7 @@ describe("/quota command behavior", () => {
 
     expect(provider.fetch).toHaveBeenCalledTimes(2);
     expect(client.tui.showToast).toHaveBeenCalledTimes(2);
-    expect(getToastMessage(client, 1)).toContain("66% left");
+    expect(getToastMessage(client, 1)).toContain("66% 剩余");
   });
 
   it("refreshes configured local-estimate toast rows across repeated session.idle events", async () => {
@@ -754,8 +823,8 @@ describe("/quota command behavior", () => {
     await hooks.event?.(event);
 
     expect(provider.fetch).toHaveBeenCalledTimes(2);
-    expect(getToastMessage(client, 0)).toContain("90% left");
-    expect(getToastMessage(client, 1)).toContain("80% left");
+    expect(getToastMessage(client, 0)).toContain("90% 剩余");
+    expect(getToastMessage(client, 1)).toContain("80% 剩余");
   });
 
   it("reports explicit cursor providers with no local history as no local usage yet", async () => {
@@ -884,7 +953,7 @@ describe("/quota command behavior", () => {
 
     expect(provider.fetch).not.toHaveBeenCalled();
     expect(injected).toContain(
-      "No enabled quota providers matched the current model: openai/gpt-5.",
+      "没有启用的额度 Provider 匹配当前模型：openai/gpt-5。",
     );
     expect(injected).not.toContain("Providers detected");
   });
@@ -934,11 +1003,11 @@ describe("/quota command behavior", () => {
       sessionID: "session-model-switch",
     });
 
-    expect(firstInjected).toContain("95% left");
+    expect(firstInjected).toContain("95% 剩余");
     expect(secondInjected).toContain(
-      "No enabled quota providers matched the current model: openai/gpt-4.1.",
+      "没有启用的额度 Provider 匹配当前模型：openai/gpt-4.1。",
     );
-    expect(secondInjected).not.toContain("95% left");
+    expect(secondInjected).not.toContain("95% 剩余");
   });
 
   it("reuses shared quota-state across /quota sessions when render context matches", async () => {
@@ -970,8 +1039,8 @@ describe("/quota command behavior", () => {
     const secondOutput = await buildDialogOutput({ client, sessionID: "session-b" });
 
     expect(provider.fetch).toHaveBeenCalledTimes(1);
-    expect(firstOutput).toContain("95% left");
-    expect(secondOutput).toContain("95% left");
+    expect(firstOutput).toContain("95% 剩余");
+    expect(secondOutput).toContain("95% 剩余");
   });
 
   it("caches rendered DeepSeek value-only toast rows", async () => {
@@ -1247,7 +1316,7 @@ describe("/quota command behavior", () => {
     const latest = await buildDialogOutput({ client, sessionID: "session-qwen" });
 
     expect(provider.fetch).toHaveBeenCalledTimes(2);
-    expect(latest).toContain("80% left");
+    expect(latest).toContain("80% 剩余");
   });
 
   it("keeps alibaba local request-plan quota live across repeated /quota commands", async () => {
@@ -1294,7 +1363,7 @@ describe("/quota command behavior", () => {
     const latest = await buildDialogOutput({ client, sessionID: "session-alibaba" });
 
     expect(provider.fetch).toHaveBeenCalledTimes(2);
-    expect(latest).toContain("60% left");
+    expect(latest).toContain("60% 剩余");
   });
 
   it("keeps cursor local usage live across repeated /quota commands", async () => {
@@ -1328,7 +1397,7 @@ describe("/quota command behavior", () => {
     const latest = await buildDialogOutput({ client, sessionID: "session-cursor" });
 
     expect(provider.fetch).toHaveBeenCalledTimes(2);
-    expect(latest).toContain("90% left");
+    expect(latest).toContain("90% 剩余");
   });
 
   it("runs /pricing_refresh with force=true by default and reports bundled pinning", async () => {

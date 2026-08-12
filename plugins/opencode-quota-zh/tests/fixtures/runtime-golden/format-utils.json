@@ -1,0 +1,32 @@
+{
+  "_fixture": {
+    "runtime": "plugins/opencode-quota-zh/dist (pre-Ticket-01 Chinese v1.0.1 runtime)",
+    "surface": "displayed-percent labels, token counts, reset countdown (Chinese units)",
+    "clock": "2026-08-11T12:00:00.000Z"
+  },
+  "formatDisplayedPercentLabel": [
+    "62% 剩余",
+    "75% 已用",
+    "80% 剩余"
+  ],
+  "formatTokenCount": [
+    "500",
+    "1.5K",
+    "15K",
+    "1.5M",
+    "0"
+  ],
+  "formatResetCountdown": [
+    "已重置",
+    "2天5小时",
+    "3小时45分钟",
+    "0小时0分钟",
+    "13天",
+    "2.5小时",
+    "0.5小时",
+    "0.5小时",
+    "1.5小时",
+    "2.50天",
+    "-"
+  ]
+}

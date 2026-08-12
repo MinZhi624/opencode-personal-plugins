@@ -1,18 +1,18 @@
 import { stat } from "fs/promises";
+import { getProviders } from "../providers/registry.js";
+import { QUOTA_TOAST_SETTING_SOURCE_KEYS, } from "./config.js";
+import { sanitizeQuotaProviderResult, sanitizeSingleLineDisplaySnippet, sanitizeSingleLineDisplayText, } from "./display-sanitize.js";
+import { isValueEntry } from "./entries.js";
+import { getPricingRefreshPolicy, getPricingSnapshotHealth, getPricingSnapshotMeta, getPricingSnapshotSource, getProviderModelCount, getRuntimePricingRefreshStatePath, getRuntimePricingSnapshotPath, listProviders, readPricingRefreshState, hasProvider as snapshotHasProvider, } from "./modelsdev-pricing.js";
 import { getAuthPath, getAuthPaths } from "./opencode-auth.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
-import { getPricingSnapshotHealth, getPricingRefreshPolicy, getPricingSnapshotMeta, getPricingSnapshotSource, getRuntimePricingRefreshStatePath, getRuntimePricingSnapshotPath, listProviders, getProviderModelCount, hasProvider as snapshotHasProvider, readPricingRefreshState, } from "./modelsdev-pricing.js";
-import { getProviders } from "../providers/registry.js";
-import { getPackageVersion } from "./version.js";
 import { getOpenCodeDbPath, getOpenCodeDbPathCandidates, getOpenCodeDbStats, } from "./opencode-storage.js";
+import { getQuotaProviderDisplayLabel } from "./provider-metadata.js";
+import { isMaintainedQuotaProviderTuning } from "./quota-providers.js";
 import { aggregateUsage } from "./quota-stats.js";
 import { renderPlainTextReport } from "./report-document.js";
 import { totalTokenBuckets } from "./token-buckets.js";
-import { sanitizeSingleLineDisplaySnippet, sanitizeSingleLineDisplayText, sanitizeQuotaProviderResult, } from "./display-sanitize.js";
-import { QUOTA_TOAST_SETTING_SOURCE_KEYS, } from "./config.js";
-import { getQuotaProviderDisplayLabel } from "./provider-metadata.js";
-import { isMaintainedQuotaProviderTuning } from "./quota-providers.js";
-import { isValueEntry } from "./entries.js";
+import { getPackageVersion } from "./version.js";
 async function pathExists(path) {
     try {
         await stat(path);
@@ -631,6 +631,15 @@ export async function buildQuotaStatusReport(params) {
             availability: params.providerAvailability,
         }));
     }
+    if (findProviderLiveProbe("kilo", params.providerLiveProbes)) {
+        sections.push(createProviderStatusSection({
+            id: "kilo",
+            title: "kilo:",
+            providerId: "kilo",
+            probes: params.providerLiveProbes,
+            availability: params.providerAvailability,
+        }));
+    }
     // === google antigravity + db path ===
     const dbCandidates = getOpenCodeDbPathCandidates();
     const dbSelected = getOpenCodeDbPath();
@@ -844,4 +853,3 @@ export async function buildQuotaStatusReport(params) {
         sections,
     });
 }
-//# sourceMappingURL=quota-status.js.map

@@ -1,6 +1,6 @@
 import { extractProviderOptionsApiKey, getApiKeyCheckedPaths, getGlobalOpencodeConfigCandidatePaths, resolveApiKeyFromEnvAndConfig, } from "./api-key-resolver.js";
-import { getAuthPaths, readAuthFileCached } from "./opencode-auth.js";
 import { sanitizeDisplayText } from "./display-sanitize.js";
+import { getAuthPaths, readAuthFileCached } from "./opencode-auth.js";
 export const DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS = 5_000;
 const ALIBABA_AUTH_KEYS = ["alibaba-coding-plan", "alibaba"];
 const ALIBABA_PROVIDER_KEYS = ["alibaba-coding-plan", "alibaba"];
@@ -36,7 +36,7 @@ function getAlibabaAuthEntry(auth) {
     if (!root)
         return undefined;
     for (const key of ALIBABA_AUTH_KEYS) {
-        if (Object.prototype.hasOwnProperty.call(root, key)) {
+        if (Object.hasOwn(root, key)) {
             return root[key];
         }
     }
@@ -183,4 +183,3 @@ export function isAlibabaModelId(model) {
     const normalized = model.toLowerCase();
     return normalized.startsWith("alibaba/") || normalized.startsWith("alibaba-cn/");
 }
-//# sourceMappingURL=alibaba-auth.js.map

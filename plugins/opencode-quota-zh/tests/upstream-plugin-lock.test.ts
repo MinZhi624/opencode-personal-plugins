@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -104,10 +104,12 @@ describe("upstream-plugin-lock", () => {
       "utf8",
     );
 
-    const { readCommittedUpstreamPluginLock, readUpstreamPluginLock } =
-      await import("../scripts/lib/upstream-plugin-lock.mjs");
-    const { buildChangedPluginSummaries } =
-      await import("../scripts/lib/upstream-plugin-review.mjs");
+    const { readCommittedUpstreamPluginLock, readUpstreamPluginLock } = await import(
+      "../scripts/lib/upstream-plugin-lock.mjs"
+    );
+    const { buildChangedPluginSummaries } = await import(
+      "../scripts/lib/upstream-plugin-review.mjs"
+    );
     const committedLock = await readCommittedUpstreamPluginLock({
       repositoryRoot: testState.repoRoot,
       lockPath,

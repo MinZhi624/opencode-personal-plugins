@@ -7,7 +7,9 @@ export interface MiniMaxQuotaEndpoint {
   quotaUrl: string;
 }
 
-export const MINIMAX_QUOTA_ENDPOINTS: Readonly<Record<MiniMaxQuotaEndpointId, MiniMaxQuotaEndpoint>> = {
+export const MINIMAX_QUOTA_ENDPOINTS: Readonly<
+  Record<MiniMaxQuotaEndpointId, MiniMaxQuotaEndpoint>
+> = {
   international: {
     id: "international",
     label: "MiniMax International",

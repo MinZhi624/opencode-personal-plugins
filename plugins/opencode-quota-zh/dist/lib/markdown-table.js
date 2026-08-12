@@ -120,4 +120,3 @@ export function renderMarkdownTable(params) {
         lines.push(fmtRow(row));
     return lines.join("\n");
 }
-//# sourceMappingURL=markdown-table.js.map

@@ -79,7 +79,7 @@ function parseCreditsWindow(payload) {
     }
     const config = payload.config;
     const period = isRecord(config.currentPeriod) ? config.currentPeriod : null;
-    const hasUsage = Object.prototype.hasOwnProperty.call(config, "creditUsagePercent");
+    const hasUsage = Object.hasOwn(config, "creditUsagePercent");
     const hasPeriod = Boolean(getNonEmptyString(period?.type) ||
         getNonEmptyString(period?.start) ||
         getNonEmptyString(period?.end));
@@ -150,4 +150,3 @@ export async function queryXaiQuota(options = {}) {
         };
     }
 }
-//# sourceMappingURL=xai.js.map

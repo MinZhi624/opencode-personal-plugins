@@ -10,7 +10,6 @@ export function createTuiRefreshLifecycle(options) {
             return;
         if (inFlight) {
             queued = true;
-            loadVersion += 1;
             return;
         }
         inFlight = true;
@@ -80,4 +79,3 @@ export function createTuiRefreshLifecycle(options) {
         queueRefresh(delay);
     return lifecycle;
 }
-//# sourceMappingURL=tui-refresh-lifecycle.js.map

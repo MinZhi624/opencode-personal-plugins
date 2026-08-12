@@ -8,13 +8,13 @@ import type {
   QuotaProviderResult,
   QuotaToastEntry,
 } from "../lib/entries.js";
+import { fmtUsdAmount } from "../lib/format-utils.js";
 import {
   formatNanoGptBalanceValue,
   getNanoGptKeyDiagnostics,
   hasNanoGptApiKeyConfigured,
   queryNanoGptQuota,
 } from "../lib/nanogpt.js";
-import { fmtUsdAmount } from "../lib/format-utils.js";
 import { modelProviderMatchesRuntimeId } from "../lib/provider-model-matching.js";
 import {
   attemptedResult,

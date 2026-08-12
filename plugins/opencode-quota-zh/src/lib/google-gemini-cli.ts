@@ -1,17 +1,17 @@
-import { readAuthFileCached } from "./opencode-auth.js";
-import { fetchWithTimeout } from "./http.js";
-import { mapWithConcurrency } from "./map-with-concurrency.js";
+import {
+  clearGeminiCliCompanionCacheForTests as clearGeminiCliCompanionResolutionCacheForTests,
+  type GeminiCliConfiguredCredentials,
+  inspectGeminiCliCompanionPresence,
+  resolveGeminiCliClientCredentials,
+} from "./google-gemini-cli-companion.js";
 import {
   getCachedAccessToken,
   makeAccountCacheKey,
   setCachedAccessToken,
 } from "./google-token-cache.js";
-import {
-  clearGeminiCliCompanionCacheForTests as clearGeminiCliCompanionResolutionCacheForTests,
-  inspectGeminiCliCompanionPresence,
-  resolveGeminiCliClientCredentials,
-  type GeminiCliConfiguredCredentials,
-} from "./google-gemini-cli-companion.js";
+import { fetchWithTimeout } from "./http.js";
+import { mapWithConcurrency } from "./map-with-concurrency.js";
+import { readAuthFileCached } from "./opencode-auth.js";
 import type {
   AuthData,
   GeminiCliAuthSourceKey,

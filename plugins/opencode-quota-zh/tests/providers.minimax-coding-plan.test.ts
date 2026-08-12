@@ -1,11 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
 import {
   expectAttemptedWithErrorLabel,
   expectAttemptedWithNoErrors,
   expectNotAttempted,
+  visibleEntries,
 } from "./helpers/provider-assertions.js";
-import { visibleEntries } from "./helpers/provider-assertions.js";
 
 const mocks = vi.hoisted(() => {
   const fetchResponse = vi.fn();
@@ -269,31 +268,33 @@ describe("minimax-coding-plan provider", () => {
     { rawUsed: 1500, right: "1500/1500", percentRemaining: 0 },
     { rawUsed: 13, total: 15000, right: "13/15000", percentRemaining: 100 },
     { rawUsed: 1550, right: "1550/1500", percentRemaining: -3 },
-  ])(
-    "normalizes China Token Plan used count $rawUsed as $right",
-    async ({ rawUsed, total = 1500, right, percentRemaining }) => {
-      mockMiniMaxChinaAuthConfigured("china-key");
-      mockMiniMaxHttpSuccess([
-        createCodingPlanModel({
-          model_name: "MiniMax-M2.7",
-          current_interval_total_count: total,
-          current_interval_usage_count: rawUsed,
-          current_weekly_total_count: undefined,
-          current_weekly_usage_count: undefined,
-          weekly_remains_time: undefined,
-        }),
-      ]);
+  ])("normalizes China Token Plan used count $rawUsed as $right", async ({
+    rawUsed,
+    total = 1500,
+    right,
+    percentRemaining,
+  }) => {
+    mockMiniMaxChinaAuthConfigured("china-key");
+    mockMiniMaxHttpSuccess([
+      createCodingPlanModel({
+        model_name: "MiniMax-M2.7",
+        current_interval_total_count: total,
+        current_interval_usage_count: rawUsed,
+        current_weekly_total_count: undefined,
+        current_weekly_usage_count: undefined,
+        weekly_remains_time: undefined,
+      }),
+    ]);
 
-      const out = await runChinaProviderFetch();
+    const out = await runChinaProviderFetch();
 
-      expectAttemptedWithNoErrors(out);
-      expect(out.entries).toHaveLength(1);
-      expect(out.entries[0]).toMatchObject({
-        right,
-        percentRemaining,
-      });
-    },
-  );
+    expectAttemptedWithNoErrors(out);
+    expect(out.entries).toHaveLength(1);
+    expect(out.entries[0]).toMatchObject({
+      right,
+      percentRemaining,
+    });
+  });
 
   it("selects the lowest-remaining China model using used-count semantics", async () => {
     mockMiniMaxChinaAuthConfigured("china-key");
@@ -422,30 +423,31 @@ describe("minimax-coding-plan provider", () => {
     { name: "zero", value: 0, right: "100%", percentRemaining: 0 },
     { name: "negative", value: -25, right: "125%", percentRemaining: -25 },
     { name: "above 100", value: 140, right: "0%", percentRemaining: 100 },
-  ])(
-    "preserves current percentage bounds for $name international fallback values",
-    async ({ value, right, percentRemaining }) => {
-      mockMiniMaxAuthConfigured();
-      mockMiniMaxHttpSuccess([
-        createCodingPlanModel({
-          model_name: "general",
-          current_interval_total_count: 0,
-          current_interval_usage_count: 0,
-          current_weekly_total_count: undefined,
-          current_weekly_usage_count: undefined,
-          weekly_remains_time: undefined,
-          current_interval_remaining_percent: value,
-        }),
-      ]);
+  ])("preserves current percentage bounds for $name international fallback values", async ({
+    value,
+    right,
+    percentRemaining,
+  }) => {
+    mockMiniMaxAuthConfigured();
+    mockMiniMaxHttpSuccess([
+      createCodingPlanModel({
+        model_name: "general",
+        current_interval_total_count: 0,
+        current_interval_usage_count: 0,
+        current_weekly_total_count: undefined,
+        current_weekly_usage_count: undefined,
+        weekly_remains_time: undefined,
+        current_interval_remaining_percent: value,
+      }),
+    ]);
 
-      const out = await runProviderFetch();
+    const out = await runProviderFetch();
 
-      expectAttemptedWithNoErrors(out);
-      expect(visibleEntries(out.entries, "minimax-coding-plan")).toMatchObject([
-        { right, percentRemaining },
-      ]);
-    },
-  );
+    expectAttemptedWithNoErrors(out);
+    expect(visibleEntries(out.entries, "minimax-coding-plan")).toMatchObject([
+      { right, percentRemaining },
+    ]);
+  });
 
   it.each([
     { name: "missing", value: undefined },

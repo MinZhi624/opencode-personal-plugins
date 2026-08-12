@@ -108,4 +108,3 @@ export function renderSidebarSessionTokenSummaryLines(sessionTokens, options) {
     });
     return section ? [section.heading, ...section.lines] : [];
 }
-//# sourceMappingURL=session-tokens-format.js.map

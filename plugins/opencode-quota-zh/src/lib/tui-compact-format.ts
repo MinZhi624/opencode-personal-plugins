@@ -193,13 +193,11 @@ function formatCompactSessionTokensSegment(data: QuotaRenderData): string | null
       ? `${formatCompactTokenCount(sessionTokens.totalInput)} (${formatCompactTokenCount(totalCached)})`
       : formatCompactTokenCount(sessionTokens.totalInput);
 
-  return compactText(
-    `tok ${inputSegment} in / ${formatCompactTokenCount(sessionTokens.totalOutput)} out`,
-  );
+  return compactText(`token ${inputSegment} 输入 / ${formatCompactTokenCount(sessionTokens.totalOutput)} 输出`);
 }
 
 function formatIssueCount(count: number): string {
-  return `+${count} issue${count === 1 ? "" : "s"}`;
+  return `+${count} 个问题`;
 }
 
 function formatFirstErrorSegment(errors: QuotaToastError[]): string | null {

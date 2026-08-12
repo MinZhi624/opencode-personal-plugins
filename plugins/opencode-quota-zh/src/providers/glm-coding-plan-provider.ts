@@ -1,6 +1,6 @@
 import type { QuotaProvider, QuotaProviderContext } from "../lib/entries.js";
-import type { CanonicalQuotaProviderId } from "../lib/provider-metadata.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
+import type { CanonicalQuotaProviderId } from "../lib/provider-metadata.js";
 import {
   apiKeyStatusDetails,
   attemptedResult,

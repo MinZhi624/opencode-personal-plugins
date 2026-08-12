@@ -161,4 +161,3 @@ export async function querySyntheticQuota(options = {}) {
         };
     }
 }
-//# sourceMappingURL=synthetic.js.map

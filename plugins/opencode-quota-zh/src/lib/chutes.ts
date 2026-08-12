@@ -5,16 +5,16 @@
  * https://api.chutes.ai/users/me/quota_usage/me
  */
 
-import type { ChutesResult } from "./types.js";
-import { sanitizeDisplaySnippet, sanitizeDisplayText } from "./display-sanitize.js";
-import { fetchWithTimeout } from "./http.js";
-import { clampPercent } from "./format-utils.js";
 import {
-  resolveChutesApiKey,
+  type ChutesKeySource,
   getChutesKeyDiagnostics,
   hasChutesApiKey,
-  type ChutesKeySource,
+  resolveChutesApiKey,
 } from "./chutes-config.js";
+import { sanitizeDisplaySnippet, sanitizeDisplayText } from "./display-sanitize.js";
+import { clampPercent } from "./format-utils.js";
+import { fetchWithTimeout } from "./http.js";
+import type { ChutesResult } from "./types.js";
 
 interface ChutesQuotaResponse {
   quota: number;
@@ -32,9 +32,9 @@ function getNextDailyResetUtc(): string {
 const CHUTES_QUOTA_URL = "https://api.chutes.ai/users/me/quota_usage/me";
 
 export {
+  type ChutesKeySource,
   getChutesKeyDiagnostics,
   hasChutesApiKey as hasChutesApiKeyConfigured,
-  type ChutesKeySource,
 } from "./chutes-config.js";
 
 export async function queryChutesQuota(

@@ -5,7 +5,6 @@
  * https://api.synthetic.new/v2/quotas
  */
 
-import type { QuotaError, SyntheticResult, SyntheticQuotaWindow } from "./types.js";
 import { sanitizeDisplaySnippet, sanitizeDisplayText } from "./display-sanitize.js";
 import { clampPercent } from "./format-utils.js";
 import { fetchWithTimeout } from "./http.js";
@@ -15,6 +14,7 @@ import {
   resolveSyntheticApiKey,
   type SyntheticKeySource,
 } from "./synthetic-config.js";
+import type { QuotaError, SyntheticQuotaWindow, SyntheticResult } from "./types.js";
 
 const SYNTHETIC_QUOTA_URL = "https://api.synthetic.new/v2/quotas";
 const SYNTHETIC_CREDIT_AMOUNT_PATTERN = /^\$(\d+)(?:\.(\d{1,2}))?$/;

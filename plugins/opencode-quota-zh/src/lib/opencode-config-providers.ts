@@ -1,26 +1,26 @@
 import { readFile } from "fs/promises";
 
 import {
+  type ConfigFileFormat,
   dedupeNonEmptyStrings,
   extractPluginSpecsFromParsedConfig,
   extractProviderIdsFromParsedConfig,
   resolveEditableConfigPath,
   resolveExistingConfigPath,
-  type ConfigFileFormat,
 } from "./config-file-utils.js";
-import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
-import {
-  buildOpenCodeConfigCandidates,
-  readOpenCodeConfigCandidate,
-  selectFirstExistingOpenCodeConfigCandidate,
-  type OpenCodeConfigCandidate,
-} from "./opencode-config-read.js";
 import {
   applyConfigDocumentEdit,
   ConfigDocumentError,
   parseConfigDocument,
   planConfigDocumentEdit,
 } from "./opencode-config-editor.js";
+import {
+  buildOpenCodeConfigCandidates,
+  type OpenCodeConfigCandidate,
+  readOpenCodeConfigCandidate,
+  selectFirstExistingOpenCodeConfigCandidate,
+} from "./opencode-config-read.js";
+import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
 import {
   getQuotaProviderRuntimeIds,
   getQuotaProviderShape,

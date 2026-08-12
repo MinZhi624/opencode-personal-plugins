@@ -1,8 +1,16 @@
-import { readFile } from "fs/promises";
+var __rewriteRelativeImportExtension = (this && this.__rewriteRelativeImportExtension) || function (path, preserveJsx) {
+    if (typeof path === "string" && /^\.\.?\//.test(path)) {
+        return path.replace(/\.(tsx)$|((?:\.d)?)((?:\.[^./]+?)?)\.([cm]?)ts$/i, function (m, tsx, d, ext, cm) {
+            return tsx ? preserveJsx ? ".jsx" : ".js" : d && (!ext || !cm) ? m : (d + ext + "." + cm.toLowerCase() + "js");
+        });
+    }
+    return path;
+};
 import { readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { readFile } from "fs/promises";
 import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
 const require = createRequire(import.meta.url);
 function isModuleNotFoundError(error) {
@@ -152,7 +160,7 @@ async function resolveStage(descriptor, stage, context) {
             }
             let companionModule;
             try {
-                companionModule = (await import(pathToFileURL(resolvedPath).href));
+                companionModule = (await import(__rewriteRelativeImportExtension(pathToFileURL(resolvedPath).href, true)));
             }
             catch {
                 return buildInvalidState(descriptor, importSpecifier, resolvedPath);
@@ -262,4 +270,3 @@ export function createGoogleCompanionCredentialResolver(descriptor) {
         },
     };
 }
-//# sourceMappingURL=google-companion-credentials.js.map

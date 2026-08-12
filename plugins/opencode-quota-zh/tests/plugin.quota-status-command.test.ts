@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_CONFIG } from "../src/lib/types.js";
 import {
   createAlibabaAuthModuleMock,
-  createConfigModuleMock,
   createPluginTestClient as createClient,
+  createConfigModuleMock,
   createPluginToolMockModule,
   createPluginTuiConfigInspection,
   createPricingModuleMock,

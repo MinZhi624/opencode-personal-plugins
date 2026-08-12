@@ -205,16 +205,13 @@ describe("provider availability", () => {
   it.each([
     [false, false],
     [true, true],
-  ])(
-    "returns fallbackOnError=%s when provider lookup throws",
-    async (fallbackOnError, expected) => {
-      await expect(
-        isCanonicalProviderAvailable({
-          ctx: makeCtx({ error: new Error("boom") }),
-          providerId: "copilot",
-          fallbackOnError,
-        }),
-      ).resolves.toBe(expected);
-    },
-  );
+  ])("returns fallbackOnError=%s when provider lookup throws", async (fallbackOnError, expected) => {
+    await expect(
+      isCanonicalProviderAvailable({
+        ctx: makeCtx({ error: new Error("boom") }),
+        providerId: "copilot",
+        fallbackOnError,
+      }),
+    ).resolves.toBe(expected);
+  });
 });

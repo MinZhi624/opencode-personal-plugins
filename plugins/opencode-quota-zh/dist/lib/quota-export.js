@@ -1,13 +1,14 @@
 import { homedir } from "os";
 import { join } from "path";
 import { writeJsonAtomic } from "./atomic-json.js";
-import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
-import { readCachedProviderResult } from "./quota-state.js";
-import { isValueEntry } from "./entries.js";
-import { normalizeSingleWindowWindowLabel } from "./quota-render-data.js";
 import { sanitizeSingleLineDisplaySnippet } from "./display-sanitize.js";
-import { createQuotaProviderRuntimeContext } from "./quota-runtime-context.js";
+import { isValueEntry } from "./entries.js";
+import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 import { MAINTAINED_LOCAL_ESTIMATE_IDS } from "./quota-providers.js";
+import { normalizeSingleWindowWindowLabel } from "./quota-render-data.js";
+import { createQuotaProviderRuntimeContext } from "./quota-runtime-context.js";
+import { buildUnifiedQuotaSnapshot } from "./quota-snapshot.js";
+import { readCachedProviderResult } from "./quota-state.js";
 /** Max length for an exported provider error message after sanitization. */
 const EXPORT_ERROR_MAX_LENGTH = 240;
 /**
@@ -38,6 +39,7 @@ export function createExportProviderContext(runtime) {
  *
  * - Empty string → XDG cache default: `$XDG_CACHE_HOME/opencode/quota-export.json`
  * - Starts with `~/` → expands `~` to `homedir()`
+ * - Starts with `~\` → expands `~` and treats backslashes as path separators
  * - Otherwise → returns as-is (caller is responsible for absolute paths)
  */
 export function resolveExportPath(configured) {
@@ -46,6 +48,9 @@ export function resolveExportPath(configured) {
     }
     if (configured.startsWith("~/")) {
         return join(homedir(), configured.slice(2));
+    }
+    if (configured.startsWith("~\\")) {
+        return join(homedir(), ...configured.slice(2).split(/\\+/u));
     }
     return configured;
 }
@@ -62,6 +67,12 @@ function toExportError(error) {
     return {
         label: sanitizeSingleLineDisplaySnippet(error.label, EXPORT_ERROR_MAX_LENGTH),
         message: sanitizeSingleLineDisplaySnippet(error.message, EXPORT_ERROR_MAX_LENGTH),
+    };
+}
+function toExportRawDetail(detail) {
+    return {
+        key: sanitizeSingleLineDisplaySnippet(detail.key, EXPORT_ERROR_MAX_LENGTH),
+        value: sanitizeSingleLineDisplaySnippet(detail.value, EXPORT_ERROR_MAX_LENGTH),
     };
 }
 function toExportEntry(entry) {
@@ -126,6 +137,9 @@ export async function buildQuotaExport(params) {
             providers[provider.id] = { status: "unavailable", ...withSources };
             continue;
         }
+        const withRawDetails = read.result.rawDetails?.length
+            ? { rawDetails: read.result.rawDetails.map(toExportRawDetail) }
+            : {};
         const fetchedAt = Math.floor(read.timestamp / 1000);
         if (read.result.entries.length > 0 && read.result.errors.length > 0) {
             providers[provider.id] = {
@@ -134,6 +148,7 @@ export async function buildQuotaExport(params) {
                 entries: read.result.entries.map(toExportEntry),
                 errors: read.result.errors.map(toExportError),
                 ...withSources,
+                ...withRawDetails,
             };
             fetchedAtValues.push(fetchedAt);
             continue;
@@ -144,6 +159,7 @@ export async function buildQuotaExport(params) {
                 fetchedAt,
                 error: sanitizeSingleLineDisplaySnippet(read.result.errors[0].message, EXPORT_ERROR_MAX_LENGTH),
                 ...withSources,
+                ...withRawDetails,
             };
             fetchedAtValues.push(fetchedAt);
             continue;
@@ -154,16 +170,30 @@ export async function buildQuotaExport(params) {
             fetchedAt,
             entries,
             ...withSources,
+            ...withRawDetails,
         };
         fetchedAtValues.push(fetchedAt);
     }
     const cacheAgeSeconds = fetchedAtValues.length > 0 ? Math.floor(Date.now() / 1000) - Math.min(...fetchedAtValues) : 0;
+    // Data integrity through the Ticket 07 unified snapshot semantics: one
+    // observation per exported provider; a cache hit with entries is the only
+    // "fresh" quality, so the exported document reports complete/partial/unknown
+    // exactly like the passive surfaces.
+    const snapshot = buildUnifiedQuotaSnapshot({
+        monitoredProviderIds: params.providers.map((provider) => provider.id),
+        availability: reads.map(({ provider, read }) => ({
+            providerId: provider.id,
+            ok: read.hit,
+        })),
+        results: reads.flatMap(({ provider, read }) => read.hit ? [{ providerId: provider.id, result: read.result }] : []),
+    });
     const exportedAt = Math.floor(Date.now() / 1000);
     return {
         version: 2,
         exportedAt,
         fromCache: params.fromCache,
         cacheAgeSeconds,
+        integrity: snapshot.integrity,
         providers,
     };
 }
@@ -175,4 +205,3 @@ export async function buildQuotaExport(params) {
 export async function writeQuotaExport(exportData, resolvedPath) {
     await writeJsonAtomic(resolvedPath, exportData, { trailingNewline: true });
 }
-//# sourceMappingURL=quota-export.js.map

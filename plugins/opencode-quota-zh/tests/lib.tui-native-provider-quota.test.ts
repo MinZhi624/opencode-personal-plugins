@@ -22,10 +22,14 @@ describe("hasNativeProviderQuotaClient", () => {
     expect(hasNativeProviderQuotaClient(null)).toBe(false);
     expect(hasNativeProviderQuotaClient({})).toBe(false);
     expect(hasNativeProviderQuotaClient({ experimental: null })).toBe(false);
-    expect(hasNativeProviderQuotaClient({ experimental: { providerQuota: undefined } })).toBe(false);
+    expect(hasNativeProviderQuotaClient({ experimental: { providerQuota: undefined } })).toBe(
+      false,
+    );
     expect(hasNativeProviderQuotaClient({ experimental: { provider_quota: null } })).toBe(false);
     expect(hasNativeProviderQuotaClient({ experimental: { provider: {} } })).toBe(false);
-    expect(hasNativeProviderQuotaClient({ experimental: { provider: { quota: undefined } } })).toBe(false);
+    expect(hasNativeProviderQuotaClient({ experimental: { provider: { quota: undefined } } })).toBe(
+      false,
+    );
     expect(hasNativeProviderQuotaClient({ providerQuota: vi.fn() })).toBe(false);
   });
 

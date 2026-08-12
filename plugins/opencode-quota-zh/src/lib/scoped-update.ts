@@ -3,9 +3,9 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 import { writeTextAtomic } from "./atomic-json.js";
 import {
+  type ConfigFileFormat,
   findGitWorktreeRoot,
   resolveExistingConfigPath,
-  type ConfigFileFormat,
 } from "./config-file-utils.js";
 import { editConfigDocumentPaths, parseConfigDocument } from "./opencode-config-editor.js";
 import {

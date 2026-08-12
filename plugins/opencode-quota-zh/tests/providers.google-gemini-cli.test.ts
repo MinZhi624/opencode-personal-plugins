@@ -1,12 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-
+import { googleGeminiCliProvider } from "../src/providers/google-gemini-cli.js";
 import {
   expectAttemptedWithErrorLabel,
   expectAttemptedWithNoErrors,
   expectNotAttempted,
+  visibleEntries,
 } from "./helpers/provider-assertions.js";
-import { visibleEntries } from "./helpers/provider-assertions.js";
-import { googleGeminiCliProvider } from "../src/providers/google-gemini-cli.js";
 
 vi.mock("../src/lib/google-gemini-cli.js", () => ({
   hasGeminiCliQuotaRuntimeAvailable: vi.fn(),

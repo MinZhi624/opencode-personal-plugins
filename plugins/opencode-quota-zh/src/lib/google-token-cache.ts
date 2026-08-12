@@ -7,9 +7,9 @@
  * - We persist access tokens so restarts don't force immediate refresh.
  */
 
+import { createHash } from "crypto";
 import { readFile } from "fs/promises";
 import { join } from "path";
-import { createHash } from "crypto";
 
 import { writeTextAtomic } from "./atomic-json.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";

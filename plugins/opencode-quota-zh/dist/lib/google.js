@@ -4,15 +4,20 @@
  * Uses OpenCode's antigravity-accounts.json at ~/.config/opencode/antigravity-accounts.json.
  * Requires the user to have opencode-antigravity-auth installed and logged in.
  */
+import { existsSync } from "fs";
 import { readFile } from "fs/promises";
 import { join } from "path";
-import { existsSync } from "fs";
-import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
 import { inspectAntigravityCompanionPresence, resolveAntigravityClientCredentials, } from "./google-antigravity-companion.js";
-import { GOOGLE_MODEL_KEYS } from "./types.js";
-import { fetchWithTimeout } from "./http.js";
+import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
+// NOTE: Google Antigravity auth differs intentionally from Qwen:
+// - Qwen reads OpenCode auth.json key "qwen-code" first, then falls back to
+//   legacy key "opencode-qwencode-auth", and uses local quota state.
+// - Google refresh flow requires upstream OAuth client credentials from
+//   opencode-antigravity-auth to match that plugin's runtime behavior.
 import { getCachedAccessToken, makeAccountCacheKey, setCachedAccessToken, } from "./google-token-cache.js";
+import { fetchWithTimeout } from "./http.js";
 import { mapWithConcurrency } from "./map-with-concurrency.js";
+import { GOOGLE_MODEL_KEYS } from "./types.js";
 // =============================================================================
 // Constants
 // =============================================================================
@@ -533,4 +538,3 @@ export function formatGoogleQuota(result) {
     }
     return result.models.map((m) => `${m.displayName} ${m.percentRemaining}%`).join(" \u2022 ");
 }
-//# sourceMappingURL=google.js.map

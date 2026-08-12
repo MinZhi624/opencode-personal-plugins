@@ -1,12 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-
+import { nanoGptProvider } from "../src/providers/nanogpt.js";
 import {
   expectAttemptedWithErrorLabel,
   expectAttemptedWithNoErrors,
   expectNotAttempted,
+  visibleEntries,
 } from "./helpers/provider-assertions.js";
-import { visibleEntries } from "./helpers/provider-assertions.js";
-import { nanoGptProvider } from "../src/providers/nanogpt.js";
 
 vi.mock("../src/lib/nanogpt.js", () => ({
   queryNanoGptQuota: vi.fn(),

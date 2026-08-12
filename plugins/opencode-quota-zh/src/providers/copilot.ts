@@ -5,6 +5,11 @@
  * into the shared provider/result boundary.
  */
 
+import {
+  getCopilotQuotaAuthDiagnostics,
+  hasCopilotQuotaRuntimeAvailable,
+  queryCopilotQuota,
+} from "../lib/copilot.js";
 import type {
   AccountingMetadata,
   QuotaProvider,
@@ -12,11 +17,6 @@ import type {
   QuotaProviderResult,
   QuotaToastEntry,
 } from "../lib/entries.js";
-import {
-  getCopilotQuotaAuthDiagnostics,
-  hasCopilotQuotaRuntimeAvailable,
-  queryCopilotQuota,
-} from "../lib/copilot.js";
 import { readAuthFileCached } from "../lib/opencode-auth.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
 import { modelIncludesAny, modelProviderIncludesAny } from "../lib/provider-model-matching.js";

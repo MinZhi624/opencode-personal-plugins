@@ -233,4 +233,3 @@ export async function queryMimoDashboard(cookie, options = {}) {
     ]);
     return { usage, detail, balance };
 }
-//# sourceMappingURL=mimo.js.map

@@ -1,5 +1,5 @@
-import { getAuthPaths, readAuthFile } from "./opencode-auth.js";
 import { createProviderApiKeyResolver, getGlobalOpencodeConfigCandidatePaths, } from "./api-key-resolver.js";
+import { getAuthPaths, readAuthFile } from "./opencode-auth.js";
 const ALLOWED_NANOGPT_ENV_VARS = ["NANOGPT_API_KEY", "NANO_GPT_API_KEY"];
 const NANOGPT_PROVIDER_KEYS = ["nanogpt", "nano-gpt"];
 export { getGlobalOpencodeConfigCandidatePaths as getOpencodeConfigCandidatePaths } from "./api-key-resolver.js";
@@ -28,4 +28,3 @@ export async function hasNanoGptApiKey() {
 export async function getNanoGptKeyDiagnostics() {
     return nanoGptApiKeyResolver.diagnostics();
 }
-//# sourceMappingURL=nanogpt-config.js.map

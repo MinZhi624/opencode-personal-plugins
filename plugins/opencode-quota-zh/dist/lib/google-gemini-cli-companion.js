@@ -61,4 +61,3 @@ export async function resolveGeminiCliClientCredentials() {
 export function clearGeminiCliCompanionCacheForTests() {
     resolver.clearCacheForTests();
 }
-//# sourceMappingURL=google-gemini-cli-companion.js.map

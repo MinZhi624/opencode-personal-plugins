@@ -9,8 +9,8 @@
  * The scraper tries SolidJS SSR first, then falls back to data-slot parsing.
  */
 
-import { fetchWithTimeout } from "./http.js";
 import { sanitizeDisplayText } from "./display-sanitize.js";
+import { fetchWithTimeout } from "./http.js";
 import type { OpenCodeGoResult, OpenCodeGoWindow } from "./types.js";
 
 const DASHBOARD_URL_PREFIX = "https://opencode.ai/workspace/";

@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-
+import { deepseekProvider } from "../src/providers/deepseek.js";
+import { QUOTA_ALERT_METRIC_RAWDETAILS_KEY } from "../src/lib/quota-alert-metrics.js";
 import {
   expectAttemptedWithErrorLabel,
   expectAttemptedWithNoErrors,
   expectNotAttempted,
+  visibleEntries,
 } from "./helpers/provider-assertions.js";
-import { visibleEntries } from "./helpers/provider-assertions.js";
-import { deepseekProvider } from "../src/providers/deepseek.js";
 
 vi.mock("../src/lib/deepseek.js", () => ({
   queryDeepSeekBalance: vi.fn(),
@@ -36,23 +36,25 @@ describe("deepseek provider", () => {
     expectNotAttempted(out);
   });
 
-  it("maps balance infos into grouped value rows", async () => {
+  it("maps balance infos into grouped value rows and structured metric facts", async () => {
     const { queryDeepSeekBalance } = await import("../src/lib/deepseek.js");
     (queryDeepSeekBalance as any).mockResolvedValueOnce({
       success: true,
-      isAvailable: true,
+      availability: "available",
       balanceInfos: [
         {
           currency: "USD",
           totalBalance: "12.34",
           grantedBalance: "2.00",
           toppedUpBalance: "10.34",
+          totalBalanceAmount: 12.34,
         },
         {
           currency: "CNY",
           totalBalance: "88.00",
           grantedBalance: "0.00",
           toppedUpBalance: "88.00",
+          totalBalanceAmount: 88,
         },
       ],
     });
@@ -76,13 +78,44 @@ describe("deepseek provider", () => {
         value: "¥88.00",
       },
     ]);
+    // Structured balance + tri-state availability facts ride in rawDetails,
+    // never in display text.
+    expect(out.rawDetails).toEqual([
+      { key: QUOTA_ALERT_METRIC_RAWDETAILS_KEY, value: '{"type":"balance","currency":"USD","amount":12.34}' },
+      { key: QUOTA_ALERT_METRIC_RAWDETAILS_KEY, value: '{"type":"balance","currency":"CNY","amount":88}' },
+      { key: QUOTA_ALERT_METRIC_RAWDETAILS_KEY, value: '{"type":"availability","status":"available"}' },
+    ]);
   });
 
-  it("maps unavailable empty balance responses into a status row", async () => {
+  it("omits the balance fact for malformed amounts while keeping the display row", async () => {
     const { queryDeepSeekBalance } = await import("../src/lib/deepseek.js");
     (queryDeepSeekBalance as any).mockResolvedValueOnce({
       success: true,
-      isAvailable: false,
+      availability: "available",
+      balanceInfos: [
+        {
+          currency: "CNY",
+          totalBalance: "0.00",
+          grantedBalance: "0.00",
+          toppedUpBalance: "0.00",
+          totalBalanceAmount: null,
+        },
+      ],
+    });
+
+    const out = await deepseekProvider.fetch({ config: {} } as any);
+    expectAttemptedWithNoErrors(out);
+    expect(out.entries).toHaveLength(1);
+    expect(out.rawDetails).toEqual([
+      { key: QUOTA_ALERT_METRIC_RAWDETAILS_KEY, value: '{"type":"availability","status":"available"}' },
+    ]);
+  });
+
+  it("maps unavailable empty balance responses into a status row and an unavailable fact", async () => {
+    const { queryDeepSeekBalance } = await import("../src/lib/deepseek.js");
+    (queryDeepSeekBalance as any).mockResolvedValueOnce({
+      success: true,
+      availability: "unavailable",
       balanceInfos: [],
     });
 
@@ -97,6 +130,50 @@ describe("deepseek provider", () => {
         value: "Low balance",
       },
     ]);
+    expect(out.rawDetails).toEqual([
+      { key: QUOTA_ALERT_METRIC_RAWDETAILS_KEY, value: '{"type":"availability","status":"unavailable"}' },
+    ]);
+  });
+
+  it("keeps a missing availability field as unknown, never as unavailable", async () => {
+    const { queryDeepSeekBalance } = await import("../src/lib/deepseek.js");
+    (queryDeepSeekBalance as any).mockResolvedValueOnce({
+      success: true,
+      availability: "unknown",
+      balanceInfos: [],
+    });
+
+    const out = await deepseekProvider.fetch({ config: {} } as any);
+    expectAttemptedWithNoErrors(out);
+    expect(out.entries[0]?.value).toBe("Unknown");
+    expect(out.rawDetails).toEqual([
+      { key: QUOTA_ALERT_METRIC_RAWDETAILS_KEY, value: '{"type":"availability","status":"unknown"}' },
+    ]);
+  });
+
+  it("always carries the availability fact even when balance rows are shown", async () => {
+    const { queryDeepSeekBalance } = await import("../src/lib/deepseek.js");
+    (queryDeepSeekBalance as any).mockResolvedValueOnce({
+      success: true,
+      availability: "unavailable",
+      balanceInfos: [
+        {
+          currency: "USD",
+          totalBalance: "5.00",
+          grantedBalance: "0.00",
+          toppedUpBalance: "5.00",
+          totalBalanceAmount: 5,
+        },
+      ],
+    });
+
+    const out = await deepseekProvider.fetch({ config: {} } as any);
+    expectAttemptedWithNoErrors(out);
+    expect(out.entries).toHaveLength(1);
+    expect(out.rawDetails).toContainEqual({
+      key: QUOTA_ALERT_METRIC_RAWDETAILS_KEY,
+      value: '{"type":"availability","status":"unavailable"}',
+    });
   });
 
   it("maps errors into toast errors", async () => {

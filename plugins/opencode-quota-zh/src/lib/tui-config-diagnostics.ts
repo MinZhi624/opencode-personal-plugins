@@ -8,9 +8,9 @@ import {
   findGitWorktreeRoot,
   getConfigFileCandidatePaths,
   isQuotaPluginSpec,
-  resolveRuntimeContextRoots,
   type RuntimeContextRootHints,
   type RuntimeContextRoots,
+  resolveRuntimeContextRoots,
 } from "./config-file-utils.js";
 import { parseJsonOrJsonc } from "./jsonc.js";
 import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
@@ -88,7 +88,9 @@ async function findQuotaPluginConfigPaths(paths: string[]): Promise<string[]> {
   return quotaPluginConfigPaths;
 }
 
-export async function inspectTuiConfig(params?: InspectTuiConfigParams): Promise<TuiConfigDiagnostics> {
+export async function inspectTuiConfig(
+  params?: InspectTuiConfigParams,
+): Promise<TuiConfigDiagnostics> {
   const roots = resolveTuiConfigRoots(params);
   const candidatePaths = getTuiConfigCandidatePaths(roots);
   const presentPaths = candidatePaths.filter((path) => existsSync(path));

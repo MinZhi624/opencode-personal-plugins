@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from "vitest";
 import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   getEffectiveConfigRoot,

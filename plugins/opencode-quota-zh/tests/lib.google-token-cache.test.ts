@@ -109,8 +109,9 @@ describe("google-token-cache", () => {
 
   it("serializes concurrent updates without losing different accounts", async () => {
     const { writeFile } = await import("fs/promises");
-    const { getCachedAccessToken, setCachedAccessToken } =
-      await import("../src/lib/google-token-cache.js");
+    const { getCachedAccessToken, setCachedAccessToken } = await import(
+      "../src/lib/google-token-cache.js"
+    );
 
     await Promise.all([
       setCachedAccessToken({ key: "first", entry: entry("first-token") }),
@@ -131,8 +132,9 @@ describe("google-token-cache", () => {
   });
 
   it("applies same-account updates in invocation order", async () => {
-    const { setCachedAccessToken, getCachedAccessToken } =
-      await import("../src/lib/google-token-cache.js");
+    const { setCachedAccessToken, getCachedAccessToken } = await import(
+      "../src/lib/google-token-cache.js"
+    );
 
     await Promise.all([
       setCachedAccessToken({ key: "account", entry: entry("first-token") }),
@@ -145,8 +147,9 @@ describe("google-token-cache", () => {
   });
 
   it("serializes clear and set operations in invocation order", async () => {
-    const { clearGoogleTokenCache, getCachedAccessToken, setCachedAccessToken } =
-      await import("../src/lib/google-token-cache.js");
+    const { clearGoogleTokenCache, getCachedAccessToken, setCachedAccessToken } = await import(
+      "../src/lib/google-token-cache.js"
+    );
 
     await setCachedAccessToken({ key: "old", entry: entry("old-token") });
     await Promise.all([
@@ -162,8 +165,9 @@ describe("google-token-cache", () => {
 
   it("publishes memory only after persistence and continues after a write failure", async () => {
     const { writeFile } = await import("fs/promises");
-    const { getCachedAccessToken, setCachedAccessToken } =
-      await import("../src/lib/google-token-cache.js");
+    const { getCachedAccessToken, setCachedAccessToken } = await import(
+      "../src/lib/google-token-cache.js"
+    );
 
     await setCachedAccessToken({ key: "account", entry: entry("committed-token") });
     (writeFile as any).mockRejectedValueOnce(new Error("disk full"));

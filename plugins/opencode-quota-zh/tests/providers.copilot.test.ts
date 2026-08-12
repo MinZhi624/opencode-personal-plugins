@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-
+import { copilotProvider } from "../src/providers/copilot.js";
 import {
   expectAttemptedWithErrorLabel,
   expectAttemptedWithNoErrors,
@@ -7,7 +7,6 @@ import {
   visibleEntries,
 } from "./helpers/provider-assertions.js";
 import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
-import { copilotProvider } from "../src/providers/copilot.js";
 
 vi.mock("../src/lib/copilot.js", () => ({
   hasCopilotQuotaRuntimeAvailable: vi.fn(async () => false),

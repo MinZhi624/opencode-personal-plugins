@@ -6,9 +6,9 @@
  * - Refreshing on every toast is noisy and increases timeout risk.
  * - We persist access tokens so restarts don't force immediate refresh.
  */
+import { createHash } from "crypto";
 import { readFile } from "fs/promises";
 import { join } from "path";
-import { createHash } from "crypto";
 import { writeTextAtomic } from "./atomic-json.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 const CACHE_VERSION = 1;
@@ -148,4 +148,3 @@ export async function clearGoogleTokenCache() {
         memCache = next;
     });
 }
-//# sourceMappingURL=google-token-cache.js.map

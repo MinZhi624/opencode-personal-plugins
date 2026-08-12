@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { QuotaProviderContext } from "../src/lib/entries.js";
-import { createRuntimeProviderIdResolver } from "../src/lib/runtime-provider-ids.js";
 import type {
   QuotaProviderDefinition,
   RemoteApiQuotaProviderDefinition,
 } from "../src/lib/quota-providers.js";
+import { createRuntimeProviderIdResolver } from "../src/lib/runtime-provider-ids.js";
 
 const runtimeMocks = vi.hoisted(() => ({
   resolveQuotaProviderApiKey: vi.fn(),

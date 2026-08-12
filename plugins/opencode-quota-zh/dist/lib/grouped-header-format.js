@@ -13,4 +13,3 @@ export function formatGroupedHeader(group) {
     }
     return `[${trimmed}]`;
 }
-//# sourceMappingURL=grouped-header-format.js.map

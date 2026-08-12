@@ -1,20 +1,16 @@
-import { lookupCost } from "./modelsdev-pricing.js";
-import type { OpenCodeMessage } from "./opencode-storage.js";
-import { iterAssistantMessages } from "./opencode-storage.js";
-import type { TokenBuckets } from "./quota-stats.js";
-import { resolvePricingKey } from "./quota-stats.js";
 import {
   isCursorModelId,
   isCursorProviderId,
   lookupCursorLocalCost,
   resolveCursorModel,
 } from "./cursor-pricing.js";
+import { lookupCost } from "./modelsdev-pricing.js";
+import type { OpenCodeMessage } from "./opencode-storage.js";
+import { iterAssistantMessages } from "./opencode-storage.js";
+import type { TokenBuckets } from "./quota-stats.js";
+import { resolvePricingKey } from "./quota-stats.js";
+import { addTokenBuckets, emptyTokenBuckets, tokenBucketsFromMessage } from "./token-buckets.js";
 import { calculateUsdFromTokenBuckets } from "./token-cost.js";
-import {
-  addTokenBuckets,
-  emptyTokenBuckets,
-  tokenBucketsFromMessage,
-} from "./token-buckets.js";
 
 export interface CursorCycleWindow {
   sinceMs: number;
@@ -127,7 +123,10 @@ export async function getCurrentCursorUsageSummary(params?: {
   const api = emptyUsageBucket();
   const autoComposer = emptyUsageBucket();
   const total = emptyUsageBucket();
-  const unknownModels = new Map<string, { sourceModelID: string; messageCount: number; tokens: TokenBuckets }>();
+  const unknownModels = new Map<
+    string,
+    { sourceModelID: string; messageCount: number; tokens: TokenBuckets }
+  >();
 
   for (const msg of messages) {
     if (!isCursorMessage(msg)) continue;

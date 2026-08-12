@@ -20,4 +20,3 @@ export function modelIncludesAny(model, fragments) {
     const lower = model.toLowerCase();
     return fragments.some((fragment) => lower.includes(fragment.toLowerCase()));
 }
-//# sourceMappingURL=provider-model-matching.js.map

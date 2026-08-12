@@ -1,6 +1,6 @@
-import type { CursorQuotaPlan } from "./types.js";
 import type { CostBuckets } from "./modelsdev-pricing.js";
 import { getQuotaProviderRuntimeIds } from "./provider-metadata.js";
+import type { CursorQuotaPlan } from "./types.js";
 
 export type CursorLocalPricingModel =
   | "auto"
@@ -18,7 +18,9 @@ export const CURSOR_PROVIDER_ID = "cursor";
 export const CURSOR_LEGACY_PROVIDER_ID = "cursor-acp";
 export const CURSOR_OPENCODE_PROVIDER_ID = CURSOR_LEGACY_PROVIDER_ID;
 
-export const CURSOR_INCLUDED_API_USD_BY_PLAN: Readonly<Record<Exclude<CursorQuotaPlan, "none">, number>> = {
+export const CURSOR_INCLUDED_API_USD_BY_PLAN: Readonly<
+  Record<Exclude<CursorQuotaPlan, "none">, number>
+> = {
   pro: 20,
   "pro-plus": 70,
   ultra: 400,
@@ -117,7 +119,10 @@ export function extractCursorModelPart(rawModelId: string): string {
   const trimmed = rawModelId.trim();
   const lastSlash = trimmed.lastIndexOf("/");
   if (lastSlash === -1) return trimmed.toLowerCase();
-  return trimmed.slice(lastSlash + 1).trim().toLowerCase();
+  return trimmed
+    .slice(lastSlash + 1)
+    .trim()
+    .toLowerCase();
 }
 
 export function getCursorPlanDisplayName(plan: CursorQuotaPlan): string | null {
@@ -137,7 +142,11 @@ export function getEffectiveCursorIncludedApiUsd(params: {
   plan: CursorQuotaPlan;
   overrideUsd?: number;
 }): number | undefined {
-  if (typeof params.overrideUsd === "number" && Number.isFinite(params.overrideUsd) && params.overrideUsd >= 0) {
+  if (
+    typeof params.overrideUsd === "number" &&
+    Number.isFinite(params.overrideUsd) &&
+    params.overrideUsd >= 0
+  ) {
     return params.overrideUsd;
   }
   if (params.plan === "none") return undefined;

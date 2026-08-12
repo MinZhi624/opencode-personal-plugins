@@ -58,4 +58,3 @@ export async function resolveAntigravityClientCredentials() {
 export function clearAntigravityCompanionCacheForTests() {
     resolver.clearCacheForTests();
 }
-//# sourceMappingURL=google-antigravity-companion.js.map

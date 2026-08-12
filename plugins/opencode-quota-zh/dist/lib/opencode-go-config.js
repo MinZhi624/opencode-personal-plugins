@@ -121,4 +121,3 @@ export async function getOpenCodeGoConfigDiagnostics() {
         checkedPaths,
     };
 }
-//# sourceMappingURL=opencode-go-config.js.map

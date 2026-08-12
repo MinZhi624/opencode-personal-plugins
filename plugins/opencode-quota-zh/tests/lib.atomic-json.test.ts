@@ -76,24 +76,24 @@ describe("atomic-json", () => {
     });
   });
 
-  it.each(["EPERM", "EACCES"])(
-    "does not remove the destination when the temp write fails with %s",
-    async (code) => {
-      const fs = await import("fs/promises");
-      const { writeTextAtomic } = await import("../src/lib/atomic-json.js");
-      const writeError = Object.assign(new Error("temp write denied"), { code });
-      (fs.writeFile as any).mockRejectedValueOnce(writeError);
+  it.each([
+    "EPERM",
+    "EACCES",
+  ])("does not remove the destination when the temp write fails with %s", async (code) => {
+    const fs = await import("fs/promises");
+    const { writeTextAtomic } = await import("../src/lib/atomic-json.js");
+    const writeError = Object.assign(new Error("temp write denied"), { code });
+    (fs.writeFile as any).mockRejectedValueOnce(writeError);
 
-      await expect(writeTextAtomic("/tmp/opencode/state.json", "{}")).rejects.toThrow(
-        "temp write denied",
-      );
+    await expect(writeTextAtomic("/tmp/opencode/state.json", "{}")).rejects.toThrow(
+      "temp write denied",
+    );
 
-      const [tmpPath] = (fs.writeFile as any).mock.calls[0];
-      expect(fs.rm).toHaveBeenCalledWith(tmpPath, { force: true });
-      expect(fs.rm).not.toHaveBeenCalledWith("/tmp/opencode/state.json", { force: true });
-      expect(fs.rename).not.toHaveBeenCalled();
-    },
-  );
+    const [tmpPath] = (fs.writeFile as any).mock.calls[0];
+    expect(fs.rm).toHaveBeenCalledWith(tmpPath, { force: true });
+    expect(fs.rm).not.toHaveBeenCalledWith("/tmp/opencode/state.json", { force: true });
+    expect(fs.rename).not.toHaveBeenCalled();
+  });
 
   it("cleans up the temp file when writing fails", async () => {
     const fs = await import("fs/promises");

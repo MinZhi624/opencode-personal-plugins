@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { formatDisplayName, queryGoogleAgyQuota } from "../src/lib/google-agy";
 
 describe("google-agy extra logic", () => {

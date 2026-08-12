@@ -89,4 +89,3 @@ if (cliShouldRunMain()) {
         process.exitCode = code;
     });
 }
-//# sourceMappingURL=opencode-quota.js.map

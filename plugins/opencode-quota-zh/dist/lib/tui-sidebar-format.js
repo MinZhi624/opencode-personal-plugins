@@ -20,4 +20,3 @@ export function buildSidebarQuotaPanelLines(params) {
     });
     return quotaBody ? quotaBody.split("\n") : [];
 }
-//# sourceMappingURL=tui-sidebar-format.js.map

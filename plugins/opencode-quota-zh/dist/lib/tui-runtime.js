@@ -1,12 +1,16 @@
 import { resolveRuntimeContextRoots } from "./config-file-utils.js";
-import { createQuotaProviderRuntimeContext, createQuotaRuntimeRequestContext, resolveQuotaRuntimeContext, } from "./quota-runtime-context.js";
-import { collectConcreteEnabledProviderIds, collectQuotaRenderData } from "./quota-render-data.js";
+import { isPercentEntry } from "./entries.js";
+import { BUNDLED_MAINTAINER_ANNOUNCEMENTS, formatMaintainerAnnouncementHomeCountLine, getMaintainerAnnouncementsSummary, getMaintainerAnnouncementTargetProviderIds, } from "./maintainer-announcements.js";
+import { getQuotaProviderShape, normalizeQuotaProviderId } from "./provider-metadata.js";
+import { classifyQuotaWindowText } from "./quota-entry-display.js";
+import { buildQuotaExport, createExportProviderContext, resolveExportPath, writeQuotaExport, } from "./quota-export.js";
 import { resolveQuotaFormatStyle } from "./quota-format-style.js";
+import { collectConcreteEnabledProviderIds, collectQuotaRenderData } from "./quota-render-data.js";
+import { createQuotaProviderRuntimeContext, createQuotaRuntimeRequestContext, resolveQuotaRuntimeContext, } from "./quota-runtime-context.js";
 import { buildCompactQuotaStatusLine } from "./tui-compact-format.js";
 import { hasNativeProviderQuotaClient } from "./tui-native-provider-quota.js";
+import { buildUnifiedQuotaSnapshot, EMPTY_QUOTA_PROJECTION_STATE, formatStartupHintText, projectQuotaSnapshot, } from "./quota-snapshot.js";
 import { buildSidebarQuotaPanelLines, TUI_SIDEBAR_MAX_WIDTH } from "./tui-sidebar-format.js";
-import { formatMaintainerAnnouncementHomeCountLine, getMaintainerAnnouncementsSummary, } from "./maintainer-announcements.js";
-import { resolveExportPath, buildQuotaExport, writeQuotaExport, createExportProviderContext, } from "./quota-export.js";
 const COMPACT_UNAVAILABLE_TEXT = "Quota unavailable";
 const tuiQuotaClients = new WeakMap();
 export function getTuiRuntimeRootHints(api) {
@@ -144,6 +148,18 @@ export async function getTuiSessionModelMeta(api, sessionID) {
     }
     return getMessageSessionModelMeta(api, safeSessionID);
 }
+// Local fork adaptation (Ticket 05): exported so the Chinese sidebar component
+// (src/quota-zh-sidebar.tsx) can validate and reuse the same initial runtime
+// seed captured during surface registration.
+export function getMatchingInitialRuntimeSeed(api, seed) {
+    if (!seed)
+        return undefined;
+    const roots = resolveRuntimeContextRoots(getTuiRuntimeRootHints(api));
+    return roots.workspaceRoot === seed.roots.workspaceRoot &&
+        roots.configRoot === seed.roots.configRoot
+        ? seed
+        : undefined;
+}
 function isSessionSidebarEnabled(runtime) {
     return runtime.config.enabled && runtime.config.tuiSidebarPanel.enabled;
 }
@@ -152,10 +168,14 @@ function isSessionCompactEnabled(runtime) {
         runtime.config.tuiCompactStatus.enabled &&
         runtime.config.tuiCompactStatus.sessionPrompt);
 }
+function isSessionPromptBarEnabled(runtime) {
+    return runtime.config.enabled && runtime.config.tuiPromptBar.enabled;
+}
 function buildDisabledSessionQuotaSurfaces() {
     return {
         sidebar: { status: "disabled", lines: [] },
         compact: { status: "disabled" },
+        promptBar: { status: "disabled" },
     };
 }
 function buildCompactStatusFromData(params) {
@@ -230,6 +250,41 @@ function buildSidebarPanelFromData(params) {
         ...(linesExpanded ? { linesExpanded } : {}),
     };
 }
+function pickPromptBarEntry(data) {
+    if (!data || !Array.isArray(data.entries)) {
+        return undefined;
+    }
+    let fallback;
+    for (const entry of data.entries) {
+        if (!isPercentEntry(entry) || !Number.isFinite(entry.percentRemaining)) {
+            continue;
+        }
+        const kind = classifyQuotaWindowText(entry.label ?? "") ?? classifyQuotaWindowText(entry.name);
+        if (kind === "five_hour") {
+            return entry;
+        }
+        if (!fallback ||
+            entry.percentRemaining < (fallback.percentRemaining ?? Number.POSITIVE_INFINITY)) {
+            fallback = entry;
+        }
+    }
+    return fallback;
+}
+function buildPromptBarFromData(params) {
+    if (!params.enabled) {
+        return { status: "disabled" };
+    }
+    if (params.result.selection?.waitingForCurrentSelection) {
+        return { status: "loading" };
+    }
+    const entry = pickPromptBarEntry(params.result.allWindowsData ?? params.result.data);
+    return {
+        status: "ready",
+        ...(entry ? { entry } : {}),
+        percentDisplayMode: params.runtime.config.percentDisplayMode,
+        resetTimeDecimals: params.runtime.config.resetTimeDecimals,
+    };
+}
 async function collectTuiQuotaRenderData(params) {
     const formatStyle = resolveQuotaFormatStyle(params.runtime.config.formatStyle);
     const sidebarFormatStyle = params.runtime.config.tuiSidebarPanel.formatStyle
@@ -251,7 +306,7 @@ async function collectTuiQuotaRenderData(params) {
     });
     return { result, formatStyle, sidebarFormatStyle, compactFormatStyle };
 }
-export async function resolveTuiSurfaceRegistration(api) {
+export async function resolveTuiSurfaceRegistration(api, options) {
     const quotaClient = createTuiQuotaClient(api);
     const runtime = await resolveQuotaRuntimeContext({
         client: quotaClient,
@@ -266,7 +321,7 @@ export async function resolveTuiSurfaceRegistration(api) {
         runtime.config.maintainerAnnouncements.home;
     const exportHomeBottom = runtime.config.enabled && runtime.config.export.enabled;
     const compactHomeBottom = compactEnabled && compact.homeBottom;
-    return {
+    const registration = {
         commandDisplay: runtime.config.tuiCommandDisplay,
         sidebar: {
             enabled: runtime.config.enabled && runtime.config.tuiSidebarPanel.enabled,
@@ -278,24 +333,42 @@ export async function resolveTuiSurfaceRegistration(api) {
             hasNativeProviderQuota,
             suppressedByNativeProviderQuota,
         },
+        promptBar: {
+            enabled: runtime.config.enabled && runtime.config.tuiPromptBar.enabled,
+        },
+        startupHint: {
+            enabled: runtime.config.enabled && runtime.config.startupHint.enabled,
+        },
         announcements: {
             homeBottom: announcementHomeBottom,
         },
         homeBottom: compactHomeBottom || announcementHomeBottom || exportHomeBottom,
     };
+    options?.captureInitialRuntime?.({
+        roots: runtime.roots,
+        config: runtime.config,
+        configMeta: runtime.configMeta,
+        providers: runtime.providers,
+    });
+    return registration;
 }
 export async function loadTuiSessionQuotaSurfaces(params) {
     const quotaClient = createTuiQuotaClient(params.api);
+    const initialRuntimeSeed = getMatchingInitialRuntimeSeed(params.api, params.initialRuntimeSeed);
     const runtime = await resolveQuotaRuntimeContext({
         client: quotaClient,
         roots: getTuiRuntimeRootHints(params.api),
         sessionID: params.sessionID,
         resolveSessionMeta: (sessionID) => getTuiSessionModelMeta(params.api, sessionID),
         includeSessionMeta: (config) => config.onlyCurrentModel,
+        config: initialRuntimeSeed?.config,
+        configMeta: initialRuntimeSeed?.configMeta,
+        providers: initialRuntimeSeed?.providers,
     });
     const sidebarEnabled = isSessionSidebarEnabled(runtime);
     const compactEnabled = isSessionCompactEnabled(runtime);
-    if (!sidebarEnabled && !compactEnabled) {
+    const promptBarEnabled = isSessionPromptBarEnabled(runtime);
+    if (!sidebarEnabled && !compactEnabled && !promptBarEnabled) {
         return buildDisabledSessionQuotaSurfaces();
     }
     const { result, sidebarFormatStyle, compactFormatStyle } = await collectTuiQuotaRenderData({
@@ -312,13 +385,22 @@ export async function loadTuiSessionQuotaSurfaces(params) {
             enabled: compactEnabled,
             formatStyle: compactFormatStyle,
         }),
+        promptBar: buildPromptBarFromData({
+            runtime,
+            result,
+            enabled: promptBarEnabled,
+        }),
     };
 }
 export async function loadTuiHomeBottomStatus(params) {
     const quotaClient = createTuiQuotaClient(params.api);
+    const initialRuntimeSeed = getMatchingInitialRuntimeSeed(params.api, params.initialRuntimeSeed);
     const runtime = await resolveQuotaRuntimeContext({
         client: quotaClient,
         roots: getTuiRuntimeRootHints(params.api),
+        config: initialRuntimeSeed?.config,
+        configMeta: initialRuntimeSeed?.configMeta,
+        providers: initialRuntimeSeed?.providers,
     });
     const announcementEnabled = runtime.config.enabled &&
         runtime.config.maintainerAnnouncements.enabled &&
@@ -334,15 +416,21 @@ export async function loadTuiHomeBottomStatus(params) {
     }
     let announcementText;
     if (announcementEnabled) {
+        const announcements = params.announcements ?? BUNDLED_MAINTAINER_ANNOUNCEMENTS;
+        const targetProviderIds = new Set(getMaintainerAnnouncementTargetProviderIds({ announcements }));
+        const announcementProviders = runtime.providers.filter((provider) => {
+            const shape = getQuotaProviderShape(normalizeQuotaProviderId(provider.id));
+            return shape ? targetProviderIds.has(shape.id) : false;
+        });
         const providerIds = await collectConcreteEnabledProviderIds({
-            providers: runtime.providers,
+            providers: announcementProviders,
             ctx: createQuotaProviderRuntimeContext(runtime),
             enabledProviders: runtime.config.enabledProviders,
         });
         const summary = getMaintainerAnnouncementsSummary({
             nowMs: params.nowMs,
             enabledProviders: providerIds,
-            announcements: params.announcements,
+            announcements,
         });
         announcementText = formatMaintainerAnnouncementHomeCountLine(summary.activeCount) || undefined;
     }
@@ -371,6 +459,70 @@ export async function loadTuiHomeBottomStatus(params) {
         formatStyle: compactFormatStyle,
     });
     return { status: "ready", announcementText, compact };
+}
+/**
+ * Loads the startup hint for the OpenCode home page (Ticket 07).
+ *
+ * Reuses the shared quota render pipeline (no extra Provider requests beyond
+ * the normal home refresh) and feeds the pure unified-snapshot projection seam
+ * with an injected clock. Returns a ready single-line Chinese hint, or
+ * "disabled" when the surface is off, no provider is monitored, or the
+ * snapshot projects to "none".
+ */
+export async function loadTuiStartupHint(params) {
+    const quotaClient = createTuiQuotaClient(params.api);
+    const initialRuntimeSeed = getMatchingInitialRuntimeSeed(params.api, params.initialRuntimeSeed);
+    const runtime = await resolveQuotaRuntimeContext({
+        client: quotaClient,
+        roots: getTuiRuntimeRootHints(params.api),
+        config: initialRuntimeSeed?.config,
+        configMeta: initialRuntimeSeed?.configMeta,
+        providers: initialRuntimeSeed?.providers,
+    });
+    if (!runtime.config.enabled || !runtime.config.startupHint.enabled) {
+        return { status: "disabled" };
+    }
+    const homeRuntime = {
+        ...runtime,
+        config: {
+            ...runtime.config,
+            onlyCurrentModel: false,
+            showSessionTokens: false,
+        },
+        session: {},
+    };
+    const { result } = await collectTuiQuotaRenderData({
+        runtime: homeRuntime,
+        request: createQuotaRuntimeRequestContext(homeRuntime),
+    });
+    const snapshot = buildUnifiedQuotaSnapshot({
+        monitoredProviderIds: result.selection?.providers.map((provider) => provider.id) ?? [],
+        availability: result.availability.map((item) => ({
+            providerId: item.provider.id,
+            ok: item.ok,
+            ...(item.error ? { error: true } : {}),
+        })),
+        // collectQuotaRenderData aligns `results` with `active`; absent results
+        // mean no fresh observation for that provider.
+        results: result.results
+            ? result.active.map((provider, index) => ({
+                providerId: provider.id,
+                result: result.results[index] ?? { attempted: false, entries: [], errors: [] },
+            }))
+            : [],
+    });
+    const now = params.nowMs !== undefined ? new Date(params.nowMs) : new Date();
+    const projection = projectQuotaSnapshot({
+        config: runtime.config,
+        snapshot,
+        now,
+        state: EMPTY_QUOTA_PROJECTION_STATE,
+    });
+    const text = formatStartupHintText(projection.startupHint, now);
+    if (!text) {
+        return { status: "disabled" };
+    }
+    return { status: "ready", text };
 }
 export async function loadTuiHomeCompactStatus(params) {
     const quotaClient = createTuiQuotaClient(params.api);
@@ -432,4 +584,3 @@ export async function writeTuiQuotaExportIfEnabled(params) {
     });
     await writeQuotaExport(exportData, resolvedPath);
 }
-//# sourceMappingURL=tui-runtime.js.map

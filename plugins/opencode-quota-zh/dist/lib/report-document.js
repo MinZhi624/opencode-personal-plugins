@@ -106,4 +106,3 @@ export function renderMarkdownReport(document) {
     }
     return lines.join("\n");
 }
-//# sourceMappingURL=report-document.js.map

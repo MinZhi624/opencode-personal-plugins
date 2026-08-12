@@ -6,4 +6,3 @@
 export function shouldRegisterServerSlashCommands(params) {
     return params.isMainThread;
 }
-//# sourceMappingURL=command-surfaces.js.map

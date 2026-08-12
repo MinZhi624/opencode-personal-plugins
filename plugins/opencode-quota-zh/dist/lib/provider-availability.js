@@ -17,4 +17,3 @@ export async function isCanonicalProviderAvailable(params) {
         fallbackOnError,
     });
 }
-//# sourceMappingURL=provider-availability.js.map

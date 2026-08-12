@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockedHomeDir = vi.hoisted(() => ({
   value: "",
@@ -15,16 +15,16 @@ vi.mock("os", async (importOriginal) => {
   };
 });
 
+import { createLoadConfigMeta } from "../src/lib/config.js";
+import { resolveRuntimeContextRoots } from "../src/lib/config-file-utils.js";
 import {
   createQuotaProviderRuntimeContext,
-  resolveQuotaRuntimeContext,
   type QuotaRuntimeClient,
+  resolveQuotaRuntimeContext,
 } from "../src/lib/quota-runtime-context.js";
-import { resolveRuntimeContextRoots } from "../src/lib/config-file-utils.js";
-import { createLoadConfigMeta } from "../src/lib/config.js";
-import { DEFAULT_CONFIG } from "../src/lib/types.js";
-import { createRuntimeProviderIdResolver } from "../src/lib/runtime-provider-ids.js";
 import { __resetQuotaTelemetryForTests } from "../src/lib/quota-telemetry.js";
+import { createRuntimeProviderIdResolver } from "../src/lib/runtime-provider-ids.js";
+import { DEFAULT_CONFIG } from "../src/lib/types.js";
 
 function quotaConfigSource(dir: string): string {
   return join(dir, "opencode.json") + " (experimental.quotaToast)";

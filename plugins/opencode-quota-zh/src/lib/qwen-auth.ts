@@ -1,5 +1,5 @@
-import type { AuthData } from "./types.js";
 import { readAuthFileCached } from "./opencode-auth.js";
+import type { AuthData } from "./types.js";
 
 export const DEFAULT_QWEN_AUTH_CACHE_MAX_AGE_MS = 5_000;
 const QWEN_AUTH_KEYS = ["qwen-code", "opencode-qwencode-auth"] as const;
@@ -32,9 +32,7 @@ export function hasQwenOAuthAuth(auth: AuthData | null | undefined): boolean {
   return getQwenOAuthAccessToken(auth) !== null;
 }
 
-export async function hasQwenOAuthAuthCached(params?: {
-  maxAgeMs?: number;
-}): Promise<boolean> {
+export async function hasQwenOAuthAuthCached(params?: { maxAgeMs?: number }): Promise<boolean> {
   const auth = await readAuthFileCached({
     maxAgeMs: Math.max(0, params?.maxAgeMs ?? DEFAULT_QWEN_AUTH_CACHE_MAX_AGE_MS),
   });

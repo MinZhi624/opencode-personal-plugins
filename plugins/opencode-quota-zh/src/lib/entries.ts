@@ -1,7 +1,7 @@
-import type { CursorQuotaPlan, OpenCodeGoWindowKey } from "./types.js";
 import type { QuotaProviderDefinition } from "./quota-providers.js";
-import type { RuntimeProviderIdResolver } from "./runtime-provider-ids.js";
 import type { QuotaTelemetryToken } from "./quota-telemetry.js";
+import type { RuntimeProviderIdResolver } from "./runtime-provider-ids.js";
+import type { CursorQuotaPlan, OpenCodeGoWindowKey } from "./types.js";
 
 /**
  * Normalized quota output model.
@@ -196,6 +196,8 @@ export interface QuotaProviderResult {
    * may reuse them, but must not refetch when details are absent.
    */
   statusDetails?: readonly QuotaProviderStatusDetail[];
+  /** Safe provider-owned facts preserved in cache and JSON exports, never human presentation. */
+  rawDetails?: readonly QuotaProviderStatusDetail[];
   presentation?: QuotaProviderPresentation;
 }
 

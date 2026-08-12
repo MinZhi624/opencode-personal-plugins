@@ -22,4 +22,3 @@ export const openRouterProvider = {
         });
     },
 };
-//# sourceMappingURL=openrouter.js.map

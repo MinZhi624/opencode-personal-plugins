@@ -4,9 +4,9 @@
  * Queries: GET https://api.deepseek.com/user/balance
  * Auth: Bearer token in Authorization header.
  */
+import { resolveDeepSeekApiKey, } from "./deepseek-auth.js";
 import { sanitizeDisplaySnippet, sanitizeDisplayText } from "./display-sanitize.js";
 import { fetchWithTimeout } from "./http.js";
-import { resolveDeepSeekApiKey, } from "./deepseek-auth.js";
 const DEEPSEEK_BALANCE_URL = "https://api.deepseek.com/user/balance";
 const USER_AGENT = "OpenCode-Quota-Toast/1.0";
 const CURRENCY_SYMBOLS = {
@@ -23,15 +23,22 @@ const DEEPSEEK_DECIMAL_BALANCE_RE = /^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/u;
 function normalizeDeepSeekBalance(value) {
     const raw = getNonEmptyString(value);
     if (!raw || raw.length > 64 || !DEEPSEEK_DECIMAL_BALANCE_RE.test(raw)) {
-        return "0.00";
+        return { display: "0.00", amount: null };
     }
-    return raw;
+    const amount = Number(raw);
+    return { display: raw, amount: Number.isFinite(amount) ? amount : null };
+}
+function parseDeepSeekAvailability(value) {
+    if (typeof value === "boolean") {
+        return value ? "available" : "unavailable";
+    }
+    return "unknown";
 }
 function parseDeepSeekBalance(payload) {
     if (!isRecord(payload)) {
         throw new Error("DeepSeek balance response returned an unexpected response shape");
     }
-    const isAvailable = typeof payload.is_available === "boolean" ? payload.is_available : false;
+    const availability = parseDeepSeekAvailability(payload.is_available);
     const balanceInfos = [];
     const rawInfos = payload.balance_infos;
     if (Array.isArray(rawInfos)) {
@@ -41,15 +48,17 @@ function parseDeepSeekBalance(payload) {
             const currency = getNonEmptyString(info.currency);
             if (!currency || !["CNY", "USD"].includes(currency.toUpperCase()))
                 continue;
+            const totalBalance = normalizeDeepSeekBalance(info.total_balance);
             balanceInfos.push({
                 currency: currency.toUpperCase(),
-                totalBalance: normalizeDeepSeekBalance(info.total_balance),
-                grantedBalance: normalizeDeepSeekBalance(info.granted_balance),
-                toppedUpBalance: normalizeDeepSeekBalance(info.topped_up_balance),
+                totalBalance: totalBalance.display,
+                grantedBalance: normalizeDeepSeekBalance(info.granted_balance).display,
+                toppedUpBalance: normalizeDeepSeekBalance(info.topped_up_balance).display,
+                totalBalanceAmount: totalBalance.amount,
             });
         }
     }
-    return { isAvailable, balanceInfos };
+    return { availability, balanceInfos };
 }
 async function fetchDeepSeekBalance(apiKey, requestTimeoutMs) {
     try {
@@ -106,9 +115,8 @@ export async function queryDeepSeekBalance(options = {}) {
     }
     return {
         success: true,
-        isAvailable: result.data.isAvailable,
+        availability: result.data.availability,
         balanceInfos: result.data.balanceInfos,
     };
 }
 export { getDeepSeekKeyDiagnostics, hasDeepSeekApiKey as hasDeepSeekApiKeyConfigured, } from "./deepseek-auth.js";
-//# sourceMappingURL=deepseek.js.map

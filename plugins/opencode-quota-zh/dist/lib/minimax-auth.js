@@ -6,8 +6,8 @@
  * by the MiniMax Coding Plan providers.
  */
 import { getApiKeyCheckedPaths, getFirstAuthEntryValue, getGlobalOpencodeConfigCandidatePaths, readOpencodeConfig, } from "./api-key-resolver.js";
-import { resolveEnvTemplate } from "./env-template.js";
 import { sanitizeDisplayText } from "./display-sanitize.js";
+import { resolveEnvTemplate } from "./env-template.js";
 import { getAuthPaths, readAuthFileCached } from "./opencode-auth.js";
 export const DEFAULT_MINIMAX_AUTH_CACHE_MAX_AGE_MS = 5_000;
 export { getGlobalOpencodeConfigCandidatePaths as getOpencodeConfigCandidatePaths } from "./api-key-resolver.js";
@@ -202,4 +202,3 @@ export async function getMiniMaxAuthDiagnostics(params) {
 export async function getMiniMaxChinaAuthDiagnostics(params) {
     return getMiniMaxAuthDiagnosticsForSpec(MINIMAX_CHINA_AUTH_SPEC, params);
 }
-//# sourceMappingURL=minimax-auth.js.map

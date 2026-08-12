@@ -18,9 +18,11 @@ describe("renderSessionTokensLines", () => {
 
     expect(lines).toEqual([
       SESSION_TOKEN_SECTION_HEADING,
-      "  openai/gpt-5            1.2K in     567 out",
+      "  openai/gpt-5            1.2K 输入     567 输出",
     ]);
-    expect(lines[1]?.length).toBe(WIDE_SESSION_TOKEN_LINE_WIDTH);
+    // Chinese units (输出 vs "out") make the wide row 44 units; it must still
+    // fit within the shared WIDE_SESSION_TOKEN_LINE_WIDTH budget.
+    expect(lines[1]!.length).toBeLessThanOrEqual(WIDE_SESSION_TOKEN_LINE_WIDTH);
   });
 
   it("abbreviates antigravity model names before shortening", () => {
@@ -49,7 +51,7 @@ describe("renderSessionTokensLines", () => {
     expect(lines).toEqual([
       SESSION_TOKEN_SECTION_HEADING.slice(0, 36),
       "  openai/gpt-5.4-mini",
-      "    372 in  41 out",
+      "    372 输入  41 输出",
     ]);
   });
 
@@ -62,7 +64,7 @@ describe("renderSessionTokensLines", () => {
 
     expect(section).toEqual({
       heading: SESSION_TOKEN_SECTION_HEADING,
-      lines: ["  openai/gpt-5            1.2K in     567 out"],
+      lines: ["  openai/gpt-5            1.2K 输入     567 输出"],
     });
   });
 
@@ -85,7 +87,7 @@ describe("renderSessionTokensLines", () => {
 
     expect(lines).toEqual([
       SESSION_TOKEN_SECTION_HEADING,
-      "  openai/gpt-5          1.2K (456) in     567 out",
+      "  openai/gpt-5          1.2K (456) 输入     567 输出",
     ]);
   });
 
@@ -113,7 +115,7 @@ describe("renderSessionTokensLines", () => {
     expect(lines).toEqual([
       SESSION_TOKEN_SECTION_HEADING,
       "  openai/gpt-5",
-      "    1.2K (456) in  567 out",
+      "    1.2K (456) 输入  567 输出",
     ]);
   });
 });
@@ -129,7 +131,7 @@ describe("renderSidebarSessionTokenSummaryLines", () => {
       { maxWidth: 36 },
     );
 
-    expect(lines).toEqual([SESSION_TOKEN_SECTION_HEADING.slice(0, 36), "  372 in  41 out"]);
+    expect(lines).toEqual([SESSION_TOKEN_SECTION_HEADING.slice(0, 36), "  372 输入  41 输出"]);
     expect(lines.every((line) => line.length <= 36)).toBe(true);
   });
 
@@ -153,6 +155,6 @@ describe("renderSidebarSessionTokenSummaryLines", () => {
       { maxWidth: 80 },
     );
 
-    expect(lines).toEqual([SESSION_TOKEN_SECTION_HEADING, "  372 (120) in  41 out"]);
+    expect(lines).toEqual([SESSION_TOKEN_SECTION_HEADING, "  372 (120) 输入  41 输出"]);
   });
 });

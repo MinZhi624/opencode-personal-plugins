@@ -1,8 +1,8 @@
-import type { KimiResult, KimiQuotaWindow, QuotaError } from "./types.js";
 import { sanitizeDisplaySnippet, sanitizeDisplayText } from "./display-sanitize.js";
 import { clampPercent } from "./format-utils.js";
 import { fetchWithTimeout } from "./http.js";
-import { resolveKimiAuthCached, DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS } from "./kimi-auth.js";
+import { DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS, resolveKimiAuthCached } from "./kimi-auth.js";
+import type { KimiQuotaWindow, KimiResult, QuotaError } from "./types.js";
 
 const KIMI_USAGE_URL = "https://api.kimi.com/coding/v1/usages";
 const USER_AGENT = "OpenCode-Quota-Toast/1.0";

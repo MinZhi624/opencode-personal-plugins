@@ -33,4 +33,3 @@ export function isCommandHandledError(err) {
     const marker = err[COMMAND_HANDLED_ERROR_BRAND];
     return marker === true || err.message === COMMAND_HANDLED_SENTINEL;
 }
-//# sourceMappingURL=command-handled.js.map

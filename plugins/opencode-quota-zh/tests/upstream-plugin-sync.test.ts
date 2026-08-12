@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -230,8 +230,9 @@ describe("upstream-plugin-sync", () => {
   });
 
   it("stages the full reference tree before swapping it into place", async () => {
-    const { syncUpstreamPluginReferences } =
-      await import("../scripts/lib/upstream-plugin-sync.mjs");
+    const { syncUpstreamPluginReferences } = await import(
+      "../scripts/lib/upstream-plugin-sync.mjs"
+    );
     const result = await syncUpstreamPluginReferences();
     const referenceRoot = path.join(testState.repoRoot, "references", "upstream-plugins");
 
@@ -295,8 +296,9 @@ describe("upstream-plugin-sync", () => {
       "utf8",
     );
 
-    const { syncUpstreamPluginReferences } =
-      await import("../scripts/lib/upstream-plugin-sync.mjs");
+    const { syncUpstreamPluginReferences } = await import(
+      "../scripts/lib/upstream-plugin-sync.mjs"
+    );
     await syncUpstreamPluginReferences();
 
     const referenceRoot = path.join(testState.repoRoot, "references", "upstream-plugins");
@@ -332,8 +334,9 @@ describe("upstream-plugin-sync", () => {
       "utf8",
     );
 
-    const { syncUpstreamPluginReferences } =
-      await import("../scripts/lib/upstream-plugin-sync.mjs");
+    const { syncUpstreamPluginReferences } = await import(
+      "../scripts/lib/upstream-plugin-sync.mjs"
+    );
     await syncUpstreamPluginReferences();
 
     const packageJson = await readFile(
@@ -350,8 +353,9 @@ describe("upstream-plugin-sync", () => {
   it("leaves the committed reference tree untouched when staging fails", async () => {
     testState.failPluginId = "opencode-cursor-oauth";
 
-    const { syncUpstreamPluginReferences } =
-      await import("../scripts/lib/upstream-plugin-sync.mjs");
+    const { syncUpstreamPluginReferences } = await import(
+      "../scripts/lib/upstream-plugin-sync.mjs"
+    );
     const referenceRoot = path.join(testState.repoRoot, "references", "upstream-plugins");
 
     await expect(syncUpstreamPluginReferences()).rejects.toThrow("Failed to extract");

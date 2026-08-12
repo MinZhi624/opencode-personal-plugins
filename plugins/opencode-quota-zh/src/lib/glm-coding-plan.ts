@@ -1,7 +1,7 @@
+import type { InvalidAwareAuthResult } from "./api-key-resolver.js";
 import { sanitizeDisplaySnippet, sanitizeDisplayText } from "./display-sanitize.js";
 import { clampPercent } from "./format-utils.js";
 import { fetchWithTimeout } from "./http.js";
-import type { InvalidAwareAuthResult } from "./api-key-resolver.js";
 import type { ZaiQuotaLimit, ZaiQuotaResult, ZaiResult } from "./types.js";
 
 type GlmEnvelope = {

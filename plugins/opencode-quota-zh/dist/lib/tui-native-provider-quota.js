@@ -22,4 +22,3 @@ export function hasNativeProviderQuotaClient(client) {
     const provider = experimental.provider;
     return isRecord(provider) && isQuotaApiLike(provider.quota);
 }
-//# sourceMappingURL=tui-native-provider-quota.js.map

@@ -6,16 +6,16 @@
  * - https://nano-gpt.com/api/check-balance
  */
 
-import type { QuotaError } from "./types.js";
 import { sanitizeDisplaySnippet, sanitizeDisplayText } from "./display-sanitize.js";
 import { clampPercent, fmtUsdAmount } from "./format-utils.js";
 import { fetchWithTimeout } from "./http.js";
 import {
   getNanoGptKeyDiagnostics,
-  resolveNanoGptApiKey,
   hasNanoGptApiKey,
   type NanoGptKeySource,
+  resolveNanoGptApiKey,
 } from "./nanogpt-config.js";
+import type { QuotaError } from "./types.js";
 
 type NanoGptRecord = Record<string, unknown>;
 

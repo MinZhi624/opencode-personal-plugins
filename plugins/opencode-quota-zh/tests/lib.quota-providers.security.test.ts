@@ -1,14 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
+import { quotaProvider } from "./fixtures/quota-providers.js";
 import {
+  type ConfigLoaderWorkspace,
   createConfigLoaderWorkspace,
   quotaConfigSource,
   quotaSidecarConfigSource,
   writeQuotaSidecarConfig,
   writeQuotaToastConfig,
-  type ConfigLoaderWorkspace,
 } from "./helpers/config-loader-test-harness.js";
-import { quotaProvider } from "./fixtures/quota-providers.js";
 
 const runtimeDirs = vi.hoisted(() => ({
   value: {

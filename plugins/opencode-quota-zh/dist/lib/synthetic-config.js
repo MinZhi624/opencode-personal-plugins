@@ -1,5 +1,5 @@
-import { getAuthPaths, readAuthFile } from "./opencode-auth.js";
 import { createProviderApiKeyResolver, getGlobalOpencodeConfigCandidatePaths, } from "./api-key-resolver.js";
+import { getAuthPaths, readAuthFile } from "./opencode-auth.js";
 const ALLOWED_SYNTHETIC_ENV_VARS = ["SYNTHETIC_API_KEY"];
 const SYNTHETIC_PROVIDER_KEYS = ["synthetic"];
 export { getGlobalOpencodeConfigCandidatePaths as getOpencodeConfigCandidatePaths } from "./api-key-resolver.js";
@@ -25,4 +25,3 @@ export async function hasSyntheticApiKey() {
 export async function getSyntheticKeyDiagnostics() {
     return syntheticApiKeyResolver.diagnostics();
 }
-//# sourceMappingURL=synthetic-config.js.map

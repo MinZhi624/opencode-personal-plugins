@@ -4,10 +4,10 @@
  * Scrapes the OpenCode Go workspace dashboard and reports rolling (~5h),
  * weekly, and monthly usage as percentage-based quota entries.
  */
-import { DEFAULT_OPENCODE_GO_CONFIG_CACHE_MAX_AGE_MS, getOpenCodeGoConfigDiagnostics, resolveOpenCodeGoConfigCached, } from "../lib/opencode-go-config.js";
 import { queryOpenCodeGoQuota } from "../lib/opencode-go.js";
+import { DEFAULT_OPENCODE_GO_CONFIG_CACHE_MAX_AGE_MS, getOpenCodeGoConfigDiagnostics, resolveOpenCodeGoConfigCached, } from "../lib/opencode-go-config.js";
 import { normalizeQuotaProviderId } from "../lib/provider-metadata.js";
-import { attemptedErrorResult, configStatusDetails, attemptedResult, notAttemptedResult, withStatusDetails, } from "./result-helpers.js";
+import { attemptedErrorResult, attemptedResult, configStatusDetails, notAttemptedResult, withStatusDetails, } from "./result-helpers.js";
 const OPENCODE_GO_PROVIDER_LABEL = "OpenCode Go";
 const OPENCODE_GO_WINDOW_ORDER = ["rolling", "weekly", "monthly"];
 const OPENCODE_GO_WINDOW_LABELS = {
@@ -131,4 +131,3 @@ export const opencodeGoProvider = {
         return withStatusDetails(attemptedResult(entries), [...statusDetails, ...liveDetails]);
     },
 };
-//# sourceMappingURL=opencode-go.js.map

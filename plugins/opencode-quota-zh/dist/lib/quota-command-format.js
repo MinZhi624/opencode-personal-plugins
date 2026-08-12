@@ -51,6 +51,41 @@ const COMMAND_WINDOW_LABELS = {
     month: "月",
     year: "年",
 };
+const SNAPSHOT_INTEGRITY_LABELS = {
+    complete: "完整",
+    partial: "部分",
+    unknown: "未知",
+};
+const SNAPSHOT_STATE_LABELS = {
+    ok: "正常",
+    partial: "部分可用",
+    unknown: "未知",
+    none: "无",
+};
+/**
+ * Snapshot section rendered from the Ticket 07 unified snapshot + projection
+ * pipeline. Additive: row rendering keeps using the full entry data so the
+ * pre-migration /quota output stays semantically equivalent.
+ */
+function buildSnapshotSection(params) {
+    const providerCount = params.snapshot.providers.length;
+    const freshCount = params.snapshot.providers.filter((provider) => provider.quality === "fresh").length;
+    const state = params.projection?.startupHint.state;
+    const statePart = state ? ` · 总体状态：${SNAPSHOT_STATE_LABELS[state]}` : "";
+    return {
+        id: "snapshot",
+        title: "统一快照",
+        blocks: [
+            {
+                kind: "lines",
+                lines: [
+                    `  v${params.snapshot.version} · 完整性：${SNAPSHOT_INTEGRITY_LABELS[params.snapshot.integrity]}${statePart}`,
+                    `  监控 Provider：${providerCount}（正常 ${freshCount} · 未知 ${providerCount - freshCount}） · 额度窗口：${params.snapshot.windows.length}`,
+                ],
+            },
+        ],
+    };
+}
 function getCommandWindowLabel(entry) {
     const kind = classifyQuotaWindowText(normalizeMetricText(entry.label || entry.name));
     return kind ? (COMMAND_WINDOW_LABELS[kind] ?? null) : null;
@@ -93,7 +128,14 @@ function formatCommandDetails(entry, rightWidth) {
 }
 function buildQuotaCommandDocument(params) {
     const groups = groupQuotaEntries(params.entries, "quota");
-    const sections = groups.map((group, index) => {
+    const sections = [];
+    if (params.snapshot) {
+        sections.push(buildSnapshotSection({
+            snapshot: params.snapshot,
+            projection: params.projection,
+        }));
+    }
+    for (const [index, group] of groups.entries()) {
         const lines = [];
         const rightWidth = Math.max(0, ...group.entries.map((row) => row.right?.trim().length ?? 0));
         for (const row of group.entries) {
@@ -107,12 +149,12 @@ function buildQuotaCommandDocument(params) {
             const displayedPercent = resolveDisplayedPercent(row.percentRemaining, params.percentDisplayMode);
             lines.push(`  ${label}  ${bar(displayedPercent, QUOTA_COMMAND_BAR_WIDTH)}  ${padLeft(pctLabel, 9)}${details}`);
         }
-        return {
+        sections.push({
             id: `group-${index}`,
             title: `→ ${formatGroupedHeader(group.group)}`,
             blocks: [{ kind: "lines", lines }],
-        };
-    });
+        });
+    }
     if (params.sessionTokens && params.sessionTokens.models.length > 0) {
         sections.push({
             id: "session-tokens",
@@ -121,7 +163,7 @@ function buildQuotaCommandDocument(params) {
                 {
                     kind: "lines",
                     lines: params.sessionTokens.models.map((model) => {
-                            const metrics = [`${formatTokenCount(model.input)} 输入`];
+                        const metrics = [`${formatTokenCount(model.input)} 输入`];
                         if ((model.cachedInput ?? 0) > 0) {
                             metrics.push(`${formatTokenCount(model.cachedInput ?? 0)} 缓存`);
                         }
@@ -162,4 +204,3 @@ function buildQuotaCommandDocument(params) {
 export function formatQuotaCommand(params) {
     return renderPlainTextReport(buildQuotaCommandDocument(params));
 }
-//# sourceMappingURL=quota-command-format.js.map

@@ -3,6 +3,7 @@
   "exportedAt": 1783728000,
   "fromCache": true,
   "cacheAgeSeconds": 60,
+  "integrity": "complete",
   "providers": {
     "fixture": {
       "status": "ok",

@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-import superGrokWeeklyFixture from "./fixtures/xai/supergrok-weekly.json";
 import { hasXaiOAuth, periodKindLabel, queryXaiQuota, resolveXaiOAuth } from "../src/lib/xai.js";
+import superGrokWeeklyFixture from "./fixtures/xai/supergrok-weekly.json";
 
 vi.mock("../src/lib/opencode-auth.js", () => ({
   readAuthFile: vi.fn(),

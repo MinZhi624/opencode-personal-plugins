@@ -7,7 +7,7 @@
  */
 import { readFile } from "fs/promises";
 import { join } from "path";
-import { getOpencodeRuntimeDirCandidates, getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
+import { getOpencodeRuntimeDirCandidates, getOpencodeRuntimeDirs, } from "./opencode-runtime-paths.js";
 const DEFAULT_AUTH_CACHE_MAX_AGE_MS = 5_000;
 let authCache = null;
 /**
@@ -75,4 +75,3 @@ export async function readAuthFileCached(params) {
 export function clearReadAuthFileCacheForTests() {
     authCache = null;
 }
-//# sourceMappingURL=opencode-auth.js.map

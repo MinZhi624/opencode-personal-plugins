@@ -111,10 +111,12 @@ describe("v4 release gates", () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  it("keeps TypeScript on 5.9 and the v4 history free of local-only files", () => {
+  it("verifies TypeScript 7 and keeps the v4 history free of local-only files", () => {
     const typescript = run(typescriptScript);
     expect(typescript.status).toBe(0);
-    expect(typescript.stdout).toContain("TypeScript v4 freeze verified");
+    expect(typescript.stdout).toContain(
+      "TypeScript 7.0.2 and @opencode-ai/plugin 1.18.11 lock entries verified",
+    );
 
     const history = run(historyScript);
     expect(history.status).toBe(0);

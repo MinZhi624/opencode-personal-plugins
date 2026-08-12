@@ -5,18 +5,21 @@
  * account balance as a value entry.
  */
 
-import type {
-  QuotaProvider,
-  QuotaProviderContext,
-  QuotaProviderResult,
-  QuotaToastEntry,
-} from "../lib/entries.js";
 import {
   formatDeepSeekBalanceValue,
   getDeepSeekKeyDiagnostics,
   hasDeepSeekApiKeyConfigured,
   queryDeepSeekBalance,
+  type DeepSeekAvailability,
 } from "../lib/deepseek.js";
+import type {
+  QuotaProvider,
+  QuotaProviderContext,
+  QuotaProviderResult,
+  QuotaProviderStatusDetail,
+  QuotaToastEntry,
+} from "../lib/entries.js";
+import { serializeQuotaAlertMetric } from "../lib/quota-alert-metrics.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
 import { modelProviderIncludesAny } from "../lib/provider-model-matching.js";
 import {
@@ -26,10 +29,17 @@ import {
   withStatusDetails,
 } from "./result-helpers.js";
 
+const DEEPSEEK_STATUS_DISPLAY: Record<DeepSeekAvailability, string> = {
+  available: "Available",
+  unavailable: "Low balance",
+  unknown: "Unknown",
+};
+
 function buildDeepSeekEntries(
   result: Extract<NonNullable<Awaited<ReturnType<typeof queryDeepSeekBalance>>>, { success: true }>,
-): QuotaToastEntry[] {
+): { entries: QuotaToastEntry[]; rawDetails: QuotaProviderStatusDetail[] } {
   const entries: QuotaToastEntry[] = [];
+  const rawDetails: QuotaProviderStatusDetail[] = [];
 
   for (const info of result.balanceInfos) {
     entries.push({
@@ -48,9 +58,25 @@ function buildDeepSeekEntries(
         totalBalance: info.totalBalance,
       }),
     });
+    // Structured balance facts travel separately from display text; a
+    // malformed amount (null) is displayable but never alertable.
+    if (info.totalBalanceAmount !== null) {
+      rawDetails.push(
+        serializeQuotaAlertMetric({
+          kind: "balance",
+          currency: info.currency,
+          amount: info.totalBalanceAmount,
+        }),
+      );
+    }
   }
 
-  // If the API returned no balance info, show the availability status
+  // The tri-state availability fact is always carried so the unified
+  // snapshot can trigger on explicit unavailability and later recover on
+  // available; a missing API field stays "unknown" and never alerts.
+  rawDetails.push(serializeQuotaAlertMetric({ kind: "availability", status: result.availability }));
+
+  // If the API returned no balance info, show the availability status.
   if (entries.length === 0) {
     entries.push({
       kind: "value",
@@ -63,11 +89,11 @@ function buildDeepSeekEntries(
       name: "DeepSeek",
       group: "DeepSeek",
       label: "Status:",
-      value: result.isAvailable ? "Available" : "Low balance",
+      value: DEEPSEEK_STATUS_DISPLAY[result.availability],
     });
   }
 
-  return entries;
+  return { entries, rawDetails };
 }
 
 export const deepseekProvider: QuotaProvider = {
@@ -99,7 +125,13 @@ export const deepseekProvider: QuotaProvider = {
     const result = await queryDeepSeekBalance({ requestTimeoutMs: ctx.config?.requestTimeoutMs });
     const providerResult = mapNullableProviderResult(result, {
       errorLabel: "DeepSeek",
-      onSuccess: (result) => attemptedResult(buildDeepSeekEntries(result)),
+      onSuccess: (result) => {
+        const { entries, rawDetails } = buildDeepSeekEntries(result);
+        return {
+          ...attemptedResult(entries),
+          rawDetails,
+        };
+      },
     });
     return withStatusDetails(providerResult, simpleApiKeyStatusDetails(diagnostics));
   },

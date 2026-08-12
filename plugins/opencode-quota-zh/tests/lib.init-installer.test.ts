@@ -1,15 +1,14 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseJsonOrJsonc } from "../src/lib/jsonc.js";
-
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applyInitInstallerPlan,
+  type InitInstallerSelections,
   planInitInstaller,
   runInitInstaller,
-  type InitInstallerSelections,
 } from "../src/lib/init-installer.js";
+import { parseJsonOrJsonc } from "../src/lib/jsonc.js";
 
 function readJson(path: string): any {
   const resolvedPath = !existsSync(path) && path.endsWith(".json") ? `${path}c` : path;

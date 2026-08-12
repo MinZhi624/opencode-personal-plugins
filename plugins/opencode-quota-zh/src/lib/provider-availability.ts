@@ -1,5 +1,5 @@
 import type { QuotaProviderContext } from "./entries.js";
-import { getQuotaProviderRuntimeIds, type CanonicalQuotaProviderId } from "./provider-metadata.js";
+import { type CanonicalQuotaProviderId, getQuotaProviderRuntimeIds } from "./provider-metadata.js";
 
 export async function isAnyProviderIdAvailable(params: {
   ctx: Pick<QuotaProviderContext, "resolveRuntimeProviderIds">;

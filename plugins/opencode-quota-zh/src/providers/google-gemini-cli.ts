@@ -1,16 +1,16 @@
+import { sanitizeDisplayText } from "../lib/display-sanitize.js";
 import type {
   QuotaProvider,
   QuotaProviderContext,
   QuotaProviderResult,
   QuotaToastEntry,
 } from "../lib/entries.js";
-import { sanitizeDisplayText } from "../lib/display-sanitize.js";
-import { inspectGeminiCliCompanionPresence } from "../lib/google-gemini-cli-companion.js";
 import {
   hasGeminiCliQuotaRuntimeAvailable,
   inspectGeminiCliAuthPresence,
   queryGeminiCliQuota,
 } from "../lib/google-gemini-cli.js";
+import { inspectGeminiCliCompanionPresence } from "../lib/google-gemini-cli-companion.js";
 import { parseProviderModelRef } from "../lib/provider-model-matching.js";
 import {
   createGoogleAccountLabelMap,

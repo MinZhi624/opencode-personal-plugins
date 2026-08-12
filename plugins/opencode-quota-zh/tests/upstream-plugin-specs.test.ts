@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
-
-import { CURSOR_CANONICAL_PLUGIN_PACKAGE } from "../src/lib/cursor-detection.js";
 import {
   getUpstreamPluginIssueTitle,
   getUpstreamPluginSpec,
   UPSTREAM_PLUGIN_REFERENCE_ROOT,
   UPSTREAM_PLUGIN_SPECS,
 } from "../scripts/lib/upstream-plugin-specs.mjs";
+import { CURSOR_CANONICAL_PLUGIN_PACKAGE } from "../src/lib/cursor-detection.js";
 
 describe("upstream-plugin-specs", () => {
   it("tracks the expected upstream plugin ids", () => {

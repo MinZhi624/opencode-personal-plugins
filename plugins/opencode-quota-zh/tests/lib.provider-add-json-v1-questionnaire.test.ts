@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { promptJsonV1Adapter } from "../src/lib/provider-add-json-v1-questionnaire.js";
-import { validateQuotaProviders, type JsonV1Metric } from "../src/lib/quota-providers.js";
+import { type JsonV1Metric, validateQuotaProviders } from "../src/lib/quota-providers.js";
 
 function createPrompts(answers: unknown[], cancel: unknown = Symbol("cancel")) {
   const remaining = [...answers];

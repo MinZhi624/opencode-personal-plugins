@@ -4,18 +4,18 @@
  * Normalizes Claude CLI-exposed quota windows into generic toast entries.
  */
 
-import type {
-  QuotaProvider,
-  QuotaProviderContext,
-  QuotaProviderResult,
-  QuotaToastEntry,
-} from "../lib/entries.js";
 import {
   getAnthropicDiagnostics,
   hasAnthropicCredentialsConfigured,
   queryAnthropicQuota,
 } from "../lib/anthropic.js";
 import { sanitizeDisplayText } from "../lib/display-sanitize.js";
+import type {
+  QuotaProvider,
+  QuotaProviderContext,
+  QuotaProviderResult,
+  QuotaToastEntry,
+} from "../lib/entries.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
 import {
   attemptedErrorResult,

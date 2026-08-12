@@ -4,4 +4,3 @@ export function getSidebarBodyLineColor(line, theme) {
         ? theme.text
         : theme.textMuted;
 }
-//# sourceMappingURL=tui-line-style.js.map

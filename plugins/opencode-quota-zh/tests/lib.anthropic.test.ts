@@ -6,8 +6,6 @@ const httpMocks = vi.hoisted(() => ({
 
 import { execFile } from "child_process";
 import { readFile } from "fs/promises";
-
-import { fetchWithTimeout } from "../src/lib/http.js";
 import {
   buildClaudeCommandInvocation,
   clearAnthropicDiagnosticsCacheForTests,
@@ -16,6 +14,7 @@ import {
   parseUsageResponse,
   queryAnthropicQuota,
 } from "../src/lib/anthropic.js";
+import { fetchWithTimeout } from "../src/lib/http.js";
 
 vi.mock("child_process", () => ({
   execFile: vi.fn(),

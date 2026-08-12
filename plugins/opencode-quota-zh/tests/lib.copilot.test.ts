@@ -251,20 +251,20 @@ describe("GitHub Copilot AI Credit accounting", () => {
     expect(error).not.toContain("private stalled body failure");
   });
 
-  it.each(["acme.ghe.com", "https://acme.ghe.com"])(
-    "routes OpenCode OAuth through a validated GHE.com host: %s",
-    async (enterpriseUrl) => {
-      authMocks.readAuthFile.mockResolvedValue({
-        "github-copilot": { type: "oauth", access: "oauth-token", enterpriseUrl },
-      });
-      const fetchMock = vi.fn(async () => json(copilotUser()));
-      vi.stubGlobal("fetch", fetchMock as any);
+  it.each([
+    "acme.ghe.com",
+    "https://acme.ghe.com",
+  ])("routes OpenCode OAuth through a validated GHE.com host: %s", async (enterpriseUrl) => {
+    authMocks.readAuthFile.mockResolvedValue({
+      "github-copilot": { type: "oauth", access: "oauth-token", enterpriseUrl },
+    });
+    const fetchMock = vi.fn(async () => json(copilotUser()));
+    vi.stubGlobal("fetch", fetchMock as any);
 
-      const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-      await expect(queryCopilotQuota()).resolves.toMatchObject({ success: true });
-      expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.acme.ghe.com/copilot_internal/user");
-    },
-  );
+    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+    await expect(queryCopilotQuota()).resolves.toMatchObject({ success: true });
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.acme.ghe.com/copilot_internal/user");
+  });
 
   it("keeps token-based OAuth placeholders plan-only", async () => {
     authMocks.readAuthFile.mockResolvedValue({
@@ -756,21 +756,22 @@ describe("GitHub Copilot AI Credit accounting", () => {
     });
   });
 
-  it.each(["github_pat_enterprise", "ghu_enterprise", "ghs_enterprise"])(
-    "rejects unsupported fine-grained/App token type %s for enterprise reports",
-    async (token) => {
-      configure({ token, tier: "enterprise", enterprise: "octo" });
-      const fetchMock = vi.fn();
-      vi.stubGlobal("fetch", fetchMock as any);
+  it.each([
+    "github_pat_enterprise",
+    "ghu_enterprise",
+    "ghs_enterprise",
+  ])("rejects unsupported fine-grained/App token type %s for enterprise reports", async (token) => {
+    configure({ token, tier: "enterprise", enterprise: "octo" });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock as any);
 
-      const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-      const result = await queryCopilotQuota();
-      expect(result && !result.success ? result.error : "").toContain(
-        "do not support fine-grained PATs or GitHub App access tokens",
-      );
-      expect(fetchMock).not.toHaveBeenCalled();
-    },
-  );
+    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+    const result = await queryCopilotQuota();
+    expect(result && !result.success ? result.error : "").toContain(
+      "do not support fine-grained PATs or GitHub App access tokens",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 
   it("allows legacy PRUs only for explicitly selected Pro/Pro+ annual-plan eligibility", async () => {
     configure({
@@ -1086,21 +1087,18 @@ describe("GitHub Copilot AI Credit accounting", () => {
       { grossQuantity: undefined, discountQuantity: 80, netQuantity: 20 },
       { used: 100, includedUsed: 80, billedUsed: 20 },
     ],
-  ])(
-    "derives a missing AI Credit quantity from the other pair: %s",
-    async (overrides, expected) => {
-      configure({ token: "github_pat_personal", tier: "pro", username: "alice" });
-      vi.stubGlobal("fetch", vi.fn(async () => json(aiUsage(overrides))) as any);
+  ])("derives a missing AI Credit quantity from the other pair: %s", async (overrides, expected) => {
+    configure({ token: "github_pat_personal", tier: "pro", username: "alice" });
+    vi.stubGlobal("fetch", vi.fn(async () => json(aiUsage(overrides))) as any);
 
-      const { queryCopilotQuota } = await import("../src/lib/copilot.js");
-      await expect(queryCopilotQuota()).resolves.toMatchObject({
-        success: true,
-        mode: "user_quota",
-        ...expected,
-        authority: "locally_derived",
-      });
-    },
-  );
+    const { queryCopilotQuota } = await import("../src/lib/copilot.js");
+    await expect(queryCopilotQuota()).resolves.toMatchObject({
+      success: true,
+      mode: "user_quota",
+      ...expected,
+      authority: "locally_derived",
+    });
+  });
 
   it.each([
     { grossQuantity: 100, discountQuantity: 120, netQuantity: undefined },

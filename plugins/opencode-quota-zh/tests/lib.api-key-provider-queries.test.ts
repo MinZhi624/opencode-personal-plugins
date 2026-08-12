@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { queryChutesQuota } from "../src/lib/chutes.js";
 import { formatDeepSeekBalanceValue, queryDeepSeekBalance } from "../src/lib/deepseek.js";
@@ -171,22 +171,23 @@ describe("simple API-key provider queries", () => {
       );
     });
 
-    it.each(["bad-value", -5, 150] as const)(
-      "derives weekly percent when percentRemaining is invalid (%s)",
-      async (percentRemaining) => {
-        stubJsonFetch(
-          syntheticPayload({
-            weeklyTokenLimit: {
-              maxCredits: "$24.00",
-              remainingCredits: "$2.02",
-              percentRemaining,
-            },
-          }),
-        );
-        const result = await querySyntheticQuota();
-        expect(result && result.success ? result.windows.weekly.percentRemaining : -1).toBe(8);
-      },
-    );
+    it.each([
+      "bad-value",
+      -5,
+      150,
+    ] as const)("derives weekly percent when percentRemaining is invalid (%s)", async (percentRemaining) => {
+      stubJsonFetch(
+        syntheticPayload({
+          weeklyTokenLimit: {
+            maxCredits: "$24.00",
+            remainingCredits: "$2.02",
+            percentRemaining,
+          },
+        }),
+      );
+      const result = await querySyntheticQuota();
+      expect(result && result.success ? result.windows.weekly.percentRemaining : -1).toBe(8);
+    });
 
     it("normalizes valid reset timestamps and drops malformed ones", async () => {
       vi.stubGlobal(
@@ -495,13 +496,14 @@ describe("simple API-key provider queries", () => {
 
       await expect(queryDeepSeekBalance({ requestTimeoutMs: 1234 })).resolves.toEqual({
         success: true,
-        isAvailable: true,
+        availability: "available",
         balanceInfos: [
           {
             currency: "USD",
             totalBalance: "12.34",
             grantedBalance: "2.00",
             toppedUpBalance: "10.34",
+            totalBalanceAmount: 12.34,
           },
         ],
       });
@@ -518,7 +520,7 @@ describe("simple API-key provider queries", () => {
       );
     });
 
-    it("normalizes malformed balance strings", async () => {
+    it("normalizes malformed balance strings without producing alertable amounts", async () => {
       stubJsonFetch({
         is_available: true,
         balance_infos: [
@@ -532,11 +534,17 @@ describe("simple API-key provider queries", () => {
       });
       const result = await queryDeepSeekBalance();
       expect(result && result.success ? result.balanceInfos : []).toEqual([
-        { currency: "USD", totalBalance: "0.00", grantedBalance: "0.00", toppedUpBalance: "0.00" },
+        {
+          currency: "USD",
+          totalBalance: "0.00",
+          grantedBalance: "0.00",
+          toppedUpBalance: "0.00",
+          totalBalanceAmount: null,
+        },
       ]);
     });
 
-    it("filters unsupported currencies and preserves CNY balances", async () => {
+    it("filters unsupported currencies and preserves CNY balances with structured amounts", async () => {
       stubJsonFetch({
         is_available: false,
         balance_infos: [
@@ -546,8 +554,25 @@ describe("simple API-key provider queries", () => {
       });
       const result = await queryDeepSeekBalance();
       expect(result && result.success ? result.balanceInfos : []).toEqual([
-        { currency: "CNY", totalBalance: "88.00", grantedBalance: "0.00", toppedUpBalance: "0.00" },
+        {
+          currency: "CNY",
+          totalBalance: "88.00",
+          grantedBalance: "0.00",
+          toppedUpBalance: "0.00",
+          totalBalanceAmount: 88,
+        },
       ]);
+      expect(result && result.success ? result.availability : undefined).toBe("unavailable");
+    });
+
+    it("keeps a missing is_available field as unknown instead of unavailable", async () => {
+      stubJsonFetch({
+        balance_infos: [
+          { currency: "USD", total_balance: "3.00", granted_balance: "0.00", topped_up_balance: "3.00" },
+        ],
+      });
+      const result = await queryDeepSeekBalance();
+      expect(result && result.success ? result.availability : undefined).toBe("unknown");
     });
 
     it("reports unexpected response shapes as sanitized errors", async () => {

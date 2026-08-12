@@ -1,9 +1,9 @@
-import { join } from "path";
 import { existsSync } from "fs";
+import { join } from "path";
 
 import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
-import { pickFirstExistingPath } from "./path-pick.js";
 import { openOpenCodeSqliteReadOnly } from "./opencode-sqlite.js";
+import { pickFirstExistingPath } from "./path-pick.js";
 
 /**
  * Error thrown when a session is not found.

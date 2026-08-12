@@ -54,7 +54,10 @@ describe("cursor detection", () => {
         },
       }),
     );
-    mockFiles.set("/tmp/home/.config/cursor/auth.json", JSON.stringify({ accessToken: "legacy-token" }));
+    mockFiles.set(
+      "/tmp/home/.config/cursor/auth.json",
+      JSON.stringify({ accessToken: "legacy-token" }),
+    );
 
     const { inspectCursorAuthPresence } = await import("../src/lib/cursor-detection.js");
     const result = await inspectCursorAuthPresence();
@@ -78,10 +81,9 @@ describe("cursor detection", () => {
       }),
     );
 
-    const {
-      CURSOR_CANONICAL_PLUGIN_PACKAGE,
-      inspectCursorOpenCodeIntegration,
-    } = await import("../src/lib/cursor-detection.js");
+    const { CURSOR_CANONICAL_PLUGIN_PACKAGE, inspectCursorOpenCodeIntegration } = await import(
+      "../src/lib/cursor-detection.js"
+    );
     const result = await inspectCursorOpenCodeIntegration();
 
     expect(CURSOR_CANONICAL_PLUGIN_PACKAGE).toBe("@playwo/opencode-cursor-oauth");

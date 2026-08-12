@@ -34,11 +34,7 @@ export function addTokenBuckets(a: TokenBuckets, b: TokenBuckets): TokenBuckets 
 
 export function totalTokenBuckets(buckets: TokenBuckets): number {
   return (
-    buckets.input +
-    buckets.output +
-    buckets.reasoning +
-    buckets.cache_read +
-    buckets.cache_write
+    buckets.input + buckets.output + buckets.reasoning + buckets.cache_read + buckets.cache_write
   );
 }
 

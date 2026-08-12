@@ -54,7 +54,7 @@ describe("synced Cursor OAuth reference guards", () => {
 
     expect(source).toContain('.filter((m) => m.role !== "tool")');
     expect(source).toContain("messages: normalizedMessages");
-    expect(source).not.toContain("const firstUserMsg = messages.find((m) => m.role === \"user\");");
+    expect(source).not.toContain('const firstUserMsg = messages.find((m) => m.role === "user");');
     expect(source).not.toContain("firstUserText.slice(0, 200)");
   });
 });

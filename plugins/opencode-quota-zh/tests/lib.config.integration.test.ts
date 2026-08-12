@@ -1,16 +1,16 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { VALID_QUOTA_PROVIDER_INPUTS, VALID_QUOTA_PROVIDERS } from "./fixtures/quota-providers.js";
 import {
+  type ConfigLoaderWorkspace,
   createConfigLoaderEnv,
   createConfigLoaderWorkspace,
   quotaConfigSource,
   quotaSidecarConfigSource,
   writeQuotaSidecarConfig,
   writeQuotaToastConfig,
-  type ConfigLoaderWorkspace,
 } from "./helpers/config-loader-test-harness.js";
-import { VALID_QUOTA_PROVIDER_INPUTS, VALID_QUOTA_PROVIDERS } from "./fixtures/quota-providers.js";
 
 const mockedHomeDir = vi.hoisted(() => ({
   value: "",
@@ -26,8 +26,8 @@ vi.mock("os", async (importOriginal) => {
 
 import { createLoadConfigMeta, loadConfig } from "../src/lib/config.js";
 import { applyInitInstallerPlan, planInitInstaller } from "../src/lib/init-installer.js";
-import { applyProviderAddPlan, planProviderAdd } from "../src/lib/provider-add.js";
 import { getOpencodeRuntimeDirCandidates } from "../src/lib/opencode-runtime-paths.js";
+import { applyProviderAddPlan, planProviderAdd } from "../src/lib/provider-add.js";
 
 describe("loadConfig integration runtime-path resolution", () => {
   const originalEnv = process.env;

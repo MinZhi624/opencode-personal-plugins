@@ -62,7 +62,7 @@ describe("buildSidebarQuotaPanelLines", () => {
     expect(rendered).not.toContain("\u0003");
     expect(rendered).toContain("Err: Bad");
     expect(rendered).toContain(SESSION_TOKEN_SECTION_HEADING);
-    expect(rendered).toContain("12 (5) in  34 out");
+    expect(rendered).toContain("12 (5) 输入  34 输出");
     expect(rendered).toContain("gpt-5");
   });
 
@@ -285,7 +285,7 @@ describe("buildSidebarQuotaPanelLines", () => {
 
     const rendered = lines.join("\n");
     expect(rendered).toContain("Weekly $22/$24");
-    expect(rendered).toContain("92% used");
+    expect(rendered).toContain("92% 已用");
     expect(rendered).not.toContain("0/500");
     expect(rendered).not.toContain("0% used");
   });
@@ -315,7 +315,7 @@ describe("buildSidebarQuotaPanelLines", () => {
     expect(rendered).toContain("[Synthetic]");
     expect(rendered).toContain("Weekly");
     expect(rendered).not.toContain("$22/$24");
-    expect(rendered).toContain("92% used");
+    expect(rendered).toContain("92% 已用");
     expect(rendered).not.toContain("0/500");
     expect(rendered).not.toContain("0% used");
   });
@@ -342,7 +342,7 @@ describe("buildSidebarQuotaPanelLines", () => {
       },
     });
 
-    expect(lines.join("\n")).toContain("2.5h");
+    expect(lines.join("\n")).toContain("2.5小时");
     expect(lines.join("\n")).not.toContain("2h 14m");
   });
 
@@ -369,8 +369,8 @@ describe("buildSidebarQuotaPanelLines", () => {
       },
     });
 
-    expect(lines.join("\n")).toContain("2.2h");
-    expect(lines.join("\n")).not.toContain("2.5h");
+    expect(lines.join("\n")).toContain("2.2小时");
+    expect(lines.join("\n")).not.toContain("2.5小时");
   });
 
   it("preserves decimals 4 reset values in single-window and grouped sidebar rows", () => {
@@ -400,7 +400,7 @@ describe("buildSidebarQuotaPanelLines", () => {
         data,
       });
 
-      expect(lines.join("\n")).toContain("1.4000h");
+      expect(lines.join("\n")).toContain("1.4000小时");
       expect(lines.join("\n")).not.toMatch(/(?:^|\s)\.4000h/u);
       expect(lines.every((line) => line.length <= TUI_SIDEBAR_MAX_WIDTH)).toBe(true);
     }
@@ -478,8 +478,8 @@ describe("buildSidebarQuotaPanelLines", () => {
     });
 
     const barLine = lines[1] ?? "";
-    expect(barLine).toContain("19% used");
-    expect(barLine).not.toContain("81% left");
+    expect(barLine).toContain("19% 已用");
+    expect(barLine).not.toContain("81% 剩余");
     expect(lines.join("\n")).not.toContain("Quota (remaining)");
     expect(lines.join("\n")).not.toContain("Quota (used)");
     expect(barLine.match(/█/g) ?? []).toHaveLength(5);
@@ -505,7 +505,7 @@ describe("buildSidebarQuotaPanelLines", () => {
     });
 
     const barLine = lines[1] ?? "";
-    expect(barLine).toContain("125% used");
+    expect(barLine).toContain("125% 已用");
     expect(barLine.match(/░/g) ?? []).toHaveLength(0);
   });
 
@@ -529,7 +529,7 @@ describe("buildSidebarQuotaPanelLines", () => {
     });
 
     const barLine = lines[1] ?? "";
-    expect(barLine).toContain("0% left");
+    expect(barLine).toContain("0% 剩余");
     expect(barLine).not.toContain("-%");
   });
 
@@ -564,7 +564,7 @@ describe("buildSidebarQuotaPanelLines", () => {
     expect(lines).toEqual([
       SESSION_TOKEN_SECTION_HEADING,
       "  openai/gpt-5.4-mini",
-      "    372 (120) in  41 out",
+      "    372 (120) 输入  41 输出",
     ]);
   });
 
@@ -596,7 +596,7 @@ describe("buildSidebarQuotaPanelLines", () => {
     });
 
     expect(lines.every((line) => line.length <= TUI_SIDEBAR_MAX_WIDTH)).toBe(true);
-    expect(lines).toEqual([SESSION_TOKEN_SECTION_HEADING, "  372 (120) in  41 out"]);
+    expect(lines).toEqual([SESSION_TOKEN_SECTION_HEADING, "  372 (120) 输入  41 输出"]);
   });
 
   it("keeps value-only rows unchanged when percentDisplayMode is used", () => {

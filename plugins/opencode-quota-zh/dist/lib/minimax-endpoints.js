@@ -16,4 +16,3 @@ export const MINIMAX_QUOTA_ENDPOINTS = {
 export function getMiniMaxQuotaEndpoint(id) {
     return MINIMAX_QUOTA_ENDPOINTS[id];
 }
-//# sourceMappingURL=minimax-endpoints.js.map

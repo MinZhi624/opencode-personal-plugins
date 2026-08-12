@@ -12,11 +12,11 @@ import {
   getGlobalOpencodeConfigCandidatePaths,
   readOpencodeConfig,
 } from "./api-key-resolver.js";
+import { sanitizeDisplayText } from "./display-sanitize.js";
 import { resolveEnvTemplate } from "./env-template.js";
 import type { MiniMaxQuotaEndpointId } from "./minimax-endpoints.js";
-import type { AuthData, MiniMaxAuthData } from "./types.js";
-import { sanitizeDisplayText } from "./display-sanitize.js";
 import { getAuthPaths, readAuthFileCached } from "./opencode-auth.js";
+import type { AuthData, MiniMaxAuthData } from "./types.js";
 
 export const DEFAULT_MINIMAX_AUTH_CACHE_MAX_AGE_MS = 5_000;
 
@@ -149,17 +149,12 @@ function extractMiniMaxConfigAuth(
   return null;
 }
 
-async function resolveMiniMaxConfigAuth(
-  spec: MiniMaxAuthSpec,
-): Promise<
-  | {
-      state: "configured";
-      apiKey: string;
-      endpoint: MiniMaxQuotaEndpointId;
-      source: Extract<MiniMaxKeySource, "opencode.json" | "opencode.jsonc">;
-    }
-  | null
-> {
+async function resolveMiniMaxConfigAuth(spec: MiniMaxAuthSpec): Promise<{
+  state: "configured";
+  apiKey: string;
+  endpoint: MiniMaxQuotaEndpointId;
+  source: Extract<MiniMaxKeySource, "opencode.json" | "opencode.jsonc">;
+} | null> {
   const candidates = getGlobalOpencodeConfigCandidatePaths();
   for (const candidate of candidates) {
     const result = await readOpencodeConfig(candidate.path, candidate.isJsonc);
