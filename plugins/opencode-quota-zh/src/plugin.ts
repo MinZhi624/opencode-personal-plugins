@@ -23,11 +23,6 @@ import { isCursorModelId, isCursorProviderId } from "./lib/cursor-pricing.js";
 import { sanitizeDisplayText } from "./lib/display-sanitize.js";
 import { formatQuotaRows } from "./lib/format.js";
 import {
-  BUNDLED_MAINTAINER_ANNOUNCEMENTS,
-  formatMaintainerAnnouncementHomeCountLine,
-  getMaintainerAnnouncementsSummary,
-} from "./lib/maintainer-announcements.js";
-import {
   maybeRefreshPricingSnapshot,
   setPricingSnapshotAutoRefresh,
   setPricingSnapshotSelection,
@@ -53,7 +48,6 @@ import {
 import type { SessionTokenError } from "./lib/quota-status.js";
 import { disposeQuotaTelemetryOwner } from "./lib/quota-telemetry.js";
 import { isQwenCodeModelId, resolveQwenLocalPlanCached } from "./lib/qwen-auth.js";
-import { inspectTuiConfig } from "./lib/tui-config-diagnostics.js";
 import type { QuotaToastConfig } from "./lib/types.js";
 import { DEFAULT_CONFIG } from "./lib/types.js";
 import { getProviders } from "./providers/registry.js";
@@ -258,11 +252,6 @@ export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
   let lastSessionTokenError: SessionTokenError | undefined;
 
   const deferredQuotaRefreshes = new Map<string, DeferredQuotaRefreshState>();
-  const detectedProviderIdsByToastCacheKey = new Map<string, string[]>();
-  const maintainerAnnouncementToastFallback = {
-    pending: true,
-    inFlight: false,
-  };
 
   function getDeferredQuotaRefreshDelayMs(attempts: number): number {
     const index = Math.min(Math.max(0, attempts), DEFERRED_QUOTA_REFRESH_DELAYS_MS.length - 1);
@@ -414,73 +403,6 @@ export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
     }
 
     handled();
-  }
-
-  function triggerMaintainerAnnouncementToastFallback(
-    trigger: string,
-    detectedProviderIds: string[],
-  ): void {
-    if (
-      !maintainerAnnouncementToastFallback.pending ||
-      maintainerAnnouncementToastFallback.inFlight
-    ) {
-      return;
-    }
-
-    if (!config.enabled || !config.enableToast) {
-      maintainerAnnouncementToastFallback.pending = false;
-      return;
-    }
-
-    if (!config.maintainerAnnouncements.enabled || !config.maintainerAnnouncements.home) {
-      maintainerAnnouncementToastFallback.pending = false;
-      return;
-    }
-
-    maintainerAnnouncementToastFallback.inFlight = true;
-    void (async () => {
-      try {
-        const summary = getMaintainerAnnouncementsSummary({
-          announcements: BUNDLED_MAINTAINER_ANNOUNCEMENTS,
-          enabledProviders: detectedProviderIds,
-        });
-
-        if (summary.activeCount <= 0) {
-          if (summary.futureCount <= 0) {
-            maintainerAnnouncementToastFallback.pending = false;
-          }
-          return;
-        }
-
-        const tuiDiagnostics = await inspectTuiConfig({ roots: getPluginRuntimeRootHints() });
-        if (tuiDiagnostics.quotaPluginConfigured) {
-          maintainerAnnouncementToastFallback.pending = false;
-          return;
-        }
-
-        const message = formatMaintainerAnnouncementHomeCountLine(summary.activeCount);
-        if (!message) {
-          return;
-        }
-
-        await typedClient.tui.showToast({
-          body: {
-            message: sanitizeDisplayText(message),
-            variant: "info",
-            duration: config.toastDurationMs,
-          },
-        });
-        maintainerAnnouncementToastFallback.pending = false;
-        await log("Displayed maintainer announcement fallback toast", { trigger });
-      } catch (err) {
-        await log("Failed to show maintainer announcement fallback toast", {
-          trigger,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      } finally {
-        maintainerAnnouncementToastFallback.inFlight = false;
-      }
-    })();
   }
 
   async function resolvePluginRuntimeContext(
@@ -1100,7 +1022,6 @@ export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
           })();
 
       if (fetchResult) {
-        detectedProviderIdsByToastCacheKey.set(toastCacheKey, [...fetchResult.detectedProviderIds]);
         await reconcileDeferredQuotaRefresh({
           sessionID,
           result: fetchResult,
@@ -1138,12 +1059,6 @@ export const QuotaToastPlugin: Plugin = async ({ client, directory }) => {
             duration: config.toastDurationMs,
           },
         });
-        triggerMaintainerAnnouncementToastFallback(
-          trigger,
-          fetchResult?.detectedProviderIds ??
-            detectedProviderIdsByToastCacheKey.get(toastCacheKey) ??
-            [],
-        );
         await log("Displayed quota toast", { message, trigger });
       } catch (err) {
         await log("Failed to show toast", {
