@@ -23,6 +23,11 @@ export default defineConfig({
     include: ["tests/**/*.test.ts"],
     exclude: [
       ...configDefaults.exclude,
+      // All automated TUI tests are excluded per the maintainer decision: visual
+      // OpenCode Home/TUI confirmation is maintainer-owned, not automated. This
+      // glob covers every tests/tui-*.test.ts now and in the future; the fast
+      // lane (npm run test:quota-zh:fast) selects an explicit non-TUI subset.
+      "tests/tui-*.test.ts",
       // Release/repo tooling that executes git or expects the upstream repo layout.
       "tests/release-gates.test.ts",
       "tests/verify-release-version.test.ts",

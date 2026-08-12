@@ -8,10 +8,21 @@
  *     runtime distribution (dist/), and leaves the current dist/ byte-for-byte unchanged.
  *  3. Runtime staging never carries source/tests/fixtures/dev config, and the staged
  *     quota-zh runtime files are byte-identical to the current runtime files.
+ *  4. The full automated baseline excludes every tests/tui-*.test.ts (maintainer-owned
+ *     visual TUI confirmation), the fast lane is a documented explicit non-TUI set, and
+ *     the outer check:quota-zh gate stays the single owner of the runtime --check and
+ *     stage --check subprocesses.
  *
  * This test must run fully offline: no network, no real credentials, no Provider requests.
  * The shared setup (tests/setup.ts) force-blocks real network egress (fetch and the
  * common node:http/https/net/tls/dns entry points); the guard itself is exercised below.
+ *
+ * The runtime --check and stage --check subprocess checks were removed: check:quota-zh
+ * already runs each exactly once (npm run build:quota-zh:runtime -- --check and
+ * npm run stage:runtime -- --check), so re-invoking them here duplicated the final gate.
+ * The unique boundaries remain: dev build never mutates dist/, the runtime build produces
+ * only the supported artifact shape, and staging admits only the allowlisted runtime files
+ * byte-identical to the source runtime.
  */
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
@@ -80,6 +91,54 @@ describe("root bundle check coverage", () => {
     expect(check, "root check must keep the Workshop verification").toContain("npm run check:matt-workshop");
     expect(check, "root check must keep the bundle verification").toContain("scripts/verify.mjs");
     expect(check).toContain("&&");
+  });
+});
+
+describe("quota-zh verification lane boundaries", () => {
+  it("excludes every tests/tui-*.test.ts from the full automated baseline", () => {
+    const config = readFileSync(join(PLUGIN_DIR, "vitest.config.ts"), "utf8");
+    expect(config).toContain("tests/tui-*.test.ts");
+    const onDiskTui = walk(join(PLUGIN_DIR, "tests"))
+      .map((file) => relative(join(PLUGIN_DIR, "tests"), file).replaceAll("\\", "/"))
+      .filter((file) => file.startsWith("tui-") && file.endsWith(".test.ts"));
+    expect(onDiskTui.length, "must still be a meaningful exclusion").toBeGreaterThan(0);
+    for (const file of onDiskTui) {
+      expect(config, `full baseline must exclude ${file}`).toMatch(
+        new RegExp(`tests/tui-\\*\\.test\\.ts|${file.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`),
+      );
+    }
+  });
+
+  it("declares an explicit non-TUI fast lane with positional file filters", () => {
+    const rootPkg = JSON.parse(readFileSync(join(REPO_ROOT, "package.json"), "utf8"));
+    const fast = rootPkg.scripts["test:quota-zh:fast"];
+    expect(fast, "test:quota-zh:fast must exist").toBeTruthy();
+    expect(fast).toContain("vitest run");
+    expect(fast).toContain("--config plugins/opencode-quota-zh/vitest.config.ts");
+    for (const file of [
+      "tests/lib.quota-snapshot-projection.test.ts",
+      "tests/lib.maintainer-announcements.test.ts",
+      "tests/plugin.maintainer-announcements.test.ts",
+      "tests/lib.quota-status.test.ts",
+      "tests/lib.init-installer.test.ts",
+      "tests/lib.quota-alert-metrics.test.ts",
+      "tests/lib.quota-snapshot-danger.test.ts",
+      "tests/providers.deepseek.test.ts",
+      "tests/lib.api-key-provider-queries.test.ts",
+    ]) {
+      expect(fast, `fast lane must include ${file}`).toContain(file);
+    }
+    expect(fast, "fast lane must not select TUI tests").not.toContain("tui-");
+    expect(fast, "fast lane must not select baseline-boundary").not.toContain("baseline-boundary");
+    expect(fast, "fast lane is a test lane, not a gate runner").not.toContain("--check");
+  });
+
+  it("keeps check:quota-zh the single owner of one outer runtime --check and one outer stage --check", () => {
+    const rootPkg = JSON.parse(readFileSync(join(REPO_ROOT, "package.json"), "utf8"));
+    const check = rootPkg.scripts["check:quota-zh"];
+    expect(check).toContain("npm run test:quota-zh");
+    expect(check.match(/build:quota-zh:runtime -- --check/g) ?? []).toHaveLength(1);
+    expect(check.match(/stage:runtime -- --check/g) ?? []).toHaveLength(1);
   });
 });
 
@@ -217,23 +276,9 @@ describe("runtime build boundary", () => {
       }
     }
   }, 60_000);
-
-  it("compares the committed dist/ byte-for-byte with a clean build (--check gate)", () => {
-    const result = run(npmInvocation(), ["run", "build:quota-zh:runtime", "--", "--check"], REPO_ROOT);
-    expect(result.stderr, `runtime reproducibility check failed:\n${result.stdout}\n${result.stderr}`).toBe("");
-    expect(result.stdout).toContain("byte-identical to clean build");
-  }, 60_000);
 });
 
 describe("runtime staging boundary", () => {
-  it("accepts --check and rejects quota-zh source/fixtures/dev config in the staged runtime", () => {
-    // node.exe is directly spawnable everywhere; only shim CLIs (npm/tsc) need
-    // the shell flag.
-    const check = run({ command: "node", shell: false }, ["scripts/stage-runtime.mjs", "--check"], REPO_ROOT);
-    expect(check.stderr, `stage-runtime --check failed`).toBe("");
-    expect(check.stdout).toContain("Runtime staging passed");
-  });
-
   it("stages only current quota-zh runtime files under the runtime allowlist, byte-identical to the source runtime", () => {
     const staged = run({ command: "node", shell: false }, ["scripts/stage-runtime.mjs"], REPO_ROOT);
     expect(staged.stderr, `stage-runtime failed`).toBe("");
