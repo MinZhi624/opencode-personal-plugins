@@ -6,7 +6,7 @@ import { FifoPool } from "./pool.js"
 type Client = any
 type RuntimeOptions = { maxParallelMakers: number; maxParallelSupport: number; supportRoleLimits?: { inspector: number; archivist: number; surveyor: number }; permissionTemplateVersion: string }
 type GitAdapter = Pick<GitWorkspace, "createSlice" | "changedPaths" | "addedPaths" | "accept" | "summary" | "finalize">
-type InternalTask = TaskSnapshot & { parentSessionId: string; spec: SliceSpec | AssignmentSpec; abort: AbortController; releaseSlot?: () => void; integration?: any; gateEvidence: Array<{ command: string; exitCode: number | null }>; activeSince?: number; activeElapsedMs: number; notified: boolean; approvalTimer?: ReturnType<typeof setTimeout> }
+type InternalTask = TaskSnapshot & { parentSessionId: string; parentAgent: string; spec: SliceSpec | AssignmentSpec; abort: AbortController; releaseSlot?: () => void; integration?: any; gateEvidence: Array<{ command: string; exitCode: number | null }>; activeSince?: number; activeElapsedMs: number; notified: boolean; approvalTimer?: ReturnType<typeof setTimeout> }
 
 const supportRoleLimit = { inspector: 4, archivist: 2, surveyor: 2 }
 const pathMatches = (path: string, pattern: string) => pattern.endsWith("/**") ? path === pattern.slice(0, -3) || path.startsWith(pattern.slice(0, -2)) : path === pattern || path.startsWith(`${pattern}/`)
@@ -24,7 +24,7 @@ export class OrchestrationManager {
     this.rolePools = Object.fromEntries(Object.entries(options.supportRoleLimits ?? supportRoleLimit).map(([role, limit]) => [role, new FifoPool(limit)]))
   }
 
-  async submitSlice(raw: unknown, parentSessionId: string, directory: string) {
+  async submitSlice(raw: unknown, parentSessionId: string, directory: string, parentAgent = "foreman") {
     const spec = sliceSpecSchema.parse(raw)
     const taskId = `slice:${parentSessionId}:${spec.sliceId}`
     const existing = this.tasks.get(taskId)
@@ -37,26 +37,26 @@ export class OrchestrationManager {
     }
     if (existing) { this.tasks.delete(taskId); if (existing.sessionId) this.sessionTasks.delete(existing.sessionId) }
     const workspace = existing?.directory ? { directory: existing.directory, integration: existing.integration } : await this.git.createSlice(parentSessionId, spec.sliceId, directory, spec.integrationCheckpoint)
-    const task = this.makeTask(taskId, "slice", "maker", spec.objective, workspace.directory, parentSessionId, spec)
+    const task = this.makeTask(taskId, "slice", "maker", spec.objective, workspace.directory, parentSessionId, parentAgent, spec)
     task.integration = workspace.integration
     this.tasks.set(task.taskId, task)
     void this.start(task, this.makerPool)
     return this.public(task)
   }
 
-  async submitAssignment(raw: unknown, parentSessionId: string, directory: string) {
+  async submitAssignment(raw: unknown, parentSessionId: string, directory: string, parentAgent: string) {
     const spec = assignmentSpecSchema.parse(raw)
     const taskId = `assignment:${parentSessionId}:${spec.assignmentId}`
     if (this.tasks.has(taskId)) throw new Error(`Duplicate Assignment identity: ${spec.assignmentId}`)
-    const task = this.makeTask(taskId, "assignment", spec.role, spec.objective, directory, parentSessionId, spec)
+    const task = this.makeTask(taskId, "assignment", spec.role, spec.objective, directory, parentSessionId, parentAgent, spec)
     this.tasks.set(task.taskId, task)
     void this.startSupport(task)
     return this.public(task)
   }
 
-  private makeTask(taskId: string, kind: "slice" | "assignment", role: InternalTask["role"], title: string, directory: string, parentSessionId: string, spec: SliceSpec | AssignmentSpec): InternalTask {
+  private makeTask(taskId: string, kind: "slice" | "assignment", role: InternalTask["role"], title: string, directory: string, parentSessionId: string, parentAgent: string, spec: SliceSpec | AssignmentSpec): InternalTask {
     const now = Date.now(), budgets = spec.budgets
-    return { taskId, kind, role, title, directory, parentSessionId, spec, runStatus: "queued", acceptanceStatus: "not_evaluated", abort: new AbortController(), gateEvidence: [], activeElapsedMs: 0, notified: false, progress: { phase: "queued", turns: 0, turnLimit: budgets.turnLimit, elapsedMs: 0, wallLimitMs: budgets.wallLimitMinutes * 60_000, lastProgressAt: now, changedPaths: 0 } }
+    return { taskId, kind, role, title, directory, parentSessionId, parentAgent, spec, runStatus: "queued", acceptanceStatus: "not_evaluated", abort: new AbortController(), gateEvidence: [], activeElapsedMs: 0, notified: false, progress: { phase: "queued", turns: 0, turnLimit: budgets.turnLimit, elapsedMs: 0, wallLimitMs: budgets.wallLimitMinutes * 60_000, lastProgressAt: now, changedPaths: 0 } }
   }
 
   private async startSupport(task: InternalTask) {
@@ -233,7 +233,7 @@ export class OrchestrationManager {
   private async notify(task: InternalTask) {
     if (task.notified) return
     task.notified = true
-    await this.client.session.promptAsync({ path: { id: task.parentSessionId }, body: { noReply: true, parts: [{ type: "text", text: `[Workshop Task Handle ${task.taskId}] ${task.runStatus}${task.result ? ` / ${task.result.outcome}` : ""}. Read workshop_task_status before Acceptance Gate.` }] } }).catch(() => { task.notified = false })
+    await this.client.session.promptAsync({ path: { id: task.parentSessionId }, body: { agent: task.parentAgent, noReply: true, parts: [{ type: "text", text: `[Workshop Task Handle ${task.taskId}] ${task.runStatus}${task.result ? ` / ${task.result.outcome}` : ""}. Read workshop_task_status before Acceptance Gate.` }] } }).catch(() => { task.notified = false })
   }
   private async validateSliceChanges(task: InternalTask) {
     const spec = task.spec as SliceSpec
@@ -250,5 +250,5 @@ export class OrchestrationManager {
     if ((task.result?.newTestCases ?? 0) > spec.testBudget.maxNewTestCases) violations.push(`Test Budget case limit exceeded: ${task.result?.newTestCases} > ${spec.testBudget.maxNewTestCases}`)
     return { changedPaths, violations }
   }
-  private public(task: InternalTask): TaskSnapshot { const { abort: _abort, releaseSlot: _release, spec: _spec, parentSessionId: _parent, integration: _integration, gateEvidence: _gate, activeSince: _active, activeElapsedMs: _elapsed, notified: _notified, approvalTimer: _approval, ...snapshot } = task; return structuredClone(snapshot) }
+  private public(task: InternalTask): TaskSnapshot { const { abort: _abort, releaseSlot: _release, spec: _spec, parentSessionId: _parent, parentAgent: _parentAgent, integration: _integration, gateEvidence: _gate, activeSince: _active, activeElapsedMs: _elapsed, notified: _notified, approvalTimer: _approval, ...snapshot } = task; return structuredClone(snapshot) }
 }
