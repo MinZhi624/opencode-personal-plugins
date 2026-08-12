@@ -34,6 +34,7 @@
     "build:quota-zh:runtime": "node plugins/opencode-quota-zh/scripts/build-runtime.mjs",
     "typecheck:quota-zh": "tsc --project plugins/opencode-quota-zh/tsconfig.json --noEmit",
     "test:quota-zh": "vitest run --config plugins/opencode-quota-zh/vitest.config.ts",
+    "test:quota-zh:fast": "vitest run --config plugins/opencode-quota-zh/vitest.config.ts tests/lib.quota-snapshot-projection.test.ts tests/lib.maintainer-announcements.test.ts tests/plugin.maintainer-announcements.test.ts tests/lib.quota-status.test.ts tests/lib.init-installer.test.ts tests/lib.quota-alert-metrics.test.ts tests/lib.quota-snapshot-danger.test.ts tests/providers.deepseek.test.ts tests/lib.api-key-provider-queries.test.ts",
     "check:quota-zh": "npm run build:quota-zh && npm run typecheck:quota-zh && npm run test:quota-zh && npm run build:quota-zh:runtime -- --check && npm run stage:runtime -- --check",
     "stage:runtime": "node scripts/stage-runtime.mjs",
     "check": "npm run check:matt-workshop && npm run check:quota-zh && node scripts/verify.mjs"
