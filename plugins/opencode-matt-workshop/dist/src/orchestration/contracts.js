@@ -14,7 +14,7 @@ export const sliceSpecSchema = z.object({
     ticketRef: z.string().min(1).max(200).optional(),
     objective: z.string().min(10).max(8_000),
     acceptanceConditions: z.array(z.string().min(3)).min(1).max(30),
-    blockers: z.array(z.string().min(1)).max(30),
+    blockers: z.array(z.string().min(1)).max(30).default([]),
     writeSet: z.array(z.string().min(1)).min(1).max(100),
     verificationPlan: z.array(z.string().min(1)).min(1).max(30),
     testBudget: z.object({
@@ -26,7 +26,7 @@ export const sliceSpecSchema = z.object({
         allowFullSuite: z.boolean().default(false),
     }).strict(),
     contextRefs: z.array(z.string().min(1)).max(100),
-    integrationCheckpoint: z.string().regex(/^[0-9a-f]{7,64}$/),
+    integrationCheckpoint: z.string().regex(/^[0-9a-f]{7,64}$/).optional(),
     budgets,
 }).strict().superRefine((value, context) => {
     if (value.budgets.turnWarning >= value.budgets.turnLimit)

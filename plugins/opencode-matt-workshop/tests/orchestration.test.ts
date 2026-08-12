@@ -107,6 +107,26 @@ describe("controlled Workshop orchestration seam", () => {
     expect(ready.result?.outcome).toBe("failed")
     expect(ready.result?.risks[0]).toMatch(/Write Set violation/)
   })
+
+  it("allows re-submission after a failed Slice by reusing the worktree", async () => {
+    const { manager, client, git } = harness()
+    await manager.submitSlice(spec(), "parent", "/repo")
+    await vi.waitFor(() => expect(client.session.promptAsync).toHaveBeenCalledOnce())
+    await manager.cancel("slice:parent:ticket-01")
+    expect(manager.get("slice:parent:ticket-01").runStatus).toBe("cancelled")
+    const retried = await manager.submitSlice(spec({ sliceId: "ticket-01" }), "parent", "/repo")
+    expect(retried.taskId).toBe("slice:parent:ticket-01")
+    expect(git.createSlice).toHaveBeenCalledTimes(1)
+  })
+
+  it("resolves a missing integration checkpoint from the Integration Branch", async () => {
+    const { manager, client } = harness()
+    const incomplete = spec()
+    delete incomplete.integrationCheckpoint
+    const handle = await manager.submitSlice(incomplete, "parent", "/repo")
+    await vi.waitFor(() => expect(client.session.promptAsync).toHaveBeenCalledOnce())
+    expect(handle.taskId).toBe("slice:parent:ticket-01")
+  })
 })
 
 describe("controlled command policy", () => {
