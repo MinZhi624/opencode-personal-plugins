@@ -1,14 +1,6 @@
 import type { TuiPluginApi } from "@opencode-ai/plugin/tui";
 import { type RuntimeContextRootHints, resolveRuntimeContextRoots } from "./config-file-utils.js";
 import { isPercentEntry } from "./entries.js";
-import {
-  BUNDLED_MAINTAINER_ANNOUNCEMENTS,
-  formatMaintainerAnnouncementHomeCountLine,
-  getMaintainerAnnouncementsSummary,
-  getMaintainerAnnouncementTargetProviderIds,
-  type MaintainerAnnouncement,
-} from "./maintainer-announcements.js";
-import { getQuotaProviderShape, normalizeQuotaProviderId } from "./provider-metadata.js";
 import { classifyQuotaWindowText } from "./quota-entry-display.js";
 import {
   buildQuotaExport,
@@ -22,10 +14,9 @@ import type {
   QuotaRenderData,
   SessionModelMeta,
 } from "./quota-render-data.js";
-import { collectConcreteEnabledProviderIds, collectQuotaRenderData } from "./quota-render-data.js";
+import { collectQuotaRenderData } from "./quota-render-data.js";
 import type { QuotaRuntimeContext } from "./quota-runtime-context.js";
 import {
-  createQuotaProviderRuntimeContext,
   createQuotaRuntimeRequestContext,
   resolveQuotaRuntimeContext,
 } from "./quota-runtime-context.js";
@@ -567,8 +558,6 @@ export async function loadTuiSessionQuotaSurfaces(params: {
 
 export async function loadTuiHomeBottomStatus(params: {
   api: TuiPluginApi;
-  nowMs?: number;
-  announcements?: readonly MaintainerAnnouncement[];
   initialRuntimeSeed?: TuiInitialRuntimeSeed;
 }): Promise<HomeBottomState> {
   const quotaClient = createTuiQuotaClient(params.api);
@@ -581,10 +570,9 @@ export async function loadTuiHomeBottomStatus(params: {
     providers: initialRuntimeSeed?.providers,
   });
 
-  const announcementEnabled =
-    runtime.config.enabled &&
-    runtime.config.maintainerAnnouncements.enabled &&
-    runtime.config.maintainerAnnouncements.home;
+  // Automatic maintainer-announcement Home surfaces are suppressed (Todo 1);
+  // announcement evaluation, /quota_status diagnostics and the
+  // maintainerAnnouncements config stay intact for Ticket 13.
   const compactSuppressedByNativeProviderQuota =
     runtime.config.tuiCompactStatus.suppressWhenNativeProviderQuota &&
     hasNativeProviderQuotaClient(params.api.client);
@@ -594,37 +582,8 @@ export async function loadTuiHomeBottomStatus(params: {
     runtime.config.tuiCompactStatus.homeBottom &&
     !compactSuppressedByNativeProviderQuota;
 
-  if (!announcementEnabled && !compactEnabled) {
-    return { status: "disabled", compact: { status: "disabled" } };
-  }
-
-  let announcementText: string | undefined;
-  if (announcementEnabled) {
-    const announcements = params.announcements ?? BUNDLED_MAINTAINER_ANNOUNCEMENTS;
-    const targetProviderIds = new Set(
-      getMaintainerAnnouncementTargetProviderIds({ announcements }),
-    );
-    const announcementProviders = runtime.providers.filter((provider) => {
-      const shape = getQuotaProviderShape(normalizeQuotaProviderId(provider.id));
-      return shape ? targetProviderIds.has(shape.id) : false;
-    });
-    const providerIds = await collectConcreteEnabledProviderIds({
-      providers: announcementProviders,
-      ctx: createQuotaProviderRuntimeContext(runtime),
-      enabledProviders: runtime.config.enabledProviders,
-    });
-    const summary = getMaintainerAnnouncementsSummary({
-      nowMs: params.nowMs,
-      enabledProviders: providerIds,
-      announcements,
-    });
-    announcementText = formatMaintainerAnnouncementHomeCountLine(summary.activeCount) || undefined;
-  }
-
   if (!compactEnabled) {
-    return announcementText
-      ? { status: "ready", announcementText, compact: { status: "disabled" } }
-      : { status: "disabled", compact: { status: "disabled" } };
+    return { status: "disabled", compact: { status: "disabled" } };
   }
 
   const homeRuntime: QuotaRuntimeContext = {
@@ -649,7 +608,7 @@ export async function loadTuiHomeBottomStatus(params: {
     formatStyle: compactFormatStyle,
   });
 
-  return { status: "ready", announcementText, compact };
+  return { status: "ready", compact };
 }
 
 /**
