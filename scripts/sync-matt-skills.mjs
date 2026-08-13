@@ -10,9 +10,12 @@ const vendor = join(plugin, "vendor/mattpocock-skills")
 const source = join(root, "skills-1.2.2")
 const output = join(plugin, "skills")
 const manifestOutput = join(plugin, "skill-manifest.json")
-const policy = JSON.parse(await readFile(join(plugin, "skill-policy.json"), "utf8"))
 const provenance = JSON.parse(await readFile(join(plugin, "upstream-provenance.json"), "utf8"))
 const args = new Set(process.argv.slice(2))
+const guardedCommands = {
+  drafter: ["triage", "to-spec", "to-tickets", "wayfinder"],
+  foreman: ["implement", "tdd", "diagnosing-bugs", "prototype", "resolving-merge-conflicts", "wizard"],
+}
 
 if (args.has("--vendor")) {
   await rm(vendor, { recursive: true, force: true })
@@ -33,16 +36,32 @@ function parseFrontmatter(content, sourcePath) {
 }
 
 function adapterBody(name, body) {
+  const roleGuidance = {
+    implement: "In Tinker, execute the plan without delegation and perform both Standards and Spec review axes yourself. In Foreman, own the main line and delegate only for stated leverage; run the final Standards and Spec axes as two parallel Inspector Worker Runs. In any other Primary Agent, stop and ask the user to select Tinker or Foreman.",
+    tdd: "TDD is opt-in. Before writing a test, ask the user to select the seams and behaviors it will cover, even when `/tdd` was invoked directly. Do not let an agent choose that scope implicitly.",
+    "code-review": "In Tinker, perform the Standards and Spec axes yourself. In Foreman, start two independent Inspector Worker Runs in parallel and aggregate their findings. Do not use unrelated generic subagents.",
+    research: "Use Archivist for delegated external primary-source research. Tinker cannot delegate: it must ask the user to select Foreman or invoke visible Archivist directly.",
+    "improve-codebase-architecture": "Use Surveyor for codebase mapping and Inspector for constrained design alternatives. Tinker cannot delegate and must ask the user to select Foreman or invoke a visible suitable Worker directly.",
+  }[name]
   const adapter = [
     "## OpenCode Adapter",
     "",
-    "References such as `/tdd` name Workflow Skills. Agents load those methods through OpenCode's skill tool; slash commands are the user-facing entries. Use OpenCode's task tool for delegated agents.",
+    "References such as `/tdd` name Workflow Skills. Slash commands are the user-facing entries. Use only the current Workshop Primary Agent's native OpenCode capabilities and role boundaries. Never switch Primary Agents automatically.",
+    ...(roleGuidance ? ["", roleGuidance] : []),
     "",
   ].join("\n")
   let result = body
   result = result.replaceAll("Agent tool", "OpenCode task tool")
-  result = result.replaceAll("subagent_type=Explore", "subagent_type=surveyor")
-  result = result.replaceAll("`general-purpose` subagent", "`inspector` subagent")
+  result = result.replaceAll("`/handoff`", "`/matt-handoff`")
+  if (name === "research") {
+    result = replaceAnchor(result, "Spin up a **background agent** to do the research, so you keep working while it reads.", "When the active role can delegate, start one Archivist Worker Run with the full research brief and target Markdown report path. Otherwise stop and ask the user to invoke visible Archivist or select Foreman.", name)
+  }
+  if (name === "code-review") {
+    result = replaceAnchor(result, "Send a single message with two `Agent` tool calls. Use the `general-purpose` subagent for both.", "In Foreman, send one message containing two native task calls to Inspector, one for each review axis. In Tinker, execute both review axes yourself without task calls.", name)
+  }
+  if (name === "improve-codebase-architecture") {
+    result = replaceAnchor(result, "Then use the OpenCode task tool with `subagent_type=Explore` to walk the codebase.", "When the active Primary Agent can delegate, use a Surveyor Worker Run to walk the codebase. In Tinker, stop and ask the user to select Foreman or invoke visible Surveyor directly.", name)
+  }
   if (name === "setup-matt-pocock-skills") {
     result = replaceAnchor(result, "- If `CLAUDE.md` exists, edit it.\n- Else if `AGENTS.md` exists, edit it.", "- If `AGENTS.md` exists, edit it.\n- Else if `CLAUDE.md` exists, edit it.", name)
     result = replaceAnchor(result, "Never create `AGENTS.md` when `CLAUDE.md` already exists (or vice versa) — always edit the one that's already there.", "Never create a second instruction file when one already exists — OpenCode reads `AGENTS.md` before falling back to `CLAUDE.md`.", name)
@@ -64,8 +83,14 @@ async function copySkill(sourceDir, destinationDir, name, implicitInvocation) {
   const parsed = parseFrontmatter(await readFile(skillPath, "utf8"), skillPath)
   if (parsed.values.name !== name) throw new Error(`Manifest name mismatch for ${name}: ${parsed.values.name}`)
   const description = implicitInvocation ? parsed.values.description : `Use ONLY when the user explicitly invokes /${name}. ${parsed.values.description}`
-  const content = `---\nname: ${name}\ndescription: ${JSON.stringify(description)}\n---\n\n${adapterBody(name, parsed.body)}`
+  const runtimeName = name === "handoff" ? "matt-handoff" : name
+  const content = `---\nname: ${runtimeName}\ndescription: ${JSON.stringify(description)}\n---\n\n${adapterBody(name, parsed.body)}`
   await writeFile(join(destinationDir, "SKILL.md"), content)
+  if (name === "codebase-design") {
+    const designPath = join(destinationDir, "DESIGN-IT-TWICE.md")
+    const design = await readFile(designPath, "utf8")
+    await writeFile(designPath, design.replace("Spawn 3+ sub-agents in parallel using the Agent tool.", "When the active Primary Agent can delegate, start 3+ Inspector Worker Runs in parallel. In Tinker, stop and ask the user to select Foreman."))
+  }
 }
 
 async function generate(targetSkills, targetManifest) {
@@ -81,11 +106,11 @@ async function generate(targetSkills, targetManifest) {
     const name = basename(entry)
     const parsed = parseFrontmatter(await readFile(join(sourceDir, "SKILL.md"), "utf8"), entry)
     const implicitInvocation = parsed.values["disable-model-invocation"] !== "true"
-    const guardedBy = Object.entries(policy.guardedCommands).find(([, names]) => names.includes(name))?.[0] ?? null
+    const guardedBy = Object.entries(guardedCommands).find(([, names]) => names.includes(name))?.[0] ?? null
     await copySkill(sourceDir, join(targetSkills, name), name, implicitInvocation)
     skills.push({ name, implicitInvocation, command: true, guardedBy })
   }
-  const manifest = { upstream: { version: provenance.version, tag: provenance.tag, commit: provenance.commit }, skills, agentSkills: policy.agentSkills }
+  const manifest = { upstream: { version: provenance.version, tag: provenance.tag, commit: provenance.commit }, skills }
   await writeFile(targetManifest, `${JSON.stringify(manifest, null, 2)}\n`)
 }
 

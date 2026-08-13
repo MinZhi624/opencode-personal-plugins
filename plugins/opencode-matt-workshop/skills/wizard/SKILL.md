@@ -5,7 +5,7 @@ description: "Generate an interactive bash wizard that walks a human through ste
 
 ## OpenCode Adapter
 
-References such as `/tdd` name Workflow Skills. Agents load those methods through OpenCode's skill tool; slash commands are the user-facing entries. Use OpenCode's task tool for delegated agents.
+References such as `/tdd` name Workflow Skills. Slash commands are the user-facing entries. Use only the current Workshop Primary Agent's native OpenCode capabilities and role boundaries. Never switch Primary Agents automatically.
 Before creating or validating a wizard, verify that Bash is available. On Windows, require WSL or Git Bash; do not attempt a PowerShell rewrite.
 
 

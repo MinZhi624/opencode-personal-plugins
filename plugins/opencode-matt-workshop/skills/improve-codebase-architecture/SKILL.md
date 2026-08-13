@@ -5,7 +5,9 @@ description: "Use ONLY when the user explicitly invokes /improve-codebase-archit
 
 ## OpenCode Adapter
 
-References such as `/tdd` name Workflow Skills. Agents load those methods through OpenCode's skill tool; slash commands are the user-facing entries. Use OpenCode's task tool for delegated agents.
+References such as `/tdd` name Workflow Skills. Slash commands are the user-facing entries. Use only the current Workshop Primary Agent's native OpenCode capabilities and role boundaries. Never switch Primary Agents automatically.
+
+Use Surveyor for codebase mapping and Inspector for constrained design alternatives. Tinker cannot delegate and must ask the user to select Foreman or invoke a visible suitable Worker directly.
 
 # Improve Codebase Architecture
 
@@ -27,7 +29,7 @@ This command is _informed_ by the project's domain model and built on a shared d
 
 Read the project's domain glossary (`CONTEXT.md`) and any ADRs in the area you're touching first.
 
-Then use the OpenCode task tool with `subagent_type=surveyor` to walk the codebase. Don't follow rigid heuristics — explore organically and note where you experience friction:
+When the active Primary Agent can delegate, use a Surveyor Worker Run to walk the codebase. In Tinker, stop and ask the user to select Foreman or invoke visible Surveyor directly. Don't follow rigid heuristics — explore organically and note where you experience friction:
 
 - Where does understanding one concept require bouncing between many small modules?
 - Where are modules **shallow** — interface nearly as complex as the implementation?
