@@ -161,7 +161,6 @@ const plugin = (async () => ({
     config.command["gpt-reset-credits"] = {
       description: "查询或兑换 ChatGPT 重置卡",
       template: commandTemplate,
-      agent: "tinker",
     }
 
     const permissions: Record<string, unknown> =

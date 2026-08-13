@@ -5,7 +5,9 @@ description: "Use ONLY when the user explicitly invokes /implement. Implement a 
 
 ## OpenCode Adapter
 
-References such as `/tdd` name Workflow Skills. Agents load those methods through OpenCode's skill tool; slash commands are the user-facing entries. Use OpenCode's task tool for delegated agents.
+References such as `/tdd` name Workflow Skills. Slash commands are the user-facing entries. Use only the current Workshop Primary Agent's native OpenCode capabilities and role boundaries. Never switch Primary Agents automatically.
+
+In Tinker, execute the plan without delegation and perform both Standards and Spec review axes yourself. In Foreman, own the main line and delegate only for stated leverage; run the final Standards and Spec axes as two parallel Inspector Worker Runs. In any other Primary Agent, stop and ask the user to select Tinker or Foreman.
 
 Implement the work described by the user in the spec or tickets.
 

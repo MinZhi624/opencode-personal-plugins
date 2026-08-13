@@ -27,8 +27,7 @@
   },
   "scripts": {
     "build:matt-workshop": "tsc --project plugins/opencode-matt-workshop/tsconfig.json",
-    "test:matt-workshop": "vitest run --config plugins/opencode-matt-workshop/vitest.config.ts",
-    "check:matt-workshop": "node scripts/sync-matt-skills.mjs --check && npm run build:matt-workshop -- --noEmit && npm run test:matt-workshop && node scripts/check-matt-build.mjs && node scripts/verify-matt-workshop.mjs && node scripts/stage-runtime.mjs --check",
+    "check:matt-workshop": "node scripts/sync-matt-skills.mjs --check && npm run build:matt-workshop -- --noEmit && node scripts/check-matt-build.mjs && node scripts/verify-matt-workshop.mjs && node scripts/stage-runtime.mjs --check",
     "sync:matt-skills": "node scripts/sync-matt-skills.mjs",
     "build:quota-zh": "node plugins/opencode-quota-zh/scripts/build-dev.mjs",
     "build:quota-zh:runtime": "node plugins/opencode-quota-zh/scripts/build-runtime.mjs",

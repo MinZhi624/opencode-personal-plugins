@@ -1,94 +1,65 @@
 # 合并到已有 OpenCode 配置
 
-安装器发现已有 `opencode.json(c)` 或 `tui.json(c)` 时默认不会覆盖。先备份现有文件，再把下面条目并入原数组。
+安装器发现已有 `opencode.json(c)` 或 `tui.json(c)` 时不会覆盖。先备份现有文件，再把条目并入原数组。不要创建第二个同名 `plugin` 键。
 
-> 不要在同一个 JSON 对象里创建第二个同名 `plugin` 键。应把条目追加到现有数组中。
+## Server 配置
 
-## 1. Server 配置
-
-编辑：
-
-```text
-~/.config/opencode/opencode.json
-```
-
-或当前使用的 `opencode.jsonc`。
-
-把以下三个条目加入现有 `plugin` 数组：
+在当前使用的 `~/.config/opencode/opencode.jsonc`（或 `.json`）中保留已有 notifier、provider、experimental、MCP 等设置，并把以下三项放入现有 `plugin` 数组：
 
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
   "plugin": [
-    // 保留已有插件，例如通知器：
-    "@mohak34/opencode-notifier@latest",
-
-    // 本整合包：
     "./opencode-zh-bundle/plugins/opencode-quota-zh/dist/index.js",
     "./opencode-zh-bundle/plugins/gpt-reset-credits/index.ts",
-    [
-      "./opencode-zh-bundle/plugins/opencode-matt-workshop/dist/src/index.js",
-      {
-        "replace_builtin_agents": true,
-        "max_parallel_makers": 3
-      }
-    ]
-  ],
-
-  // 原有 provider、model、mcp、permission 等配置继续保留。
-  "provider": {}
+    "./opencode-zh-bundle/plugins/opencode-matt-workshop/dist/src/index.js"
+  ]
 }
 ```
 
-说明：
+Workshop 会保留 OpenCode 内置和已有 agents，新增七个 Workshop agents，并把 `tinker` 设为默认 Primary Agent。
 
-- `gpt-reset-credits` 会自动注册 `/gpt-reset-credits`、两个工具及其权限规则，无需手工添加权限。
-- Workshop 会注册智能体、命令和 skills 路径，并把默认智能体设为 `tinker`。
-- 如果不希望禁用内置智能体，将 `replace_builtin_agents` 改为 `false`。
-- 不要复制发布者的私有模型 ID；默认继承朋友当前选择的模型最稳妥。
+可选角色覆盖使用 OpenCode 支持的 `[pluginPath, options]`：
 
-## 2. TUI 配置
-
-编辑：
-
-```text
-~/.config/opencode/tui.json
+```jsonc
+[
+  "./opencode-zh-bundle/plugins/opencode-matt-workshop/dist/src/index.js",
+  {
+    "agents": {
+      "drafter": { "model": "openai/gpt-5.6-sol", "variant": "high" },
+      "maker": { "model": "opencode-go/deepseek-v4-flash", "variant": "max", "steps": 40 }
+    }
+  }
+]
 ```
 
-或当前使用的 `tui.jsonc`。
+每个角色只支持 `model`、`variant`、`temperature`、`steps`。不配置时继承当前 OpenCode 模型。
 
-把以下两个条目加入现有 `plugin` 数组：
+如果旧配置包含 `oh-my-openagent` 或 `oh-my-openagent@latest`，移除该条目；不要删除 notifier、quota、reset-card 或其它无关插件。
+
+## TUI 配置
+
+在当前 `~/.config/opencode/tui.jsonc` 中保留已有设置并加入：
 
 ```jsonc
 {
   "$schema": "https://opencode.ai/tui.json",
   "plugin": [
-    // 保留已有 TUI 插件和设置。
     "./opencode-zh-bundle/plugins/opencode-quota-zh/dist/tui.tsx",
     "./opencode-zh-bundle/plugins/opencode-enhanced-sidebar-zh/src/tui.tsx"
   ]
 }
 ```
 
-`opencode-quota-zh` 内部 sidebar order 为 40，增强侧边栏为 60，最终通常先显示额度，再显示上下文和子代理。
+删除 TUI 配置中的旧 `oh-my-openagent` 条目。若 `.jsonc` 和 `.json` 同时存在，OpenCode 优先读取 `.jsonc`；合并后只保留一个有效配置，避免重复插件。
 
-## 3. 删除旧的重复条目
+## 删除旧路径
 
-如果设备之前安装过这些插件，请删除指向旧位置的重复条目，例如：
+每个入口只保留 bundle 路径的一份。删除指向旧独立目录或旧绝对路径的 quota、sidebar、Workshop、reset-card 重复条目。
 
-```text
-./opencode-quota-zh/dist/index.js
-./opencode-quota-zh/dist/tui.tsx
-file:///某个用户目录/opencode-enhanced-sidebar-zh/src/tui.tsx
-./opencode-matt-workshop/dist/src/index.js
-./gpt-reset-credits/index.ts
-```
+## 验证与重启
 
-每个入口只保留 bundle 路径的一份，否则可能出现命令重复、侧边栏重复或插件 ID 冲突。
-
-## 4. 验证
-
-保存后彻底退出 OpenCode，再执行：
+保存后必须彻底退出并重新启动 OpenCode，再执行：
 
 ```bash
 opencode debug config
@@ -96,9 +67,4 @@ opencode debug agent tinker
 opencode debug skill
 ```
 
-如果 `opencode debug config` 报配置语法错误，先恢复备份，再检查：
-
-- 数组元素之间是否有逗号；
-- JSON 文件是否误用了注释（有注释请使用 `.jsonc`）；
-- 是否创建了两个 `plugin` 键；
-- 相对路径是否仍以 `./opencode-zh-bundle/` 开头。
+不要分享未经检查的 `opencode debug config` 输出；其中可能包含私有 provider 配置。

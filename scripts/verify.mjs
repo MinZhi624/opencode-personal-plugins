@@ -62,6 +62,16 @@ if (errors.length === 0) {
     const workshop = await import(join(root, "plugins/opencode-matt-workshop/dist/src/index.js"))
     if (!quota.default) errors.push("opencode-quota-zh 没有默认导出。")
     if (typeof workshop.default !== "function") errors.push("opencode-matt-workshop 默认导出无效。")
+    else {
+      const hooks = await workshop.default({})
+      if (typeof hooks.config !== "function") errors.push("opencode-matt-workshop 缺少 config hook。")
+      else {
+        const config = { agent: {}, command: {}, skills: { paths: [] } }
+        await hooks.config(config)
+        if (config.default_agent !== "tinker") errors.push("opencode-matt-workshop 未设置默认 Tinker。")
+        if (Object.keys(config.agent).length !== 7) errors.push("opencode-matt-workshop 未注册完整七角色。")
+      }
+    }
   } catch (error) {
     errors.push(`服务端插件导入失败：${error instanceof Error ? error.message : String(error)}`)
   }

@@ -5,9 +5,11 @@ description: "Investigate a question against high-trust primary sources and capt
 
 ## OpenCode Adapter
 
-References such as `/tdd` name Workflow Skills. Agents load those methods through OpenCode's skill tool; slash commands are the user-facing entries. Use OpenCode's task tool for delegated agents.
+References such as `/tdd` name Workflow Skills. Slash commands are the user-facing entries. Use only the current Workshop Primary Agent's native OpenCode capabilities and role boundaries. Never switch Primary Agents automatically.
 
-Spin up a **background agent** to do the research, so you keep working while it reads.
+Use Archivist for delegated external primary-source research. Tinker cannot delegate: it must ask the user to select Foreman or invoke visible Archivist directly.
+
+When the active role can delegate, start one Archivist Worker Run with the full research brief and target Markdown report path. Otherwise stop and ask the user to invoke visible Archivist or select Foreman.
 
 Its job:
 

@@ -1,52 +1,52 @@
 # OpenCode Matt Workshop
 
-A local OpenCode adapter for all [Matt Pocock promoted Skills](https://github.com/mattpocock/skills), pinned to upstream `v1.2.2`. It provides three user-facing Primary Agents, four hidden Worker Agents, and process-local controlled Worker orchestration without adding a durable task runtime.
+独立的 OpenCode Server 插件：把 Matt Pocock Skills `v1.2.2` 的全部 25 个 Promoted Skills 接入七个边界明确的 Workshop Agent。插件只使用 OpenCode 原生 agent、permission、task、steps 和 config hook，不包含自定义任务运行时、Hook、调度器或 worktree 管理。
 
 ## Roles
 
-| Agent | Mode | Purpose |
-| --- | --- | --- |
-| Drafter | Primary | Chooses and runs planning workflows while maintaining domain language |
-| Foreman | Primary | Implements Ready Work and coordinates Maker slices through an Acceptance Gate |
-| Tinker | Primary, default | Makes low-friction Quick Changes with inexpensive verification |
-| Maker | Subagent | Implements one end-to-end Delegable Slice |
-| Inspector | Subagent | Performs one independent review axis |
-| Archivist | Subagent | Researches primary sources and writes one cited report |
-| Surveyor | Subagent | Maps local code and conventions without editing |
+| Agent | Mode | Visibility | Purpose |
+| --- | --- | --- | --- |
+| Drafter | Primary | visible | 澄清决策、维护领域语言并产出 Implementation Plan；不实施 |
+| Tinker | Primary, default | visible | 单 Agent 实施 Ready Work，使用 Existing, Targeted, and Bounded Verification |
+| Foreman | Primary | visible | 自己实施主线，仅在并行或 specialist leverage 明确时委派 |
+| Maker | Subagent | hidden | 在 Assigned Scope 内实施一个有界端到端单元 |
+| Inspector | Subagent | hidden | 只读审查一个 Standards、Spec 或设计维度 |
+| Archivist | Subagent | visible | 调研一手来源并写入指定 Markdown 报告 |
+| Surveyor | Subagent | visible | 只读映射代码、约定与关系 |
 
-## Local Project Setup
+Worker 默认 steps 为 Maker 40、Inspector 24、Archivist 20、Surveyor 32。连续三轮没有新事实、有效 diff、失败范围收窄或验证进展时，Worker 会停止并汇报阻塞。Workshop 不增加并发上限，实际并行由 OpenCode 管理。
 
-Install dependencies:
+用户通过 OpenCode 原生 UI 手动切换 Primary Agent。插件不会自动路由、自动切换角色或自动选择 TDD。
 
-```bash
-npm install
-npm run check
-npm run smoke
-```
+## Configuration
 
-Reference the local TypeScript entry from a project's `opencode.jsonc`:
+最简配置：
 
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
   "plugin": [
+    "./opencode-zh-bundle/plugins/opencode-matt-workshop/dist/src/index.js"
+  ]
+}
+```
+
+可选的角色覆盖只支持 `model`、`variant`、`temperature`、`steps`：
+
+```jsonc
+{
+  "plugin": [
     [
-      "/absolute/path/to/opencode-matt-workshop/src/index.ts",
+      "./opencode-zh-bundle/plugins/opencode-matt-workshop/dist/src/index.js",
       {
-        "replace_builtin_agents": true,
-        "max_parallel_makers": 2,
-        "max_parallel_support": 6,
-        "max_parallel_inspectors": 4,
-        "max_parallel_archivists": 2,
-        "max_parallel_surveyors": 2,
         "agents": {
           "drafter": { "model": "openai/gpt-5.6-sol", "variant": "high" },
-          "foreman": { "model": "openai/gpt-5.6-terra", "variant": "medium" },
-          "tinker": { "model": "deepseek/deepseek-v4-flash", "variant": "max" },
-          "maker": { "model": "deepseek/deepseek-v4-flash", "variant": "max" },
-          "inspector": { "model": "deepseek/deepseek-v4-flash", "variant": "max" },
+          "foreman": { "model": "openai/gpt-5.6-terra", "variant": "high" },
+          "tinker": { "model": "opencode-go/deepseek-v4-flash", "variant": "high" },
+          "maker": { "model": "opencode-go/deepseek-v4-flash", "variant": "max" },
+          "inspector": { "model": "opencode-go/deepseek-v4-flash", "variant": "high" },
           "archivist": { "model": "openai/gpt-5.6-luna", "variant": "medium" },
-          "surveyor": { "model": "deepseek/deepseek-v4-flash", "variant": "high" }
+          "surveyor": { "model": "opencode-go/deepseek-v4-flash", "variant": "low" }
         }
       }
     ]
@@ -54,47 +54,33 @@ Reference the local TypeScript entry from a project's `opencode.jsonc`:
 }
 ```
 
-Model overrides are optional. Without them, every role inherits the surrounding OpenCode model. DeepSeek V4 Flash cannot accept image or PDF attachments; temporarily override the relevant role with an attachment-capable OpenAI model for visual work.
+这些模型只是推荐，不是运行时默认值。未配置时，每个角色继承 OpenCode 当前模型。DeepSeek V4 Flash 不能接收图片或 PDF；附件任务应临时覆盖为支持附件的模型。
 
-Quit and restart OpenCode after changing plugin configuration. OpenCode loads config-time files only at startup.
+## Workflow behavior
 
-## Controlled orchestration
+- 全部 25 个 Promoted Skills 都注册为同名 Workflow Command；Matt 的 handoff 使用 `/matt-handoff`，避免与 OpenCode 内置 `/handoff` 冲突。
+- `/implement` 在 Tinker 中单 Agent 执行并自行完成 Standards/Spec review；在 Foreman 中由 Foreman实施主线，并可并行委派两个 Inspector review axis。
+- `/tdd` 仅在用户明确选择 seams/behaviors 后运行；直接调用 `/tdd` 也必须先确认范围。
+- Tinker 遇到必须委派的 Skill 会停止，并提示用户选择 Foreman 或直接调用可见的 Archivist/Surveyor。
+- 所有 Worker 使用共享 working tree；Foreman 在委派前声明 Delegation Leverage、Assigned Scope 和预期结果。
 
-Foreman starts Maker only through `workshop_submit_slice`. A structured SliceSpec defines one Delegable Slice, its Write Set, Verification Plan, Test Budget, context references, Integration checkpoint, and hard budgets. Workshop creates a fresh Git worktree, returns a Task Handle, and prevents overlapping active Write Sets.
+## Reproducible adaptation
 
-Maker returns a structured Ticket Result. `completed` means result-ready, not accepted. Foreman runs Gate Commands through `workshop_run_gate_command`, then explicitly accepts the Slice to create and integrate one checkpoint commit.
-
-Inspector, Archivist, and Surveyor use the lighter `workshop_submit_assignment` contract and separate Support Worker concurrency. Direct Worker `task` and direct role `bash` are denied; role commands run through Workshop's controlled command tools.
-
-Controlled commands use time, output, process-group, and systemd/cgroup resource controls. Unknown project commands are allowed; dangerous commands are denied and explicit external side effects ask once per operation. This is a reliability control, not a security sandbox. Controlled code-changing flows require Linux or WSL with a systemd user manager and cgroup v2.
-
-Workshop v3 is the permission fact source. Remove machine-local plugins that overwrite Workshop role permissions after installation; a later config hook can still override OpenCode config after Workshop's own hook has run.
-
-## Commands
-
-The Workshop registers all 25 promoted Skills as same-name commands. Ten guarded commands persistently switch to the responsible Primary Agent: Drafter owns `/triage`, `/to-spec`, `/to-tickets`, and `/wayfinder`; Foreman owns `/implement`, `/tdd`, `/diagnosing-bugs`, `/prototype`, `/resolving-merge-conflicts`, and `/wizard`. The other commands run in the current Primary Agent. Tinker can load every Skill; other Primary Agents retain responsibility-specific permissions.
-
-Run `/setup-matt-pocock-skills` only when a workflow needs Issue tracker, triage, or domain-layout configuration. Quick Changes and ordinary code exploration do not require repository setup.
-
-## Upstream Sync
-
-The complete raw upstream `v1.2.2` snapshot is stored under `vendor/mattpocock-skills/`; OpenCode loads generated adapter output under `skills/`. The snapshot and development records are tracked in Git but excluded from the installed Runtime Distribution.
+上游快照固定在 `vendor/mattpocock-skills/`，版本 `v1.2.2`、commit `8b36d4fb2635b3c21998dcd8144439c9e5ba7302`。`skills/`、`skill-manifest.json` 和 `dist/` 都是生成物，不要手改。
 
 ```bash
 npm run sync:matt-skills
 npm run check:matt-workshop
 ```
 
-The sync fails when a compatibility patch no longer matches its expected upstream anchor. Review upstream changes rather than weakening the check.
+Workshop 不保留自动化测试套件。`check:matt-workshop` 只运行 Skill 同步一致性、TypeScript no-emit、clean-build 字节比较、plain-Node 结构合同和 Runtime Distribution 隔离检查。
+
+安装或修改配置后必须完全退出并重新启动 OpenCode；配置不会热重载。
 
 ## Architecture
 
 - [Domain language](./CONTEXT.md)
-- [2.0 implementation handoff](./docs/implementation/2.0-foreman-handoff.md)
 - [Architecture decisions](./docs/adr/)
+- [Bundle merge guide](../../docs/MERGE_EXISTING_CONFIG.md)
 
-This is an unofficial OpenCode adapter. Matt Pocock's vendored skills retain their upstream MIT license and recorded provenance.
-
-## Related
-
-- [Bundle main README](../../README.md) — OpenCode 中文插件整合包（本插件是其中一部分）
+这是非官方 OpenCode adapter。Matt Pocock 的 vendored Skills 保留上游 MIT 许可证和 provenance。

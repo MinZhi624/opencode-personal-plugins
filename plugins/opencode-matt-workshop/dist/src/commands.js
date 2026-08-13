@@ -30,9 +30,8 @@ function template(name) {
     return `Load the \`${name}\` Workflow Skill with OpenCode's skill tool and follow it exactly. Treat the text below as the user's arguments and context for that workflow.\n\n$ARGUMENTS`;
 }
 export function buildWorkshopCommands() {
-    return Object.fromEntries(manifest.skills.map((skill) => [skill.name, {
-            template: template(skill.name),
+    return Object.fromEntries(manifest.skills.map((skill) => [skill.name === "handoff" ? "matt-handoff" : skill.name, {
+            template: template(skill.name === "handoff" ? "matt-handoff" : skill.name),
             description: descriptions[skill.name] ?? `运行 ${skill.name} 工作流技能。`,
-            ...(skill.guardedBy ? { agent: skill.guardedBy } : {}),
         }]));
 }

@@ -1,11 +1,11 @@
 ---
-name: handoff
+name: matt-handoff
 description: "Use ONLY when the user explicitly invokes /handoff. Compact the current conversation into a handoff document for another agent to pick up."
 ---
 
 ## OpenCode Adapter
 
-References such as `/tdd` name Workflow Skills. Agents load those methods through OpenCode's skill tool; slash commands are the user-facing entries. Use OpenCode's task tool for delegated agents.
+References such as `/tdd` name Workflow Skills. Slash commands are the user-facing entries. Use only the current Workshop Primary Agent's native OpenCode capabilities and role boundaries. Never switch Primary Agents automatically.
 
 Write a handoff document summarising the current conversation so a fresh agent can continue the work. Save to the temporary directory of the user's OS - not the current workspace.
 

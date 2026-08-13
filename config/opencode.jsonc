@@ -8,15 +8,22 @@
     [
       "./opencode-zh-bundle/plugins/opencode-matt-workshop/dist/src/index.js",
       {
-        // Set false if you want to keep OpenCode's built-in build/plan agents.
-        "replace_builtin_agents": true,
-        "max_parallel_makers": 2,
-        "max_parallel_support": 6,
-        "max_parallel_inspectors": 4,
-        "max_parallel_archivists": 2,
-        "max_parallel_surveyors": 2,
-        "permission_template_version": "3"
+        "agents": {
+          "drafter": { "model": "openai/gpt-5.6-sol", "variant": "high" },
+          "tinker": { "model": "opencode-go/deepseek-v4-flash", "variant": "high" },
+          "foreman": { "model": "openai/gpt-5.6-terra", "variant": "high" },
+          "maker": { "model": "opencode-go/deepseek-v4-flash", "variant": "max" },
+          "inspector": { "model": "opencode-go/deepseek-v4-flash", "variant": "high" },
+          "archivist": { "model": "openai/gpt-5.6-luna", "variant": "medium" },
+          "surveyor": { "model": "opencode-go/deepseek-v4-flash", "variant": "low" }
+        }
       }
     ]
-  ]
+  ],
+  "agent": {
+    "build": { "disable": true },
+    "plan": { "disable": true },
+    "general": { "disable": true },
+    "explore": { "disable": true }
+  }
 }

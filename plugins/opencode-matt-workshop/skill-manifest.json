@@ -155,47 +155,5 @@
       "command": true,
       "guardedBy": null
     }
-  ],
-  "agentSkills": {
-    "drafter": [
-      "ask-matt",
-      "grill-me",
-      "grilling",
-      "grill-with-docs",
-      "triage",
-      "improve-codebase-architecture",
-      "setup-matt-pocock-skills",
-      "to-spec",
-      "to-tickets",
-      "wayfinder",
-      "research",
-      "domain-modeling",
-      "codebase-design",
-      "handoff",
-      "teach",
-      "wait-what",
-      "to-questionnaire",
-      "writing-for-agents"
-    ],
-    "foreman": [
-      "implement",
-      "tdd",
-      "diagnosing-bugs",
-      "prototype",
-      "code-review",
-      "resolving-merge-conflicts",
-      "research",
-      "domain-modeling",
-      "codebase-design",
-      "handoff",
-      "writing-for-agents",
-      "wizard"
-    ],
-    "maker": [
-      "tdd",
-      "diagnosing-bugs",
-      "prototype",
-      "codebase-design"
-    ]
-  }
+  ]
 }

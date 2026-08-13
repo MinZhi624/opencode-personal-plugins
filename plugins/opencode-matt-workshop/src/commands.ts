@@ -33,9 +33,8 @@ function template(name: string) {
 }
 
 export function buildWorkshopCommands() {
-  return Object.fromEntries(manifest.skills.map((skill) => [skill.name, {
-    template: template(skill.name),
+  return Object.fromEntries(manifest.skills.map((skill) => [skill.name === "handoff" ? "matt-handoff" : skill.name, {
+    template: template(skill.name === "handoff" ? "matt-handoff" : skill.name),
     description: descriptions[skill.name] ?? `运行 ${skill.name} 工作流技能。`,
-    ...(skill.guardedBy ? { agent: skill.guardedBy } : {}),
   }]))
 }

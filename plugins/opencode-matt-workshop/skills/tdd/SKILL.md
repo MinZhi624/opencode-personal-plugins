@@ -5,7 +5,9 @@ description: "Test-driven development. Use when the user wants to build features
 
 ## OpenCode Adapter
 
-References such as `/tdd` name Workflow Skills. Agents load those methods through OpenCode's skill tool; slash commands are the user-facing entries. Use OpenCode's task tool for delegated agents.
+References such as `/tdd` name Workflow Skills. Slash commands are the user-facing entries. Use only the current Workshop Primary Agent's native OpenCode capabilities and role boundaries. Never switch Primary Agents automatically.
+
+TDD is opt-in. Before writing a test, ask the user to select the seams and behaviors it will cover, even when `/tdd` was invoked directly. Do not let an agent choose that scope implicitly.
 
 # Test-Driven Development
 

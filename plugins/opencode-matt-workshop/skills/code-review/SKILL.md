@@ -5,7 +5,9 @@ description: "Review the changes since a fixed point (commit, branch, tag, or me
 
 ## OpenCode Adapter
 
-References such as `/tdd` name Workflow Skills. Agents load those methods through OpenCode's skill tool; slash commands are the user-facing entries. Use OpenCode's task tool for delegated agents.
+References such as `/tdd` name Workflow Skills. Slash commands are the user-facing entries. Use only the current Workshop Primary Agent's native OpenCode capabilities and role boundaries. Never switch Primary Agents automatically.
+
+In Tinker, perform the Standards and Spec axes yourself. In Foreman, start two independent Inspector Worker Runs in parallel and aggregate their findings. Do not use unrelated generic subagents.
 
 Two-axis review of the diff between `HEAD` and a fixed point the user supplies:
 
@@ -61,7 +63,7 @@ Each smell reads *what it is* → *how to fix*; match it against the diff:
 
 ### 4. Spawn both sub-agents in parallel
 
-Send a single message with two `Agent` tool calls. Use the `inspector` subagent for both.
+In Foreman, send one message containing two native task calls to Inspector, one for each review axis. In Tinker, execute both review axes yourself without task calls.
 
 **Standards sub-agent prompt** — include:
 

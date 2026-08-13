@@ -1,5 +1,6 @@
 ---
 status: accepted
+superseded-in-part-by: 0002-standalone-native-workshop.md
 ---
 
 # Separate reproducible adaptation inputs from the runtime distribution
