@@ -1,12 +1,10 @@
 import { resolveRuntimeContextRoots } from "./config-file-utils.js";
 import { isPercentEntry } from "./entries.js";
-import { BUNDLED_MAINTAINER_ANNOUNCEMENTS, formatMaintainerAnnouncementHomeCountLine, getMaintainerAnnouncementsSummary, getMaintainerAnnouncementTargetProviderIds, } from "./maintainer-announcements.js";
-import { getQuotaProviderShape, normalizeQuotaProviderId } from "./provider-metadata.js";
 import { classifyQuotaWindowText } from "./quota-entry-display.js";
 import { buildQuotaExport, createExportProviderContext, resolveExportPath, writeQuotaExport, } from "./quota-export.js";
 import { resolveQuotaFormatStyle } from "./quota-format-style.js";
-import { collectConcreteEnabledProviderIds, collectQuotaRenderData } from "./quota-render-data.js";
-import { createQuotaProviderRuntimeContext, createQuotaRuntimeRequestContext, resolveQuotaRuntimeContext, } from "./quota-runtime-context.js";
+import { collectQuotaRenderData } from "./quota-render-data.js";
+import { createQuotaRuntimeRequestContext, resolveQuotaRuntimeContext, } from "./quota-runtime-context.js";
 import { buildCompactQuotaStatusLine } from "./tui-compact-format.js";
 import { hasNativeProviderQuotaClient } from "./tui-native-provider-quota.js";
 import { buildUnifiedQuotaSnapshot, EMPTY_QUOTA_PROJECTION_STATE, formatStartupHintText, projectQuotaSnapshot, } from "./quota-snapshot.js";
@@ -402,42 +400,17 @@ export async function loadTuiHomeBottomStatus(params) {
         configMeta: initialRuntimeSeed?.configMeta,
         providers: initialRuntimeSeed?.providers,
     });
-    const announcementEnabled = runtime.config.enabled &&
-        runtime.config.maintainerAnnouncements.enabled &&
-        runtime.config.maintainerAnnouncements.home;
+    // Automatic maintainer-announcement Home surfaces are suppressed (Todo 1);
+    // announcement evaluation, /quota_status diagnostics and the
+    // maintainerAnnouncements config stay intact for Ticket 13.
     const compactSuppressedByNativeProviderQuota = runtime.config.tuiCompactStatus.suppressWhenNativeProviderQuota &&
         hasNativeProviderQuotaClient(params.api.client);
     const compactEnabled = runtime.config.enabled &&
         runtime.config.tuiCompactStatus.enabled &&
         runtime.config.tuiCompactStatus.homeBottom &&
         !compactSuppressedByNativeProviderQuota;
-    if (!announcementEnabled && !compactEnabled) {
-        return { status: "disabled", compact: { status: "disabled" } };
-    }
-    let announcementText;
-    if (announcementEnabled) {
-        const announcements = params.announcements ?? BUNDLED_MAINTAINER_ANNOUNCEMENTS;
-        const targetProviderIds = new Set(getMaintainerAnnouncementTargetProviderIds({ announcements }));
-        const announcementProviders = runtime.providers.filter((provider) => {
-            const shape = getQuotaProviderShape(normalizeQuotaProviderId(provider.id));
-            return shape ? targetProviderIds.has(shape.id) : false;
-        });
-        const providerIds = await collectConcreteEnabledProviderIds({
-            providers: announcementProviders,
-            ctx: createQuotaProviderRuntimeContext(runtime),
-            enabledProviders: runtime.config.enabledProviders,
-        });
-        const summary = getMaintainerAnnouncementsSummary({
-            nowMs: params.nowMs,
-            enabledProviders: providerIds,
-            announcements,
-        });
-        announcementText = formatMaintainerAnnouncementHomeCountLine(summary.activeCount) || undefined;
-    }
     if (!compactEnabled) {
-        return announcementText
-            ? { status: "ready", announcementText, compact: { status: "disabled" } }
-            : { status: "disabled", compact: { status: "disabled" } };
+        return { status: "disabled", compact: { status: "disabled" } };
     }
     const homeRuntime = {
         ...runtime,
@@ -458,7 +431,7 @@ export async function loadTuiHomeBottomStatus(params) {
         enabled: true,
         formatStyle: compactFormatStyle,
     });
-    return { status: "ready", announcementText, compact };
+    return { status: "ready", compact };
 }
 /**
  * Loads the startup hint for the OpenCode home page (Ticket 07).
