@@ -281,7 +281,11 @@ export function seedDefaultPluginBootstrapMocks(
   mocks: PluginBootstrapMocks,
   options: PluginBootstrapOptions = {},
 ): void {
-  vi.clearAllMocks();
+  // Reset call history, implementations AND any mockResolvedValueOnce queue
+  // on every registered mock. vi.clearAllMocks() alone keeps once-queues, so
+  // an unconsumed once from a previous no-op lifecycle test could leak into a
+  // later test's config load; re-seeding below restores the defaults.
+  vi.resetAllMocks();
 
   if (options.resetModules || options.resetPluginState) {
     // Fresh module instances clear singleton state such as src/lib/cache.ts.
