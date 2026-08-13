@@ -20,6 +20,7 @@
  * Tickets 11/12; `alertPlan.notifications` stays empty here.
  */
 import { getQuotaProviderDisplayLabel } from "./provider-metadata.js";
+import { classifyQuotaWindowText } from "./quota-entry-display.js";
 import { normalizePercentWindowRemaining, normalizeQuotaAlertMetricFacts, } from "./quota-alert-metrics.js";
 export const QUOTA_SNAPSHOT_VERSION = 1;
 export const EMPTY_QUOTA_PROJECTION_STATE = {
@@ -283,6 +284,20 @@ export function projectQuotaSnapshot(params) {
 // =============================================================================
 // Startup hint text (pure Chinese single-line formatter)
 // =============================================================================
+/**
+ * Chinese window-type segment for a classified window kind, mirroring the
+ * /quota command's naming convention. Kinds without a segment (mcp,
+ * code_review) are unclassifiable and omit the window segment entirely.
+ */
+const STARTUP_HINT_WINDOW_LABELS = {
+    rpm: "RPM",
+    five_hour: "5h",
+    hour: "小时",
+    week: "周",
+    day: "天",
+    month: "月",
+    year: "年",
+};
 function formatResetCountdown(resetTimeIso, now) {
     if (!resetTimeIso)
         return null;
@@ -295,30 +310,25 @@ function formatResetCountdown(resetTimeIso, now) {
     }
     return `${Math.ceil(minutes / 60)} 小时后重置`;
 }
-function formatMostRelevantText(item, now) {
-    if (!item)
-        return "";
-    const countdown = formatResetCountdown(item.resetTimeIso, now);
-    const windowPart = item.windowLabel ? `（${item.windowLabel}` : "（";
-    const suffix = countdown ? `，${countdown}）` : "）";
-    return `最相关：${item.providerLabel} ${Math.round(item.percentRemaining)}% 剩余${windowPart}${suffix}`;
-}
 /**
- * Pure single-line startup hint text. Returns null when the hint must not be
- * rendered (no monitored provider or disabled surface).
+ * Pure single-line startup hint text. Renders only when a fresh percent window
+ * was selected: `额度：<Provider> <窗口类型>额度剩余 <percent>%` plus an
+ * optional hour/minutes countdown and /quota guidance. Returns null when the
+ * surface is disabled, no monitored provider exists, or no fresh percentage
+ * exists (missing/failed/stale/synthetic observations, balance-only data, or a
+ * fresh window rounding to 0% — never inferred as exhaustion).
  */
 export function formatStartupHintText(payload, now) {
-    if (payload.state === "none") {
+    if (payload.state === "none" || !payload.mostRelevant) {
         return null;
     }
-    if (payload.state === "unknown") {
-        return "额度状态未知：暂无法获取 Provider 额度数据。输入 /quota 查看诊断详情。";
-    }
-    if (payload.state === "ok") {
-        return (`额度：整体正常。${formatMostRelevantText(payload.mostRelevant, now)}` +
-            `监控 ${payload.providerCount} 个 Provider。输入 /quota 查看详情。`);
-    }
-    return (`额度：部分可用。${formatMostRelevantText(payload.mostRelevant, now)}` +
-        `监控 ${payload.providerCount} 个 Provider，其中 ${payload.unknownCount} 个状态未知。` +
-        `输入 /quota 查看详情。`);
+    const percent = Math.round(payload.mostRelevant.percentRemaining);
+    if (percent <= 0)
+        return null;
+    const kind = classifyQuotaWindowText(payload.mostRelevant.windowLabel ?? "");
+    const windowLabel = kind ? STARTUP_HINT_WINDOW_LABELS[kind] : null;
+    const countdown = formatResetCountdown(payload.mostRelevant.resetTimeIso, now);
+    const windowPart = windowLabel ? `${windowLabel}额度剩余 ` : "额度剩余 ";
+    const countdownPart = countdown ? `，${countdown}` : "";
+    return `额度：${payload.mostRelevant.providerLabel} ${windowPart}${percent}%${countdownPart}。输入 /quota 查看详情。`;
 }
