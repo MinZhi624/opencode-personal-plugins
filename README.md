@@ -109,7 +109,6 @@ Set-ExecutionPolicy -Scope Process Bypass
 ## 文档
 
 - [OpenAI/ChatGPT 订阅 Token 记账说明](docs/openai-subscription-token-accounting.md)
-- [统一 API 标价估算实施简报](docs/plans/unified-api-list-price-estimation.md)
 - [已有配置合并指南](docs/MERGE_EXISTING_CONFIG.md)
 - [第三方来源与许可证](THIRD_PARTY_NOTICES.md)
 
