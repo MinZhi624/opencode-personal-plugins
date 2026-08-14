@@ -18,6 +18,7 @@ import type {
 } from "./entries.js";
 import { isValueEntry } from "./entries.js";
 import type { MaintainerAnnouncementsSummary } from "./maintainer-announcements.js";
+import type { QuotaAlertEpisode } from "./quota-alert-episodes.js";
 import {
   getPricingRefreshPolicy,
   getPricingSnapshotHealth,
@@ -692,6 +693,13 @@ export async function buildQuotaStatusReport(params: {
     config: MaintainerAnnouncementsConfig;
     summary: MaintainerAnnouncementsSummary;
   };
+  quotaAlerts?: {
+    enabled: boolean;
+    percentRemainingThreshold: number;
+    repeatAfterMinutes: number | null;
+    episodes: QuotaAlertEpisode[];
+    statePath: string;
+  };
   generatedAtMs?: number;
 }): Promise<string> {
   const version = await getPackageVersion();
@@ -781,6 +789,30 @@ export async function buildQuotaStatusReport(params: {
         `- expired: ${summary.expiredCount}`,
       ]),
     );
+  }
+
+  if (params.quotaAlerts) {
+    const alerts = params.quotaAlerts;
+    const activeCount = alerts.episodes.filter(
+      (episode) => episode.resolvedAtIso === undefined,
+    ).length;
+    const lines: string[] = [
+      `- enabled: ${alerts.enabled ? "true" : "false"}`,
+      `- percentRemainingThreshold: ${alerts.percentRemainingThreshold}`,
+      `- repeatAfterMinutes: ${alerts.repeatAfterMinutes ?? "(none)"}`,
+      `- episodes: ${alerts.episodes.length} (active=${activeCount})`,
+      `- statePath: ${alerts.statePath}`,
+    ];
+    for (const episode of alerts.episodes.filter(
+      (item) => item.resolvedAtIso === undefined,
+    )) {
+      lines.push(
+        `  - active: ${sanitizeSingleLineDisplayText(episode.providerLabel)} ${sanitizeSingleLineDisplayText(
+          episode.episodeId,
+        )} severity=${episode.severity} notifyCount=${episode.notifyCount}`,
+      );
+    }
+    sections.push(createLinesSection("quota_alerts", "quota_alerts:", lines));
   }
 
   // === paths ===

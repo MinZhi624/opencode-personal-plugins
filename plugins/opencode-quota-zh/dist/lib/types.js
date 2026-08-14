@@ -7,7 +7,6 @@ export const REQUEST_TIMEOUT_MS = 5000;
 /** Default configuration values */
 export const DEFAULT_CONFIG = {
     enabled: true,
-    enableToast: true,
     tuiCommandDisplay: "inline",
     formatStyle: DEFAULT_QUOTA_FORMAT_STYLE,
     percentDisplayMode: "remaining",
@@ -27,10 +26,6 @@ export const DEFAULT_CONFIG = {
         source: "auto",
         autoRefresh: 7,
     },
-    showOnIdle: true,
-    showOnQuestion: true,
-    showOnCompact: true,
-    showOnBothFail: true,
     toastDurationMs: 9000,
     onlyCurrentModel: false,
     showSessionTokens: true,

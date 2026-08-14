@@ -12,6 +12,7 @@ import type {
 import { fmtUsdAmount } from "../lib/format-utils.js";
 import { type KiloQuotaResult, queryKiloQuota } from "../lib/kilo.js";
 import { getKiloKeyDiagnostics, hasKiloApiKey } from "../lib/kilo-config.js";
+import { serializeQuotaAlertMetric } from "../lib/quota-alert-metrics.js";
 import { modelProviderMatchesRuntimeId } from "../lib/provider-model-matching.js";
 import {
   attemptedResult,
@@ -98,17 +99,27 @@ function mapKiloPassSuccess(state: KiloPassSuccess): QuotaProviderResult {
 }
 
 function mapKiloBalanceSuccess(state: KiloBalanceSuccess): QuotaProviderResult {
+  // Structured balance fact (Ticket 10): the gateway balance is a
+  // provider-reported USD account balance and may participate in quota-alert
+  // danger evaluation. Kilo Pass credits are period quota (not account
+  // balance) and intentionally carry no fact.
+  const rawDetails = [
+    serializeQuotaAlertMetric({ kind: "balance", currency: "USD", amount: state.balanceUsd }),
+  ];
   return withStatusDetails(
-    attemptedResult([
-      {
-        kind: "value",
-        accounting: KILO_BALANCE_ACCOUNTING,
-        name: "Kilo Gateway Balance",
-        group: "Kilo Gateway",
-        label: "Balance:",
-        value: fmtUsdAmount(state.balanceUsd),
-      },
-    ]),
+    {
+      ...attemptedResult([
+        {
+          kind: "value",
+          accounting: KILO_BALANCE_ACCOUNTING,
+          name: "Kilo Gateway Balance",
+          group: "Kilo Gateway",
+          label: "Balance:",
+          value: fmtUsdAmount(state.balanceUsd),
+        },
+      ]),
+      rawDetails,
+    },
     statusDetailsFromRecord({
       accounting_mode: "gateway_balance",
       balance_usd: fmtUsdAmount(state.balanceUsd),

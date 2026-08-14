@@ -33,7 +33,7 @@ function hasOwnKey(value, key) {
 function jsonEqual(left, right) {
     return JSON.stringify(left) === JSON.stringify(right);
 }
-const QUOTA_UI_CHOICE_ORDER = ["sidebar", "toast", "compact_status", "none"];
+const QUOTA_UI_CHOICE_ORDER = ["sidebar", "compact_status", "none"];
 function normalizeQuotaUiIntent(selections) {
     const rawSelections = selections;
     if (hasOwnKey(rawSelections, "tuiCompactStatus")) {
@@ -62,7 +62,6 @@ function normalizeQuotaUiIntent(selections) {
     const enableCompactStatus = choices.includes("compact_status");
     return {
         choices,
-        enableToast: choices.includes("toast"),
         installTuiPlugin: selections.interfaces !== "web",
         enableSidebarPanel,
         enableCompactStatus,
@@ -70,8 +69,6 @@ function normalizeQuotaUiIntent(selections) {
 }
 function getUiLabel(choices) {
     const labels = choices.map((choice) => {
-        if (choice === "toast")
-            return "Toast";
         if (choice === "sidebar")
             return "Sidebar";
         if (choice === "compact_status")
@@ -351,7 +348,7 @@ function syncLegacyQuotaToast(params) {
     }
     if (changed) {
         params.edit.changed = true;
-        params.edit.addedKeys.push("experimental.quotaToast (synced from opencode-quota/quota-toast.json)");
+        params.edit.addedKeys.push("opencode-quota-zh/config.jsonc (seeded from legacy experimental.quotaToast)");
     }
 }
 async function planOpencodeEdit(params) {
@@ -468,7 +465,7 @@ async function planQuotaConfigEdit(params) {
     };
     if (target.path.endsWith(".jsonc") &&
         existsSync(getQuotaToastConfigPath(params.baseDir, "json"))) {
-        edit.warnings.push("Both quota-toast.jsonc and quota-toast.json exist; using JSONC and preserving the JSON file.");
+        edit.warnings.push("Both opencode-quota-zh/config.jsonc and config.json exist; using JSONC and preserving the JSON file.");
     }
     const legacyQuotaToast = target.existed ? null : await readLegacyQuotaToastSeed(params.baseDir);
     const quotaToast = target.existed
@@ -486,7 +483,6 @@ async function planQuotaConfigEdit(params) {
                 ? QUOTA_TOAST_CONFIG_RELATIVE_PATHS[0]
                 : QUOTA_TOAST_CONFIG_RELATIVE_PATH);
     }
-    setInstallerOwnedSetting(quotaToast, "enableToast", params.quotaUiIntent.enableToast, "quotaToast.enableToast", edit);
     if (params.selections.tuiCommandDisplay !== undefined) {
         setInstallerOwnedSetting(quotaToast, "tuiCommandDisplay", params.selections.tuiCommandDisplay, "quotaToast.tuiCommandDisplay", edit);
     }
@@ -520,10 +516,6 @@ async function planQuotaConfigEdit(params) {
         target,
         desiredData: quotaToast,
         managedComments: [
-            {
-                path: ["enableToast"],
-                text: "// Automatic quota surfaces. Slash commands remain available when these are disabled.",
-            },
             {
                 path: ["enabledProviders"],
                 text: '// Provider selection: "auto" detects providers; an array tracks only listed providers.',
@@ -863,8 +855,6 @@ async function readExistingInstallerAnswers(baseDir) {
     if (isPlainObject(quotaToast.tuiSidebarPanel) && quotaToast.tuiSidebarPanel.enabled === true) {
         quotaUi.push("sidebar");
     }
-    if (quotaToast.enableToast === true)
-        quotaUi.push("toast");
     if (isPlainObject(quotaToast.tuiCompactStatus) && quotaToast.tuiCompactStatus.enabled === true) {
         quotaUi.push("compact_status");
     }
@@ -967,7 +957,6 @@ async function promptForSelections(prompts, context) {
                         value: "sidebar",
                         hint: "recommended; full Quota panel in the session sidebar",
                     },
-                    { label: "Toast (TUI)", value: "toast", hint: "popup quota summaries" },
                     {
                         label: "Compact status line (TUI)",
                         value: "compact_status",

@@ -97,12 +97,9 @@ export type TuiCommandDisplay = "inline" | "dialog";
 /** Request timeout in milliseconds */
 export const REQUEST_TIMEOUT_MS = 5000;
 
-/** Plugin configuration from opencode-quota/quota-toast.json or legacy experimental.quotaToast. */
+/** Plugin configuration from opencode-quota-zh/config.jsonc or workspace overrides. */
 export interface QuotaToastConfig {
   enabled: boolean;
-
-  /** If false, never show popup toasts (commands/tools still work). */
-  enableToast: boolean;
 
   /** Where deterministic native TUI command output appears. */
   tuiCommandDisplay: TuiCommandDisplay;
@@ -170,11 +167,7 @@ export interface QuotaToastConfig {
   cursorIncludedApiUsd?: number;
   cursorBillingCycleStartDay?: number;
   pricingSnapshot: PricingSnapshotConfig;
-  showOnIdle: boolean;
-  showOnQuestion: boolean;
-  showOnCompact: boolean;
-  showOnBothFail: boolean;
-  /** Toast duration in milliseconds */
+  /** Toast duration in milliseconds (also used for quota-alert toasts). */
   toastDurationMs: number;
 
   /** If true, only show quota for current model */
@@ -236,7 +229,6 @@ export interface QuotaToastConfig {
 export const DEFAULT_CONFIG: QuotaToastConfig = {
   enabled: true,
 
-  enableToast: true,
   tuiCommandDisplay: "inline",
   formatStyle: DEFAULT_QUOTA_FORMAT_STYLE,
   percentDisplayMode: "remaining",
@@ -261,10 +253,6 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
     autoRefresh: 7,
   },
 
-  showOnIdle: true,
-  showOnQuestion: true,
-  showOnCompact: true,
-  showOnBothFail: true,
   toastDurationMs: 9000,
   onlyCurrentModel: false,
   showSessionTokens: true,
@@ -925,12 +913,6 @@ export type OpenCodeGoResult =
     }
   | QuotaError
   | null;
-
-/** Cached toast data */
-export interface CachedToast {
-  message: string;
-  timestamp: number;
-}
 
 // =============================================================================
 // Constants
