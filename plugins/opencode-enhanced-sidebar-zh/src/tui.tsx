@@ -33,8 +33,47 @@ interface ViewProps {
 
 function View(props: ViewProps) {
   const theme = () => props.api.theme.current
-  const msg = createMemo(() => props.api.state.session.messages(props.session_id))
   const t = theme()
+
+  // ——— context usage (message snapshot) ———
+  // The context row reads `api.state.session.messages()` as a plain snapshot:
+  // message objects can be updated in place without replacing the array
+  // reference, so a memo keyed only on the store never recomputes (unlike the
+  // TPS/cost/subagent panels, this one has no event-driven invalidation).
+  // Drive it with an explicit `contextTick` signal bumped on round end
+  // (session.idle / session.error) and on session switch, and copy the array
+  // so downstream memos always observe a fresh reference.
+  const [contextTick, setContextTick] = createSignal(0)
+  let idleTimer: ReturnType<typeof setTimeout> | null = null
+  createEffect(() => {
+    const sid = props.session_id
+    // Refresh immediately on mount and on every session switch.
+    setContextTick((v) => v + 1)
+    const scheduleContextRefresh = () => {
+      if (idleTimer !== null) clearTimeout(idleTimer)
+      // Short delay so the final token write lands before re-reading.
+      idleTimer = setTimeout(() => setContextTick((v) => v + 1), 150)
+    }
+    const unsubIdle = props.api.event.on("session.idle", (e) => {
+      if (e.properties.sessionID === sid) scheduleContextRefresh()
+    })
+    const unsubError = props.api.event.on("session.error", (e) => {
+      if (e.properties.sessionID === sid) scheduleContextRefresh()
+    })
+    onCleanup(() => {
+      unsubIdle()
+      unsubError()
+      if (idleTimer !== null) {
+        clearTimeout(idleTimer)
+        idleTimer = null
+      }
+    })
+  })
+  const msg = createMemo(() => {
+    void contextTick()
+    const snapshot = props.api.state.session.messages(props.session_id)
+    return snapshot ? Array.from(snapshot) : snapshot
+  })
 
   const last = createMemo(() => {
     for (let i = msg().length - 1; i >= 0; i--) {
