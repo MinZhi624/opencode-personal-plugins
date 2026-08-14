@@ -10,10 +10,9 @@
  *     which resolves the `.cmd` shims via PATH/PATHEXT;
  *   - POSIX: spawn the executable directly with no shell.
  *
- * `scripts/build-dev.mjs` (tsc) and `tests/baseline-boundary.test.ts`
- * (`npm run build:quota-zh`) both invoke real child processes through
- * `runSync()`, and the boundary test asserts the returned command + shell
- * semantics directly.
+ * `scripts/build-dev.mjs` (tsc) and `scripts/build-runtime.mjs` (tsc) both
+ * invoke real child processes through `runSync()`, which returns the
+ * command + shell semantics directly.
  */
 import { execFileSync } from "node:child_process";
 

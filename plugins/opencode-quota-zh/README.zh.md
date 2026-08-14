@@ -48,6 +48,5 @@ Server 入口是 `dist/index.js`，TUI 入口是 `dist/tui.tsx`。全局 OpenCod
 
 ## 相关文档
 
-- [统一 API 标价估算实施简报](../../docs/plans/unified-api-list-price-estimation.md)
 - [OpenAI/ChatGPT 订阅 Token 记账说明](../../docs/openai-subscription-token-accounting.md)
 - [整合包主 README](../../README.md)

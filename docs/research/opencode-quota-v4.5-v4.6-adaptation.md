@@ -2,6 +2,12 @@
 
 **调研日期：2026-08-11**　**比较基线：**`73dfcf1a4c4c6214f73993de5c81b22d394ff0a5`（v4.4.1）→ v4.6.1
 
+> **2026-08-14 更新：** 本文档中涉及「补 snapshot/fixture 回归」「四表面回归」「补测试」的
+> 建议已过时。quota-zh 已删除全部自动化测试（`tests/`、vitest），改为人工校验：
+> 重启 OpenCode 后检查 `/quota`、`/quota_status`、TUI 侧边栏与配置迁移。后续适配
+> （Kilo Pass、Kimi K3、prompt bar、reset 通知等）只做构建/typecheck 门禁 + 人工验证，
+> 不再新增测试。
+
 ## 结论先行
 
 这不是一次 v4.0 式迁移：4.5.x/4.6.x 的 release notes 没有宣布配置或 JSON schema breaking change，普通用户主要得到更快的 TUI、Kilo/Kimi 数据和两个可选通知/展示面。因此“只看上游更新”难度低到中等；但本地中文 fork 同时改了 TUI、侧栏和几乎所有格式化层，且计划加入启动提示、额度告警、命名空间隔离和恢复 `src`，所以**直接覆盖 bundle 不安全**。应以逐 tag 的 source diff 重放，优先恢复 source，再逐层合并。

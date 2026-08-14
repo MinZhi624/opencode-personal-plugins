@@ -55,9 +55,9 @@ Dev-only (never read for context): `node_modules/`, `runtime-stage/`, `plugins/o
 ## CONVENTIONS
 
 - **Byte-for-byte reproducibility**: `scripts/sync-matt-skills.mjs --check`, `scripts/check-matt-build.mjs`, `stage-runtime.mjs --check`, and quota-zh `build-runtime.mjs --check` regenerate artifacts in temp dirs and byte-compare to committed output. Committed `dist/` is the runtime distribution — do not hand-edit.
-- **Offline-first tests**: quota-zh `tests/setup.ts` force-blocks `fetch` + `node:http/https/net/tls/dns`; tests override via per-test `vi.stubGlobal`. `runtime-golden.test.ts` uses pinned clock + TZ `Asia/Shanghai`.
+- **No automated tests**: the quota plugin has no test suite and no vitest. Verification is manual — restart OpenCode and check `/quota`, `/quota_status`, TUI sidebar, and config migration by hand.
 - **No root tsconfig/vitest/eslint**: configs are per-plugin. Only formatter config is `plugins/opencode-quota-zh/.prettierrc.json` (semi, double quotes, trailingComma all, printWidth 100).
-- **`npm run check`** = `check:matt-workshop` && `check:quota-zh` && `scripts/verify.mjs`. Workshop's gate has no test suite; quota-zh keeps its own tests.
+- **`npm run check`** = `check:matt-workshop` && `check:quota-zh` && `scripts/verify.mjs`. Workshop's gate has no test suite; quota-zh has no test suite either.
 - **Plugins load as raw TS/TSX or dist**: quota-zh + matt-workshop are compiled (`dist/`); enhanced-sidebar-zh and gpt-reset-credits ship as source and load directly.
 - **Versioned domain language** in `CONTEXT.md` — use exact terms (会话 Token 用量, API 标价估算, 未定价, 任务树 API 标价估算, …). Never invent synonyms.
 
@@ -80,15 +80,13 @@ Dev-only (never read for context): `node_modules/`, `runtime-stage/`, `plugins/o
 npm install                        # single shared node_modules at root
 npm run check                      # full gate: matt-workshop + quota-zh + verify
 npm run check:matt-workshop        # sync, tsc, build-compare, plain-Node contract, stage --check
-npm run check:quota-zh             # build-dev, typecheck, vitest, build-runtime --check, stage --check
+npm run check:quota-zh             # build-dev, typecheck, build-runtime --check, stage --check
 npm run sync:matt-skills           # regenerate skills/ from vendor snapshot (needs --vendor first run)
 npm run stage:runtime              # rebuild runtime-stage/ from source
-npm run test:quota-zh              # vitest offline baseline (179 files)
 ```
 
 ## NOTES
 
-- `docs/plans/unified-api-list-price-estimation.md` is a **dangling link** in the root README — `docs/plans/` does not exist on disk.
 - Restart OpenCode after any config/plugin change — config is loaded once at startup, never hot-reloaded.
 - `runtime-stage/` is a pruned copy of the source tree (only runtime distribution files) — its layout mirrors `plugins/` but contains only `dist/` artifacts.
 - Installer never overwrites an existing user config; follow `docs/MERGE_EXISTING_CONFIG.md` to merge manually.
