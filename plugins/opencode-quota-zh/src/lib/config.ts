@@ -30,15 +30,28 @@ import type {
 } from "./types.js";
 import { DEFAULT_CONFIG } from "./types.js";
 
+/**
+ * Canonical v2 config sidecar paths under the isolated `opencode-quota-zh`
+ * namespace (ADR 0002). JSONC is preferred; JSON remains accepted.
+ */
 export const QUOTA_TOAST_CONFIG_RELATIVE_PATHS = [
-  "opencode-quota/quota-toast.jsonc",
-  "opencode-quota/quota-toast.json",
+  "opencode-quota-zh/config.jsonc",
+  "opencode-quota-zh/config.json",
 ] as const;
 export const QUOTA_TOAST_CONFIG_RELATIVE_PATH = QUOTA_TOAST_CONFIG_RELATIVE_PATHS[1];
 
+/**
+ * Legacy upstream-namespace sidecar paths. They are no longer configuration
+ * sources (ADR 0001/0002); their presence is reported as a migration
+ * requirement by the diagnostics and never applied.
+ */
+export const LEGACY_QUOTA_TOAST_CONFIG_RELATIVE_PATHS = [
+  "opencode-quota/quota-toast.jsonc",
+  "opencode-quota/quota-toast.json",
+] as const;
+
 export const QUOTA_TOAST_SETTING_SOURCE_KEYS = [
   "enabled",
-  "enableToast",
   "tuiCommandDisplay",
   "formatStyle",
   "percentDisplayMode",
@@ -57,10 +70,6 @@ export const QUOTA_TOAST_SETTING_SOURCE_KEYS = [
   "opencodeMonthlyLimit",
   "pricingSnapshot.source",
   "pricingSnapshot.autoRefresh",
-  "showOnIdle",
-  "showOnQuestion",
-  "showOnCompact",
-  "showOnBothFail",
   "toastDurationMs",
   "onlyCurrentModel",
   "showSessionTokens",
@@ -141,10 +150,6 @@ const NETWORK_SETTING_SOURCE_KEYS = [
   "requestTimeoutMs",
   "pricingSnapshot.source",
   "pricingSnapshot.autoRefresh",
-  "showOnIdle",
-  "showOnQuestion",
-  "showOnCompact",
-  "showOnBothFail",
 ] as const satisfies readonly QuotaToastSettingSourceKey[];
 
 type PricingSnapshotPatch = Partial<QuotaToastConfig["pricingSnapshot"]>;
@@ -161,7 +166,6 @@ type TelemetryConfigPatch = Partial<QuotaToastConfig["telemetry"]>;
 
 type ValidatedQuotaToastPatch = {
   enabled?: boolean;
-  enableToast?: boolean;
   tuiCommandDisplay?: TuiCommandDisplay;
   formatStyle?: QuotaToastConfig["formatStyle"];
   percentDisplayMode?: PercentDisplayMode;
@@ -179,10 +183,6 @@ type ValidatedQuotaToastPatch = {
   opencodeGoWindows?: Array<"rolling" | "weekly" | "monthly">;
   opencodeMonthlyLimit?: number;
   pricingSnapshot?: PricingSnapshotPatch;
-  showOnIdle?: boolean;
-  showOnQuestion?: boolean;
-  showOnCompact?: boolean;
-  showOnBothFail?: boolean;
   toastDurationMs?: number;
   onlyCurrentModel?: boolean;
   showSessionTokens?: boolean;
@@ -213,7 +213,7 @@ export function getQuotaToastConfigPath(
   configRootDir: string,
   format: "json" | "jsonc" = "json",
 ): string {
-  return join(configRootDir, `opencode-quota/quota-toast.${format}`);
+  return join(configRootDir, `opencode-quota-zh/config.${format}`);
 }
 
 export function resolveQuotaToastConfigPath(configRootDir: string): string {
@@ -739,18 +739,13 @@ function extractValidatedQuotaToastPatch(
     patch.enabled = quotaToastConfig.enabled;
   }
 
-  if (
-    hasOwnKey(quotaToastConfig, "enableToast") &&
-    typeof quotaToastConfig.enableToast === "boolean"
-  ) {
-    // Legacy toast trigger field: the v2 model has no routine quota toast, so
-    // the field only reports a migration requirement (Ticket 07; contract
-    // removal lands in Ticket 13).
+  if (hasOwnKey(quotaToastConfig, "enableToast")) {
+    // Ticket 13: the legacy routine-toast field no longer has any effect; it
+    // only reports a migration requirement.
     reportIssue?.(
       "enableToast",
       'removed in v2: routine quota toasts are disabled; migrate to "startupHint"/"promptBar"/"alerts"',
     );
-    patch.enableToast = quotaToastConfig.enableToast;
   }
 
   if (hasOwnKey(quotaToastConfig, "tuiCommandDisplay")) {
@@ -867,48 +862,15 @@ function extractValidatedQuotaToastPatch(
     }
   }
 
-  if (
-    hasOwnKey(quotaToastConfig, "showOnIdle") &&
-    typeof quotaToastConfig.showOnIdle === "boolean"
-  ) {
-    reportIssue?.(
-      "showOnIdle",
-      "removed in v2: session idle no longer triggers a quota toast; migrate to passive surfaces (startup hint, sidebar, /quota)",
-    );
-    patch.showOnIdle = quotaToastConfig.showOnIdle;
-  }
-
-  if (
-    hasOwnKey(quotaToastConfig, "showOnQuestion") &&
-    typeof quotaToastConfig.showOnQuestion === "boolean"
-  ) {
-    reportIssue?.(
-      "showOnQuestion",
-      "removed in v2: question-tool completion no longer triggers a quota toast; migrate to passive surfaces (startup hint, sidebar, /quota)",
-    );
-    patch.showOnQuestion = quotaToastConfig.showOnQuestion;
-  }
-
-  if (
-    hasOwnKey(quotaToastConfig, "showOnCompact") &&
-    typeof quotaToastConfig.showOnCompact === "boolean"
-  ) {
-    reportIssue?.(
-      "showOnCompact",
-      "removed in v2: session compaction no longer triggers a quota toast; migrate to passive surfaces (startup hint, sidebar, /quota)",
-    );
-    patch.showOnCompact = quotaToastConfig.showOnCompact;
-  }
-
-  if (
-    hasOwnKey(quotaToastConfig, "showOnBothFail") &&
-    typeof quotaToastConfig.showOnBothFail === "boolean"
-  ) {
-    reportIssue?.(
-      "showOnBothFail",
-      "removed in v2: failure summaries no longer trigger a quota toast; migrate to /quota_status for diagnostics",
-    );
-    patch.showOnBothFail = quotaToastConfig.showOnBothFail;
+  for (const key of ["showOnIdle", "showOnQuestion", "showOnCompact", "showOnBothFail"] as const) {
+    if (hasOwnKey(quotaToastConfig, key)) {
+      // Ticket 13: legacy lifecycle trigger fields no longer have any
+      // effect; they only report a migration requirement.
+      reportIssue?.(
+        key,
+        "removed in v2: lifecycle events no longer trigger a quota toast; migrate to passive surfaces (startup hint, sidebar, /quota)",
+      );
+    }
   }
 
   if (
@@ -1050,11 +1012,6 @@ function applyValidatedQuotaToastPatch(
     applySettingSource(settingSources, "enabled", sourcePath);
   }
 
-  if (hasOwnKey(patch, "enableToast")) {
-    config.enableToast = patch.enableToast!;
-    applySettingSource(settingSources, "enableToast", sourcePath);
-  }
-
   if (hasOwnKey(patch, "tuiCommandDisplay")) {
     config.tuiCommandDisplay = patch.tuiCommandDisplay!;
     applySettingSource(settingSources, "tuiCommandDisplay", sourcePath);
@@ -1143,26 +1100,6 @@ function applyValidatedQuotaToastPatch(
       config.pricingSnapshot.autoRefresh = patch.pricingSnapshot.autoRefresh!;
       applySettingSource(settingSources, "pricingSnapshot.autoRefresh", sourcePath);
     }
-  }
-
-  if (hasOwnKey(patch, "showOnIdle")) {
-    config.showOnIdle = patch.showOnIdle!;
-    applySettingSource(settingSources, "showOnIdle", sourcePath);
-  }
-
-  if (hasOwnKey(patch, "showOnQuestion")) {
-    config.showOnQuestion = patch.showOnQuestion!;
-    applySettingSource(settingSources, "showOnQuestion", sourcePath);
-  }
-
-  if (hasOwnKey(patch, "showOnCompact")) {
-    config.showOnCompact = patch.showOnCompact!;
-    applySettingSource(settingSources, "showOnCompact", sourcePath);
-  }
-
-  if (hasOwnKey(patch, "showOnBothFail")) {
-    config.showOnBothFail = patch.showOnBothFail!;
-    applySettingSource(settingSources, "showOnBothFail", sourcePath);
   }
 
   if (hasOwnKey(patch, "toastDurationMs")) {
@@ -1442,6 +1379,20 @@ export async function loadConfig(
     const configIssues: LoadConfigIssue[] = [];
     const authoritativeSidecarRoots = new Set<string>();
 
+    // ADR 0002: legacy upstream-namespace sidecars are not configuration
+    // sources anymore; their presence is reported as a migration requirement.
+    for (const dir of new Set([configRootDir, ...configDirs])) {
+      for (const relativePath of LEGACY_QUOTA_TOAST_CONFIG_RELATIVE_PATHS) {
+        const legacyPath = join(dir, relativePath);
+        if (!existsSync(legacyPath)) continue;
+        configIssues.push({
+          path: `${legacyPath} (${relativePath})`,
+          key: "$legacy",
+          message: "removed in v2; migrate to the opencode-quota-zh/config.jsonc sidecar",
+        });
+      }
+    }
+
     for (const candidate of buildConfigLayerCandidates(configDirs, configRootDir)) {
       const rootKey = `${candidate.scope}:${candidate.rootDir}`;
       if (candidate.kind === "legacy" && authoritativeSidecarRoots.has(rootKey)) {
@@ -1495,6 +1446,25 @@ export async function loadConfig(
             ? parsed.experimental.quotaToast
             : undefined;
       if (!isPlainObject(extractedQuotaToast)) {
+        continue;
+      }
+
+      if (candidate.kind === "legacy") {
+        // ADR 0001/0002: experimental.quotaToast is no longer a runtime
+        // configuration source; its presence is reported as a migration
+        // requirement and never applied.
+        const sourcePath = getConfigLayerSourceLabel(candidate);
+        usedPaths.push(sourcePath);
+        if (candidate.scope === "global") {
+          globalConfigPaths.push(sourcePath);
+        } else {
+          workspaceConfigPaths.push(sourcePath);
+        }
+        configIssues.push({
+          path: sourcePath,
+          key: "experimental.quotaToast",
+          message: "removed in v2; migrate to the opencode-quota-zh/config.jsonc sidecar",
+        });
         continue;
       }
 
@@ -1592,55 +1562,27 @@ export async function loadConfig(
     try {
       const response = await client.config.get();
 
-      // OpenCode config schema is strict; plugin-specific config must live under
-      // experimental.* to avoid "unrecognized key" validation errors.
+      // ADR 0001/0002: experimental.quotaToast is no longer a runtime
+      // configuration source. Its presence is reported as a migration
+      // requirement and never applied.
       const quotaToastConfig = (response.data as any)?.experimental?.quotaToast;
-
       if (isPlainObject(quotaToastConfig)) {
-        const config = cloneDefaultConfig();
-        const settingSources: QuotaToastSettingSources = {};
-        const configIssues: LoadConfigIssue[] = [];
-        applyValidatedQuotaToastPatch(
-          config,
-          extractValidatedQuotaToastPatch(quotaToastConfig, (key, message) => {
-            configIssues.push({ path: "client.config.get", key, message });
-          }),
-          "client.config.get",
-          settingSources,
-        );
-        if (hasOwnKey(quotaToastConfig, "alibabaCodingPlanTier")) {
-          configIssues.push({
-            path: "client.config.get",
-            key: "alibabaCodingPlanTier",
-            message: 'removed in v4; tune Alibaba through "quotaProviders"',
-          });
-        }
-        if (hasOwnKey(quotaToastConfig, "customSources")) {
-          configIssues.push({
-            path: "client.config.get",
-            key: "customSources",
-            message: 'removed in v4; use the global-only "quotaProviders" property',
-          });
-        }
-        if (hasOwnKey(quotaToastConfig, "quotaProviders")) {
-          configIssues.push({
-            path: "client.config.get",
-            key: "quotaProviders",
-            message: "file provenance is required; define quotaProviders in global config",
-          });
-        }
-
         if (meta) {
           meta.source = "sdk";
-          meta.paths = ["client.config.get"];
+          meta.paths = ["client.config.get (experimental.quotaToast)"];
           meta.globalConfigPaths = [];
           meta.workspaceConfigPaths = [];
-          meta.settingSources = settingSources;
-          meta.networkSettingSources = projectNetworkSettingSources(settingSources);
-          meta.configIssues = configIssues;
+          meta.settingSources = {};
+          meta.networkSettingSources = {};
+          meta.configIssues = [
+            {
+              path: "client.config.get",
+              key: "experimental.quotaToast",
+              message: "removed in v2; migrate to the opencode-quota-zh/config.jsonc sidecar",
+            },
+          ];
         }
-
-        return config;
+        return cloneDefaultConfig();
       }
     } catch {
       // ignore; fall back to defaults below

@@ -13,6 +13,7 @@ import { buildUnifiedQuotaSnapshot, EMPTY_QUOTA_PROJECTION_STATE, projectQuotaSn
 import { collectConcreteEnabledProviderIds, collectQuotaRenderData, collectQuotaStatusLiveProbes, matchesQuotaProviderCurrentSelection, } from "./quota-render-data.js";
 import { createQuotaProviderRuntimeContext, createQuotaRuntimeRequestContext, resolveQuotaRuntimeContext, } from "./quota-runtime-context.js";
 import { BUNDLED_MAINTAINER_ANNOUNCEMENTS, getMaintainerAnnouncementsSummary, } from "./maintainer-announcements.js";
+import { buildQuotaAlertsReport, getQuotaAlertEpisodesPath, readQuotaAlertEpisodes, writeQuotaAlertEpisodes, } from "./quota-alert-episodes.js";
 import { getPackageVersion } from "./version.js";
 const TOKEN_REPORT_COMMANDS = [
     {
@@ -86,6 +87,15 @@ export const QUOTA_DIALOG_COMMANDS = [
         description: "诊断额度、TUI、价格和本地存储。",
         dialogSize: "xlarge",
         requiresSession: true,
+        acceptsArguments: true,
+    },
+    {
+        id: "quota_alerts",
+        slashName: "quota_alerts",
+        title: "额度告警",
+        description: "查看或重置额度告警状态。",
+        dialogSize: "large",
+        requiresSession: false,
         acceptsArguments: true,
     },
     {
@@ -347,6 +357,7 @@ export async function buildStatusReportData(params) {
     const maintainerAnnouncementsSummary = getMaintainerAnnouncementsSummary({
         enabledProviders: announcementProviderIds,
     });
+    const alertEpisodes = await readQuotaAlertEpisodes();
     const output = await buildQuotaStatusReport({
         tuiDiagnostics,
         configSource: params.runtime.configMeta.source,
@@ -381,6 +392,13 @@ export async function buildStatusReportData(params) {
         maintainerAnnouncements: {
             config: runtimeConfig.maintainerAnnouncements,
             summary: maintainerAnnouncementsSummary,
+        },
+        quotaAlerts: {
+            enabled: runtimeConfig.alerts.enabled,
+            percentRemainingThreshold: runtimeConfig.alerts.percentRemainingThreshold,
+            repeatAfterMinutes: runtimeConfig.alerts.repeatAfterMinutes,
+            episodes: alertEpisodes,
+            statePath: getQuotaAlertEpisodesPath(),
         },
         generatedAtMs: params.generatedAtMs,
     });
@@ -614,8 +632,31 @@ export async function buildQuotaDialogCommandOutput(params) {
     });
     setPricingSnapshotAutoRefresh(runtime.config.pricingSnapshot.autoRefresh);
     setPricingSnapshotSelection(runtime.config.pricingSnapshot.source);
-    if (!runtime.config.enabled && params.command !== "quota_announcements") {
+    if (!runtime.config.enabled &&
+        params.command !== "quota_announcements" &&
+        params.command !== "quota_alerts") {
         return { state: "noop", command: params.command, reason: "disabled" };
+    }
+    if (params.command === "quota_alerts") {
+        const args = (params.arguments ?? "").trim();
+        const episodes = await readQuotaAlertEpisodes();
+        if (args === "reset") {
+            await writeQuotaAlertEpisodes([]);
+            return outputResult({
+                command: params.command,
+                output: "额度告警状态已重置。\n\n所有额度告警周期已清除；额度再次进入危险状态时将重新产生告警。",
+            });
+        }
+        if (args !== "") {
+            return outputResult({
+                command: params.command,
+                output: "Invalid arguments for /quota_alerts\n\nOnly the optional `reset` argument is supported.\n\nUsage:\n/quota_alerts\n/quota_alerts reset",
+            });
+        }
+        return outputResult({
+            command: params.command,
+            output: buildQuotaAlertsReport({ episodes, now: new Date(generatedAtMs) }),
+        });
     }
     if (params.command === "quota") {
         const reportData = await fetchQuotaCommandData({

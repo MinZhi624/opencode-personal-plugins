@@ -50,7 +50,7 @@ const TUI_COMMAND_DISPLAY_COMMENT =
 
 export type InitInstallerInterface = "tui" | "web" | "both";
 export type InitInstallerScope = "project" | "global";
-export type InitQuotaUiChoice = "toast" | "sidebar" | "compact_status" | "none";
+export type InitQuotaUiChoice = "sidebar" | "compact_status" | "none";
 export type InitQuotaUi = readonly InitQuotaUiChoice[];
 export type InitProviderMode = "auto" | "manual";
 
@@ -129,7 +129,6 @@ type PromptOption = {
 
 type NormalizedQuotaUiIntent = {
   choices: InitQuotaUiChoice[];
-  enableToast: boolean;
   installTuiPlugin: boolean;
   enableSidebarPanel: boolean;
   enableCompactStatus: boolean;
@@ -170,7 +169,7 @@ function jsonEqual(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-const QUOTA_UI_CHOICE_ORDER: InitQuotaUiChoice[] = ["sidebar", "toast", "compact_status", "none"];
+const QUOTA_UI_CHOICE_ORDER: InitQuotaUiChoice[] = ["sidebar", "compact_status", "none"];
 
 function normalizeQuotaUiIntent(selections: InitInstallerSelections): NormalizedQuotaUiIntent {
   const rawSelections = selections as unknown as Record<string, unknown>;
@@ -210,7 +209,6 @@ function normalizeQuotaUiIntent(selections: InitInstallerSelections): Normalized
 
   return {
     choices,
-    enableToast: choices.includes("toast"),
     installTuiPlugin: selections.interfaces !== "web",
     enableSidebarPanel,
     enableCompactStatus,
@@ -219,7 +217,6 @@ function normalizeQuotaUiIntent(selections: InitInstallerSelections): Normalized
 
 function getUiLabel(choices: readonly InitQuotaUiChoice[]): string {
   const labels = choices.map((choice) => {
-    if (choice === "toast") return "Toast";
     if (choice === "sidebar") return "Sidebar";
     if (choice === "compact_status") return "Compact status";
     return "Manual commands only";
@@ -654,7 +651,7 @@ function syncLegacyQuotaToast(params: {
   if (changed) {
     params.edit.changed = true;
     params.edit.addedKeys.push(
-      "experimental.quotaToast (synced from opencode-quota/quota-toast.json)",
+      "opencode-quota-zh/config.jsonc (seeded from legacy experimental.quotaToast)",
     );
   }
 }
@@ -800,7 +797,7 @@ async function planQuotaConfigEdit(params: {
     existsSync(getQuotaToastConfigPath(params.baseDir, "json"))
   ) {
     edit.warnings.push(
-      "Both quota-toast.jsonc and quota-toast.json exist; using JSONC and preserving the JSON file.",
+      "Both opencode-quota-zh/config.jsonc and config.json exist; using JSONC and preserving the JSON file.",
     );
   }
 
@@ -824,13 +821,6 @@ async function planQuotaConfigEdit(params: {
     );
   }
 
-  setInstallerOwnedSetting(
-    quotaToast,
-    "enableToast",
-    params.quotaUiIntent.enableToast,
-    "quotaToast.enableToast",
-    edit,
-  );
   if (params.selections.tuiCommandDisplay !== undefined) {
     setInstallerOwnedSetting(
       quotaToast,
@@ -902,10 +892,6 @@ async function planQuotaConfigEdit(params: {
     target,
     desiredData: quotaToast,
     managedComments: [
-      {
-        path: ["enableToast"],
-        text: "// Automatic quota surfaces. Slash commands remain available when these are disabled.",
-      },
       {
         path: ["enabledProviders"],
         text: '// Provider selection: "auto" detects providers; an array tracks only listed providers.',
@@ -1332,7 +1318,6 @@ async function readExistingInstallerAnswers(baseDir: string): Promise<ExistingIn
   if (isPlainObject(quotaToast.tuiSidebarPanel) && quotaToast.tuiSidebarPanel.enabled === true) {
     quotaUi.push("sidebar");
   }
-  if (quotaToast.enableToast === true) quotaUi.push("toast");
   if (isPlainObject(quotaToast.tuiCompactStatus) && quotaToast.tuiCompactStatus.enabled === true) {
     quotaUi.push("compact_status");
   }
@@ -1448,7 +1433,6 @@ async function promptForSelections(
             value: "sidebar",
             hint: "recommended; full Quota panel in the session sidebar",
           },
-          { label: "Toast (TUI)", value: "toast", hint: "popup quota summaries" },
           {
             label: "Compact status line (TUI)",
             value: "compact_status",

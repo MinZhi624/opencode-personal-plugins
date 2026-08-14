@@ -9,6 +9,7 @@ import type {
   QuotaToastEntry,
 } from "../lib/entries.js";
 import { fmtUsdAmount } from "../lib/format-utils.js";
+import { serializeQuotaAlertMetric } from "../lib/quota-alert-metrics.js";
 import {
   formatNanoGptBalanceValue,
   getNanoGptKeyDiagnostics,
@@ -99,6 +100,20 @@ function mapNanoGptSuccess(result: NanoGptQuotaSuccess): QuotaProviderResult {
     });
   }
 
+  // Structured balance fact (Ticket 10): only a finite provider-reported USD
+  // balance participates in quota-alert danger evaluation; a missing or
+  // non-numeric balance stays displayable but never alertable.
+  const rawDetails: QuotaProviderResult["rawDetails"] =
+    typeof result.balance?.usdBalance === "number" && Number.isFinite(result.balance.usdBalance)
+      ? [
+          serializeQuotaAlertMetric({
+            kind: "balance",
+            currency: "USD",
+            amount: result.balance.usdBalance,
+          }),
+        ]
+      : [];
+
   if (subscription?.state && subscription.state.toLowerCase() !== "active") {
     errors.push({
       label: "NanoGPT",
@@ -144,7 +159,13 @@ function mapNanoGptSuccess(result: NanoGptQuotaSuccess): QuotaProviderResult {
     })),
   ];
 
-  return withStatusDetails(attemptedResult(entries, errors), statusDetails);
+  return withStatusDetails(
+    {
+      ...attemptedResult(entries, errors),
+      ...(rawDetails.length > 0 ? { rawDetails } : {}),
+    },
+    statusDetails,
+  );
 }
 
 export const nanoGptProvider: QuotaProvider = {
