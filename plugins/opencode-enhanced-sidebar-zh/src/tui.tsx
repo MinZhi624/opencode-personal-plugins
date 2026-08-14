@@ -15,11 +15,15 @@ const id = "opencode-enhanced-sidebar-zh"
 const n = (v: number) => v.toLocaleString()
 
 function Bar(props: { pct: number; fg: string; bg: string }) {
-  const filled = Math.min(Math.round((props.pct / 100) * 20), 20)
+  // Props must be read inside a reactive scope: the plain-constant form
+  // captured the initial pct once and never redrew the bar, so the █/░
+  // strip lagged behind the 使用率 number even though the underlying
+  // token data refreshed. A memo keeps the bar in sync with props.pct.
+  const filled = createMemo(() => Math.min(Math.round((props.pct / 100) * 20), 20))
   return (
     <text>
-      <span style={{ fg: props.fg }}>{"█".repeat(filled)}</span>
-      <span style={{ fg: props.bg }}>{"░".repeat(Math.max(20 - filled, 0))}</span>
+      <span style={{ fg: props.fg }}>{"█".repeat(filled())}</span>
+      <span style={{ fg: props.bg }}>{"░".repeat(Math.max(20 - filled(), 0))}</span>
     </text>
   )
 }
