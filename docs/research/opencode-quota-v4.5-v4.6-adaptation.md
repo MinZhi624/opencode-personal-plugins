@@ -70,6 +70,23 @@ reset observer 的契约是：provider-neutral、opt-in、按 hash 后的 accoun
 
 综合估计：**只升级功能、不保留中文深改：低到中；保留现有中文改动并加入已确认规划：中高**。最稳的交付策略是“上游核心数据/生命周期先跟进，中文文案和显示适配最后手工重放”，而不是把 v4.6.1 的 `dist` 当作可直接替换包。
 
+## 2026-08-14 适配状态核对（本地 opencode-quota-zh）
+
+对照上游逐 tag diff（v4.4.1→v4.6.1）核对本地实现的适配状态。结论：**P1 候选均已在本地实现或对齐，无待补代码缺口**（“恢复 src 基线”`9119b7a`、checkpoint `0374b7e` 及 v2 提交 `4eb13a6` 已覆盖）。
+
+| 候选 | 上游来源 | 本地结论 |
+|---|---|---|
+| Kilo Pass 配额/剩余 credit/续期/安全 accounting | v4.5.0（PR #195） | ✅ `src/lib/kilo.ts` 与上游 v4.5.0 逐字节一致；`src/providers/kilo.ts` 仅多本地 v2 告警 balance fact（有意扩展）；`kilo-config.ts`/`registry.ts`/`entries.ts` 对齐 |
+| Kimi K3 / k3-256k 官方价格与精确映射 | v4.6.0（PR #208） | ✅ HEAD 已含：`modelsdev-pricing.min.json` 的 `kimi-k3`（input 3 / output 15 / cache_read 0.3）、`quota-stats.ts` 的 `kimi-for-coding→moonshotai` 别名与 `k3`/`k3-256k→kimi-k3` 映射，与上游 diff 一致 |
+| AGY snapshot 1.1.10（凭证布局兼容） | v4.5.1（`9be1f17`） | ✅ 无待办：上游该 commit 只改 `references/upstream-plugins/opencode-agy-auth` vendored 快照（1.1.8→1.1.10），零 src 改动；本地无 vendor 树，运行时不受该版本号影响 |
+| TUI 异步注册生命周期 | v4.5.1（`1237152`） | ✅ 已实现：`initializeTuiRegistration` 异步启动、`FALLBACK_SURFACE_REGISTRATION` 失败回退、dispose-aware `gate.activate`（dispose 后不再注册），命令/slots 在配置解析后激活 |
+| prompt bar 数据管线 | v4.6.1（PR #210） | ✅ 已实现并标注 “Upstream v4.6.1”：`pickPromptBarEntry` 优先 5h window、最低剩余百分比回退、160ms 运行动画、与 `tuiCompactStatus.sessionPrompt` 互斥 fallback、`tuiPromptBar`↔`promptBar` 双键同步、默认关闭 |
+| reset 自动通知 | v4.6.0（PR #200） | ⏭️ 维持跳过：与本地“危险额度告警”不是同一触发器，按历史 Ticket 05 决定不实施 |
+| Windows export path `~\` 展开 | v4.6.0（PR #207） | ✅ 已实现：`quota-export.ts` 对 `~/` 与 `~\` 展开 `homedir()` |
+| 初始 TUI quota 提前显示（initial-load reuse） | v4.6.0 | ✅ 已实现：`resolveTuiSurfaceRegistration` 捕获初始 runtime，首个 session/home 加载复用 seed |
+
+剩余人工验证（涉及真实账户，无法自动化）：有 **Kilo Pass** 或 **AGY** 账户的用户重启 OpenCode 后核对 `/quota` 中对应 provider 输出与 `/quota_status` 诊断——Kilo 上游明确要求真实响应回归。
+
 ## 引用索引
 
 所有外部事实均来自上游官方 GitHub release、commit、compare/diff、source 或 npm：
