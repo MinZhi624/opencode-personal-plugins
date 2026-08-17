@@ -36,6 +36,18 @@
 
 模型价格来自 models.dev 的公开 API 单价。估算金额不是 Provider 实际账单，也不是 ChatGPT 订阅余额。
 
+## 本地参考来源（Reference）
+
+以下开源资料位于本地参考目录 `~/桌面/Reference/opencode/plugin`，本包在其基础上做 OpenCode 适配与中文化：
+
+| 参考来源 | 上游仓库 | 本包对应 |
+| --- | --- | --- |
+| `agents/Oh_My_OpenAgent` | — | 未采用（已从配置移除，不移植） |
+| `skill/check-gpt-reset-credits` | 自研，无上游仓库 | `gpt-reset-credits` |
+| `tui/opencode-enhanced-sidebar` | <https://github.com/nt-cubic/opencode-enhanced-sidebar> | `opencode-enhanced-sidebar-zh` |
+| `tui/opencode-plugins/opencode-quota-extended` | <https://github.com/arandevcode/opencode-plugins> | `opencode-quota-zh` 的额度卡片与 CLI 部分 |
+| `tui/opencode-plugins/opencode-thinking` | <https://github.com/arandevcode/opencode-plugins> | 未移植（无对应实现） |
+
 ## 快速开始
 
 环境要求：
@@ -128,19 +140,3 @@ Set-ExecutionPolicy -Scope Process Bypass
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。
 
 本包不是 OpenCode 官方项目，也不隶属于 OpenCode、OpenAI 或任何上述上游项目与 Provider。
-
-## 版本记录
-
-### v2.0.0
-
-- Matt Workshop 对齐 Matt Pocock Skills `v1.2.2` 的全部 25 个 promoted Skills，并将适配器恢复为可构建的 TypeScript 源码。
-- 引入可重复同步、统一 Skill manifest、运行时发行白名单与 GitHub Actions 核心验收门槛。
-- 移除旧 `/writing-great-skills` 命令；使用 `/writing-for-agents`。
-
-### v1.0.1（2026-08-07）
-
-- 统一 API 标价估算：quota-zh 与增强侧边栏共享同一价格快照与逐消息估算规则，界面分别展示“本会话”“子代理”“任务树合计”，“未定价”不再伪装成零费用。
-- 新增 [OpenAI/ChatGPT 订阅 Token 记账说明](docs/openai-subscription-token-accounting.md)：订阅路径的历史 Token 条件稳定可读、剩余额度仅条件查询、订阅 USD 不可计算。
-- 完善 `gpt-reset-credits` 重置卡查询与兑换的安全边界说明。
-- 版本号统一升级到 1.0.1，移除 `release/` 发布产物目录（仓库即完整项目）。
-- README 改版：参照上游 opencode-quota 的 README 结构重写，采用简洁、间接引用的方式组织文档。

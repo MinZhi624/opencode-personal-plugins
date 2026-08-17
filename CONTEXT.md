@@ -53,3 +53,13 @@ OpenCode 启动首页中以低干扰方式展示的简短信息。它不是自�
 ### Provider 账户余额（Provider Account Balance）
 
 Provider 明确报告的、可用于后续请求的货币余额。不同币种分别判断，不能自动换算或求和；周期额度、消费预算、已发生花费和按金额计价的额度窗口不属于账户余额。
+
+## 来源与应用
+
+本包基于本地参考目录 `~/桌面/Reference/opencode/plugin` 中的开源资料适配（除注明外均已应用）：
+
+- `tui/opencode-enhanced-sidebar`（<https://github.com/nt-cubic/opencode-enhanced-sidebar>）→ `opencode-enhanced-sidebar-zh`
+- `tui/opencode-plugins`（<https://github.com/arandevcode/opencode-plugins>）→ `opencode-quota-zh` 的额度卡片与 CLI（同套件 `opencode-thinking` 未移植）
+- `skill/check-gpt-reset-credits` → 自研，无上游仓库
+- `agents/Oh_My_OpenAgent` → 明确排除，不采用
+- Matt Pocock Skills `v1.2.2` → `opencode-matt-workshop` 的 25 个 Workflow Skill 来源

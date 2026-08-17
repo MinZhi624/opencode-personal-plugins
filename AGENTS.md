@@ -91,3 +91,4 @@ npm run stage:runtime              # rebuild runtime-stage/ from source
 - `runtime-stage/` is a pruned copy of the source tree (only runtime distribution files) — its layout mirrors `plugins/` but contains only `dist/` artifacts.
 - Installer never overwrites an existing user config; follow `docs/MERGE_EXISTING_CONFIG.md` to merge manually.
 - Cost figures are API list-price estimates, never actual billing; subscription/OAuth paths are estimated at the same list prices.
+- Upstream sources: adapted from the local reference tree `~/桌面/Reference/opencode/plugin` (see README「本地参考来源」) — `opencode-enhanced-sidebar` (nt-cubic) and `opencode-plugins` (arandevcode) applied, `oh-my-openagent` and `opencode-thinking` excluded; `check-gpt-reset-credits` is self-developed with no upstream repo.

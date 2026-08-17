@@ -152,6 +152,6 @@ A Wayfinder Ticket whose result is a decision rather than an implementation deli
 - Archivist and Surveyor may also be selected directly by the user for bounded fact-finding.
 - The implement Workflow Skill uses TDD only after a TDD Agreement and retains its explicit code-review step.
 - The implement Workflow Skill runs without delegation in Tinker and permits leverage-based delegation in Foreman.
-- Tinker performs the Standards and Spec review axes itself; Foreman may run those axes through separate Inspector Worker Runs.
-- A Workflow Skill that requires delegation stops in Tinker and asks the user to select Foreman or invoke an appropriate visible Worker Agent.
+- Tinker performs the Standards and Spec review axes itself in /code-review; the implement Workflow Skill runs in Tinker without the review workflow. Foreman may run those axes through separate Inspector Worker Runs.
+- A Workflow Skill that requires delegation or heavyweight review stops in Tinker and asks the user to select Foreman.
 - Drafter may delegate read-only investigation or evaluation to Inspector, Archivist, and Surveyor, but never implementation to Maker.
