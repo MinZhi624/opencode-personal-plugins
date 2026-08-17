@@ -31,22 +31,13 @@
 | OpenCode | <https://github.com/anomalyco/opencode> | 全部（插件加载、TUI、Provider、会话数据库） |
 | opencode-quota | <https://github.com/slkiser/opencode-quota> | quota-zh 与增强侧边栏的额度、价格与估算逻辑 |
 | OpenCode SubAgent Magazine | <https://github.com/Hotakus/opencode-subagent-magazine> | 增强侧边栏的子代理监控与 KV 持久化 |
+| opencode-enhanced-sidebar | <https://github.com/nt-cubic/opencode-enhanced-sidebar> | `opencode-enhanced-sidebar-zh` 的界面来源 |
+| opencode-plugins（`opencode-quota-extended`） | <https://github.com/arandevcode/opencode-plugins> | `opencode-quota-zh` 的额度卡片与 CLI 部分 |
+| opencode-plugins（`opencode-thinking`） | <https://github.com/arandevcode/opencode-plugins> | 未移植（无对应实现） |
 | Matt Pocock Skills | <https://github.com/mattpocock/skills> | Workshop 的 Workflow Skill 来源 |
 | models.dev | <https://models.dev/> | API 标价估算的公开价格目录 |
 
 模型价格来自 models.dev 的公开 API 单价。估算金额不是 Provider 实际账单，也不是 ChatGPT 订阅余额。
-
-## 本地参考来源（Reference）
-
-以下开源资料位于本地参考目录 `~/桌面/Reference/opencode/plugin`，本包在其基础上做 OpenCode 适配与中文化：
-
-| 参考来源 | 上游仓库 | 本包对应 |
-| --- | --- | --- |
-| `agents/Oh_My_OpenAgent` | — | 未采用（已从配置移除，不移植） |
-| `skill/check-gpt-reset-credits` | 自研，无上游仓库 | `gpt-reset-credits` |
-| `tui/opencode-enhanced-sidebar` | <https://github.com/nt-cubic/opencode-enhanced-sidebar> | `opencode-enhanced-sidebar-zh` |
-| `tui/opencode-plugins/opencode-quota-extended` | <https://github.com/arandevcode/opencode-plugins> | `opencode-quota-zh` 的额度卡片与 CLI 部分 |
-| `tui/opencode-plugins/opencode-thinking` | <https://github.com/arandevcode/opencode-plugins> | 未移植（无对应实现） |
 
 ## 快速开始
 
