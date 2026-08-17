@@ -71,7 +71,7 @@ Workshop 会保留 OpenCode 内置和已有 agents，新增七个 Workshop agent
 ]
 ```
 
-每个角色只支持 `model`、`variant`、`temperature`、`steps`。不配置时继承当前 OpenCode 模型。
+每个角色只支持 `model`、`variant`、`temperature`、`steps`。不配置时继承当前 OpenCode 模型。完整推荐阵容见 `config/opencode.jsonc` 模板与 workshop README；`opencode-go/mimo-v2.5` 无 variant 档，配置时省略 `variant` 字段。
 
 如果旧配置包含 `oh-my-openagent` 或 `oh-my-openagent@latest`，移除该条目；不要删除 notifier、quota、reset-card 或其它无关插件。
 

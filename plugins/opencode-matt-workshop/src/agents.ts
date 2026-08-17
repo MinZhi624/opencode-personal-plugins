@@ -51,22 +51,11 @@ const workerBash = {
 } as const
 
 const drafterBash = {
-  "*": ask,
-  "pwd*": allow,
-  "ls*": allow,
-  "rg *": allow,
-  "git status*": allow,
-  "git diff*": allow,
-  "git log*": allow,
-  "git show*": allow,
-  "git rev-parse*": allow,
-  "gh issue list*": allow,
-  "gh issue view*": allow,
-  "gh pr list*": allow,
-  "gh pr view*": allow,
+  "*": allow,
   ...dangerousBash,
   "git commit*": deny,
   "git add*": deny,
+  "git revert*": deny,
 } as const
 
 const supportTasks = {
@@ -125,7 +114,10 @@ export function buildWorkshopAgents(options: WorkshopOptions) {
             "*": deny,
             "*.md": allow,
             "**/*.md": allow,
+            "*.html": allow,
+            "**/*.html": allow,
             [join(temporaryDirectory, "*.md")]: allow,
+            [join(temporaryDirectory, "*.html")]: allow,
           },
           bash: drafterBash,
           task: supportTasks,

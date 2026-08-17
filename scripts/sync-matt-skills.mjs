@@ -37,7 +37,7 @@ function parseFrontmatter(content, sourcePath) {
 
 function adapterBody(name, body) {
   const roleGuidance = {
-    implement: "In Tinker, execute the plan without delegation and perform both Standards and Spec review axes yourself. In Foreman, own the main line and delegate only for stated leverage; run the final Standards and Spec axes as two parallel Inspector Worker Runs. In any other Primary Agent, stop and ask the user to select Tinker or Foreman.",
+    implement: "In Tinker, implement without delegation; verify with the cheapest adequate checks and deliver, without the review workflow. In Foreman, own the main line and delegate only for stated leverage; run the final Standards and Spec axes as two parallel Inspector Worker Runs. In any other Primary Agent, stop and ask the user to select Tinker or Foreman.",
     tdd: "TDD is opt-in. Before writing a test, ask the user to select the seams and behaviors it will cover, even when `/tdd` was invoked directly. Do not let an agent choose that scope implicitly.",
     "code-review": "In Tinker, perform the Standards and Spec axes yourself. In Foreman, start two independent Inspector Worker Runs in parallel and aggregate their findings. Do not use unrelated generic subagents.",
     research: "Use Archivist for delegated external primary-source research. Tinker cannot delegate: it must ask the user to select Foreman or invoke visible Archivist directly.",
