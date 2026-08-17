@@ -182,9 +182,9 @@ flowchart LR
           "tinker": { "model": "opencode-go/deepseek-v4-flash", "variant": "high" },
           "foreman": { "model": "openai/gpt-5.6-terra", "variant": "high" },
           "maker": { "model": "opencode-go/deepseek-v4-flash", "variant": "max" },
-          "inspector": { "model": "opencode-go/deepseek-v4-flash", "variant": "high" },
+          "inspector": { "model": "opencode-go/mimo-v2.5" },
           "archivist": { "model": "openai/gpt-5.6-luna", "variant": "medium" },
-          "surveyor": { "model": "opencode-go/deepseek-v4-flash", "variant": "low" }
+          "surveyor": { "model": "opencode-go/mimo-v2.5" }
         }
       }
     ]
@@ -192,7 +192,7 @@ flowchart LR
 }
 ```
 
-这些模型只是推荐，不是运行时默认值。未配置时，每个角色继承 OpenCode 当前模型。DeepSeek V4 Flash 不能接收图片或 PDF；附件任务应临时覆盖为支持附件的模型。
+这些模型只是推荐，不是运行时默认值。未配置时，每个角色继承 OpenCode 当前模型。DeepSeek V4 Flash 不能接收图片或 PDF；附件任务应临时覆盖为支持附件的模型。`opencode-go/mimo-v2.5` 无 variant 档（只有默认），配置时省略 `variant` 字段；有 variant 档的模型（如 deepseek-v4-flash 的 low/high/max）才写 variant。
 
 ## How to use
 

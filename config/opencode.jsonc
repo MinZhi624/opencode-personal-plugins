@@ -13,9 +13,9 @@
           "tinker": { "model": "opencode-go/deepseek-v4-flash", "variant": "high" },
           "foreman": { "model": "openai/gpt-5.6-terra", "variant": "high" },
           "maker": { "model": "opencode-go/deepseek-v4-flash", "variant": "max" },
-          "inspector": { "model": "opencode-go/deepseek-v4-flash", "variant": "high" },
+          "inspector": { "model": "opencode-go/mimo-v2.5" },
           "archivist": { "model": "openai/gpt-5.6-luna", "variant": "medium" },
-          "surveyor": { "model": "opencode-go/deepseek-v4-flash", "variant": "low" }
+          "surveyor": { "model": "opencode-go/mimo-v2.5" }
         }
       }
     ]
