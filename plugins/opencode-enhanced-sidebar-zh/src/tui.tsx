@@ -14,12 +14,14 @@ const id = "opencode-enhanced-sidebar-zh"
 
 const n = (v: number) => v.toLocaleString()
 
-function Bar(props: { pct: number; fg: string; bg: string }) {
-  // Props must be read inside a reactive scope: the plain-constant form
-  // captured the initial pct once and never redrew the bar, so the █/░
-  // strip lagged behind the 使用率 number even though the underlying
-  // token data refreshed. A memo keeps the bar in sync with props.pct.
-  const filled = createMemo(() => Math.min(Math.round((props.pct / 100) * 20), 20))
+function Bar(props: { pct: () => number; fg: string; bg: string }) {
+  // The pct is passed as an ACCESSOR and read *inside* the memo. This keeps
+  // the █/░ strip in the parent's reactive graph regardless of how the
+  // renderer propagates props: the memo calls props.pct(), which reads the
+  // parent's ctxPct() memo, so the bar re-runs whenever usage changes.
+  // (The old plain-constant form captured pct once and froze the bar while
+  // the 使用率 number kept updating.)
+  const filled = createMemo(() => Math.min(Math.round((props.pct() / 100) * 20), 20))
   return (
     <text>
       <span style={{ fg: props.fg }}>{"█".repeat(filled())}</span>
@@ -123,16 +125,6 @@ function View(props: ViewProps) {
   const cacheEfficiency = createMemo(() => {
     const s = stats(); const d = s.input + s.cacheR + s.cacheW; return d > 0 ? ((s.cacheR / d) * 100).toFixed(0) : null
   })
-  const risk = createMemo(() => {
-    const ctx = ctxPct(); const lt = lastTokens()
-    if (ctx === null || !lt || lt.output === 0) return null
-    const cur = lt.reasoning / lt.output; const avg = stats().out > 0 ? stats().rsn / stats().out : cur
-    if (ctx > 90) return { level: "high", fg: t.error }
-    if (ctx > 75 && cur < avg * 0.4) return { level: "medium", fg: t.warning }
-    if (ctx > 60 && cur < avg * 0.2) return { level: "low", fg: t.textMuted }
-    return null
-  })
-
   // ——— session cost (shared metrics service; full paginated session) ———
   const [costTick, setCostTick] = createSignal(0)
   const [subagentCost, setSubagentCost] = createSignal<SubAgentCostSummary>({
@@ -218,9 +210,6 @@ function View(props: ViewProps) {
         <box flexDirection="row" gap={1} onMouseDown={() => set1((x) => !x)}>
           <text fg={t.text}>{show1() ? "▼" : "▶"}</text>
           <text fg={t.text}><b>上下文</b></text>
-          <Show when={risk()} fallback={<text fg={t.textMuted}>[安全]</text>}>
-            {(r) => <text fg={r().fg}>[{r().level === "high" ? "高风险" : r().level === "medium" ? "风险" : "低风险"}]</text>}
-          </Show>
         </box>
         <Show when={show1()}>
           <Show when={ctxPct() !== null}>
@@ -229,7 +218,7 @@ function View(props: ViewProps) {
                 <text fg={t.textMuted}>使用率</text>
                 <text fg={t.text}>{n(ctxUsed()!)} / {n(ctxLimit()!)} · {ctxPct()}%</text>
               </box>
-              <Bar pct={Math.min(ctxPct()!, 100)} fg={String(ctxPct()! > 95 ? t.error : ctxPct()! > 80 ? t.warning : t.primary)} bg={String(t.textMuted)} />
+              <Bar pct={() => Math.min(ctxPct() ?? 0, 100)} fg={String(ctxPct()! > 95 ? t.error : ctxPct()! > 80 ? t.warning : t.primary)} bg={String(t.textMuted)} />
             </box>
           </Show>
           <Show when={cacheEfficiency() !== null}>
