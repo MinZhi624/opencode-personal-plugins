@@ -1,6 +1,5 @@
-import { cp, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { cp, readFile, rm, writeFile } from "node:fs/promises"
 import { createHash } from "node:crypto"
-import { tmpdir } from "node:os"
 import { basename, dirname, join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -114,33 +113,5 @@ async function generate(targetSkills, targetManifest) {
   await writeFile(targetManifest, `${JSON.stringify(manifest, null, 2)}\n`)
 }
 
-async function files(directory) {
-  const entries = await readdir(directory, { withFileTypes: true })
-  return (await Promise.all(entries.map(async (entry) => {
-    const path = join(directory, entry.name)
-    if (entry.isDirectory()) return files(path)
-    return [path]
-  }))).flat()
-}
-async function equalTrees(left, right) {
-  const leftFiles = await files(left)
-  const rightFiles = await files(right)
-  const leftRelative = leftFiles.map((path) => relative(left, path)).sort()
-  const rightRelative = rightFiles.map((path) => relative(right, path)).sort()
-  if (JSON.stringify(leftRelative) !== JSON.stringify(rightRelative)) return false
-  for (const path of leftRelative) if (!Buffer.from(await readFile(join(left, path))).equals(Buffer.from(await readFile(join(right, path))))) return false
-  return true
-}
-
-if (args.has("--check")) {
-  const temp = await mkdtemp(join(tmpdir(), "matt-sync-"))
-  try {
-    await generate(join(temp, "skills"), join(temp, "skill-manifest.json"))
-    if (!(await equalTrees(join(temp, "skills"), output))) throw new Error("Adapted skills drift from vendored snapshot; run npm run sync:matt-skills")
-    if (!Buffer.from(await readFile(join(temp, "skill-manifest.json"))).equals(Buffer.from(await readFile(manifestOutput)))) throw new Error("Skill manifest drift; run npm run sync:matt-skills")
-  } finally { await rm(temp, { recursive: true, force: true }) }
-  console.log("Matt skill synchronization is reproducible.")
-} else {
-  await generate(output, manifestOutput)
-  console.log(`Generated adapted Matt skills (${createHash("sha256").update(await readFile(manifestOutput)).digest("hex").slice(0, 12)}).`)
-}
+await generate(output, manifestOutput)
+console.log(`Generated adapted Matt skills (${createHash("sha256").update(await readFile(manifestOutput)).digest("hex").slice(0, 12)}).`)

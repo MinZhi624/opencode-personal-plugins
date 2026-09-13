@@ -32,9 +32,12 @@ sha256sum v4.4.1.tar.gz   # 必须等于上表 SHA-256
 ## 恢复内容
 
 - `src/`：上游 v4.4.1 TypeScript 源码（含 `src/data/modelsdev-pricing.min.json`）。
-- `scripts/`：上游构建/发布辅助脚本中**支持本地源码构建与离线校验**的子集
-  （`build-dev.mjs` 为本仓库新增，见下）；仅服务于已删除第三方 reference 树的
-  upstream-plugin 同步/校验工具链未恢复（见「第三方 plugin references」一节）。
+- `scripts/`：仅保留上游的**价格数据刷新工具**（`refresh-modelsdev-pricing.mjs`、
+  `refresh-modelsdev-pricing-if-stale.mjs`，从 models.dev 更新 `src/data/modelsdev-pricing.min.json`）；
+  其余为本仓库自有的构建辅助（`build-dev.mjs`、`build-runtime.mjs`、
+  `lib/cross-platform-command.mjs`，见下）。上游的发布/打包/校验脚本不保留，
+  仅服务于已删除第三方 reference 树的 upstream-plugin 同步/校验工具链同样未恢复
+  （见「第三方 plugin references」一节）。
 - `docs/`、`contributing/`、`README.md`：上游仓库内容，供文档参考（一致性由人工校验）。
 - `references/`：只保留上游文档类参考 —— `references/upstream-quota/CONTRIBUTING.md`。
 - `references/upstream-quota/CONTRIBUTING.md`：上游 v4.4.1 的 `CONTRIBUTING.md` 原文（pnpm 工作流），
@@ -81,18 +84,13 @@ review/sanitization/specs/sync`、`tests/upstream.cursor-oauth.reference.test.ts
    并排除 `src/tui.tsx` 与 `src/quota-zh-sidebar.tsx`（这两个 TUI 入口由 OpenCode 以原始
    TSX 加载，按字节拷贝，不参与编译，避免产生 `.jsx` 重复产物）。
 5. `scripts/build-runtime.mjs`：`npm run build:quota-zh:runtime` 的入口 —— 从 `src/` 生成
-   可重复验证的运行时分发 `dist/`：tsc 编译为纯 ESM `.js`、拷贝 `src/data`、按字节拷贝
-   唯一受支持的 TUI 入口对（`tui.tsx` + `quota-zh-sidebar.tsx`），并断言 dist 不含
-   源码/声明/映射/`.jsx` 产物。`--check` 模式在临时目录执行干净构建并与已提交 `dist/`
-   逐文件 SHA-256 比较（干净构建字节同一性门禁）。上游的 esbuild/babel TUI 打包
-   （`prepare-tui-dist.mjs`）已被该管线取代，脚本仅作为上游历史原文保留。
+   运行时 `dist/`：tsc 编译为纯 ESM `.js`、拷贝 `src/data`、按字节拷贝唯一受支持的
+   TUI 入口对（`tui.tsx` + `quota-zh-sidebar.tsx`），构建时断言 dist 不含
+   源码/声明/映射/`.jsx` 产物。
 6. `scripts/stage-runtime.mjs`：quota-zh 的 runtime staging 只允许
-   `dist/`、`package.json`、`LICENSE`、`README.zh.md`，其余（src/测试/夹具/开发配置）一律
-   拒绝。staging 的 quota-zh 内容与当前 `dist/` 逐文件一致。
-7. 人工校验门禁：`npm run check:quota-zh` = `build:quota-zh`（build-dev）→
-   `typecheck:quota-zh`（`tsc --noEmit`）→ `build:quota-zh:runtime -- --check`（干净构建
-   字节同一性）→ `stage:runtime -- --check`。行为正确性靠重启 OpenCode 后人工检查
-   `/quota`、`/quota_status`、TUI 侧边栏与配置迁移，不再运行任何自动化测试。
+   `dist/`、`package.json`、`LICENSE`、`README.zh.md`，其余（src/开发配置）一律拒绝。
+7. 行为正确性靠重启 OpenCode 后人工检查 `/quota`、`/quota_status`、TUI 侧边栏与配置迁移，
+   不保留任何自动化测试或校验门禁。
 
 ## 上游 tag 顺序重放记录（Ticket 03–06，Wave A）
 
@@ -110,7 +108,6 @@ review/sanitization/specs/sync`、`tests/upstream.cursor-oauth.reference.test.ts
 
 Ticket 01 建立独立开发基线时，当前 `dist/` 内已安装的中文版产物、`package.json` 入口、
 TUI/Server 行为均不因该 Ticket 改变。Ticket 02 起，中文行为已完整重放进 `src/`，`dist/`
-成为**由源码生成并提交**的可重复构建产物：`npm run build:quota-zh:runtime` 重新生成，
-`-- --check` 与干净构建逐文件比较，`npm run check` 全量验证。后续 Ticket 从 `src/` 出发
-按上游 tag 顺序同步，再重新生成运行时产物。行为正确性不再依赖黄金 fixture 或自动化测试，
-改为重启 OpenCode 后人工校验（见文首维护决定）。
+成为**由源码生成并提交**的构建产物：`npm run build:quota-zh:runtime` 重新生成。后续 Ticket
+从 `src/` 出发按上游 tag 顺序同步，再重新生成运行时产物。行为正确性不依赖黄金 fixture 或
+自动化测试，改为重启 OpenCode 后人工校验（见文首维护决定）。

@@ -99,7 +99,6 @@ fi
 
 echo "安装运行依赖（单一 node_modules）……"
 (cd "$BUNDLE_DIR" && npm ci --omit=dev --ignore-scripts --no-audit --no-fund)
-node "$BUNDLE_DIR/scripts/verify.mjs"
 
 NEEDS_MERGE=0
 install_config() {

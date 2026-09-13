@@ -91,9 +91,6 @@ try {
   Pop-Location
 }
 
-& node (Join-Path $BundleDir "scripts/verify.mjs")
-if ($LASTEXITCODE -ne 0) { throw "Bundle 验证失败。" }
-
 $script:NeedsMerge = $false
 function Install-Config {
   param(

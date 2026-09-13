@@ -307,10 +307,10 @@ flowchart TD
 
 ```bash
 npm run sync:matt-skills
-npm run check:matt-workshop
+npm run build:matt-workshop
 ```
 
-Workshop 不保留自动化测试套件。`check:matt-workshop` 只运行 Skill 同步一致性、TypeScript no-emit、clean-build 字节比较、plain-Node 结构合同和 Runtime Distribution 隔离检查。
+Workshop 不保留自动化测试套件或 CI 门禁：同步后由构建命令重新生成 `dist/`，行为正确性靠重启 OpenCode 后人工检查。
 
 安装或修改配置后必须完全退出并重新启动 OpenCode；配置不会热重载。
 

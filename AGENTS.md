@@ -17,7 +17,7 @@ opencode-personal-plugins/
 │   ├── opencode-matt-workshop/       # Server: standalone agents + 25 Matt workflow skills
 │   ├── opencode-enhanced-sidebar-zh/ # TUI-only: sidebar context/TPS/subagent cost (raw TSX, unbuilt)
 │   └── gpt-reset-credits/            # Server: ChatGPT reset-card query/redeem (raw TS + Python helper)
-├── scripts/                          # Bundle build/stage/verify gates (5 .mjs)
+├── scripts/                          # Bundle build/stage scripts (2 .mjs)
 ├── config/                           # opencode.jsonc + tui.jsonc plugin-wiring templates
 ├── docs/                             # guides + ADRs + research notes
 ├── install.sh / install.ps1          # copy bundle to ~/.config/opencode/
@@ -35,7 +35,7 @@ Dev-only (never read for context): `node_modules/`, `runtime-stage/`, `plugins/o
 | Sidebar TUI (context/TPS/cost) | `plugins/opencode-enhanced-sidebar-zh/src/tui.tsx` | raw TSX loaded by `config/tui.jsonc` |
 | Matt workflow skills | `plugins/opencode-matt-workshop/skills/` | 25 generated adapters; upstream pin in `upstream-provenance.json` |
 | ChatGPT reset cards | `plugins/gpt-reset-credits/index.ts` | + `reset_credits.py` |
-| Build/verify gates | `scripts/*.mjs` + root `package.json` scripts | reproducibility contracts |
+| Build/stage scripts | `scripts/*.mjs` + root `package.json` scripts | runtime staging + skill sync |
 | Plugin wiring | `config/opencode.jsonc` (server), `config/tui.jsonc` (TUI) | relative to `~/.config/opencode/` |
 | Domain terminology | `CONTEXT.md` (bundle), `plugins/opencode-matt-workshop/CONTEXT.md` (workshop) | — |
 | Existing-config merge / troubleshooting | `docs/MERGE_EXISTING_CONFIG.md`, `docs/TROUBLESHOOTING.md` | — |
@@ -50,14 +50,12 @@ Dev-only (never read for context): `node_modules/`, `runtime-stage/`, `plugins/o
 | `opencode-matt-workshop` plugin | default export | `plugins/opencode-matt-workshop/src/index.ts` | config hook: 7 agents + 25 commands + skills; no tools/events |
 | `applyWorkshopConfig` | fn | `plugins/opencode-matt-workshop/src/config.ts` | merges agents/commands/skills; defaults to Tinker |
 | sidebar TUI plugin | `TuiPluginModule` | `plugins/opencode-enhanced-sidebar-zh/src/tui.tsx` | registers `sidebar_content` slot |
-| `stage-runtime.mjs` | script | `scripts/` | Runtime Distribution allowlist + byte-reproducibility gate |
+| `stage-runtime.mjs` | script | `scripts/` | Runtime Distribution allowlist + installer staging |
 
 ## CONVENTIONS
 
-- **Byte-for-byte reproducibility**: `scripts/sync-matt-skills.mjs --check`, `scripts/check-matt-build.mjs`, `stage-runtime.mjs --check`, and quota-zh `build-runtime.mjs --check` regenerate artifacts in temp dirs and byte-compare to committed output. Committed `dist/` is the runtime distribution — do not hand-edit.
-- **No automated tests**: the quota plugin has no test suite and no vitest. Verification is manual — restart OpenCode and check `/quota`, `/quota_status`, TUI sidebar, and config migration by hand.
+- **No tests, no verification gates**: this bundle deliberately ships without a test suite, smoke tests, or CI checks — the project is small enough to verify by hand. Committed `dist/`, `skills/`, and `skill-manifest.json` are generated artifacts — do not hand-edit.
 - **No root tsconfig/vitest/eslint**: configs are per-plugin. Only formatter config is `plugins/opencode-quota-zh/.prettierrc.json` (semi, double quotes, trailingComma all, printWidth 100).
-- **`npm run check`** = `check:matt-workshop` && `check:quota-zh` && `scripts/verify.mjs`. Workshop's gate has no test suite; quota-zh has no test suite either.
 - **Plugins load as raw TS/TSX or dist**: quota-zh + matt-workshop are compiled (`dist/`); enhanced-sidebar-zh and gpt-reset-credits ship as source and load directly.
 - **Versioned domain language** in `CONTEXT.md` — use exact terms (会话 Token 用量, API 标价估算, 未定价, 任务树 API 标价估算, …). Never invent synonyms.
 
@@ -70,7 +68,7 @@ Dev-only (never read for context): `node_modules/`, `runtime-stage/`, `plugins/o
 - **Per-plugin `node_modules`** — one shared root install; never `npm install` inside a plugin dir.
 - **Sharing auth.json / unchecked `opencode debug config` output / API keys** — forbidden; gpt-reset-credits must never display `selection_key`/`snapshot_key`.
 - **Second `plugin` key in one JSON object** — append to the existing array when merging configs.
-- **Hand-editing generated output** — `dist/`, `skills/`, `skill-manifest.json`, `runtime-stage/` are regenerated; edits are lost and break reproducibility gates.
+- **Hand-editing generated output** — `dist/`, `skills/`, `skill-manifest.json`, `runtime-stage/` are regenerated; edits are lost on the next build.
 - **Duplicating the upstream `opencode-quota` namespace as an implicit sharing mechanism** — shared resources must be explicit.
 - **Auto-retry redemption POST** — stops on inconsistency by design to prevent double redemption.
 
@@ -78,10 +76,11 @@ Dev-only (never read for context): `node_modules/`, `runtime-stage/`, `plugins/o
 
 ```bash
 npm install                        # single shared node_modules at root
-npm run check                      # full gate: matt-workshop + quota-zh + verify
-npm run check:matt-workshop        # sync, tsc, build-compare, plain-Node contract, stage --check
-npm run check:quota-zh             # build-dev, typecheck, build-runtime --check, stage --check
+npm run build:matt-workshop        # tsc-compile the workshop plugin
 npm run sync:matt-skills           # regenerate skills/ from vendor snapshot (needs --vendor first run)
+npm run build:quota-zh             # build-dev: regenerate quota-zh dist/
+npm run build:quota-zh:runtime     # rebuild quota-zh dist/ from src (runtime distribution)
+npm run typecheck:quota-zh         # tsc --noEmit for the quota-zh plugin
 npm run stage:runtime              # rebuild runtime-stage/ from source
 ```
 
