@@ -18,7 +18,6 @@ opencode debug config
 ```bash
 cd ~/.config/opencode/opencode-zh-bundle
 npm ci --omit=dev --ignore-scripts --no-audit --no-fund
-node scripts/verify.mjs
 ```
 
 不要在四个插件目录中分别安装依赖；本包设计为共用 bundle 根目录的一份 `node_modules`。
@@ -55,7 +54,7 @@ opencode upgrade
 
 1. 确认 `tui.json(c)` 中存在两个 bundle TUI 条目。
 2. 确认没有旧路径的重复条目。
-3. 运行 `node ~/.config/opencode/opencode-zh-bundle/scripts/verify.mjs`。
+3. 确认 bundle 内 `plugins/opencode-quota-zh/dist/` 与 `plugins/opencode-enhanced-sidebar-zh/src/` 存在且未被清空。
 4. 彻底重启 OpenCode，而不只是切换会话。
 
 `opencode debug config` 主要验证 Server 配置；TUI 插件要在实际 TUI 启动时加载。

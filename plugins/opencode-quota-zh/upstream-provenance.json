@@ -11,25 +11,20 @@
   "source": "https://github.com/slkiser/opencode-quota/archive/refs/tags/v4.4.1.tar.gz",
   "sha256": "d936af7c36b97f0284b2ad9e46ba7f17d86baf2242e3ff3f14549008c28b17b7",
   "license": "MIT",
-  "snapshot": "src/, tests/ (offline baseline), scripts/ (dev-build/offline-check subset only; upstream plugin-reference sync/review tooling removed, see excluded), docs/, contributing/, references/upstream-quota/CONTRIBUTING.md, README.md, LICENSE.upstream, package.upstream.json, tsconfig.upstream.json, vitest.config.upstream.ts",
+  "snapshot": "src/, scripts/ (dev-build subset only; upstream plugin-reference sync/review tooling removed, see excluded), docs/, contributing/, references/upstream-quota/CONTRIBUTING.md, README.md, LICENSE.upstream, package.upstream.json, tsconfig.upstream.json",
   "adaptations": [
     "tsconfig.json: upstream tsconfig with outDir redirected to ./dev-dist (dev-only output)",
     "tsconfig.runtime.json: runtime build config (outDir ./dist; excludes src/tui.tsx and src/quota-zh-sidebar.tsx, which are copied byte-for-byte as the single supported raw-TSX TUI entry pair)",
-    "scripts/build-runtime.mjs: reproducible runtime build from src/ into dist/ (tsc + data copy + TUI entry copy; --check compares a clean build byte-for-byte with the committed dist)",
-    "vitest.config.ts: offline baseline with documented exclusions (see UPSTREAM-PROVENANCE.md)",
-    "tests/setup.ts: offline network guard blocking global fetch and node:http/https/net/tls/dns entry points",
+    "scripts/build-runtime.mjs: runtime build from src/ into dist/ (tsc + data copy + TUI entry copy)",
     "scripts/lib/cross-platform-command.mjs: cross-platform child-process invocation helper ({command, shell}; Windows runs bare npm/tsc via cmd.exe, POSIX no shell)",
     "scripts/build-dev.mjs: dev-only build entry (tsc via cross-platform-command helper + data copy), never writes dist/",
-    "scripts/capture-runtime-golden.mjs + tests/fixtures/runtime-golden/: pre-Ticket-01 Chinese runtime golden capture (quota-command-format, quota-dialog-commands, quota-stats-format, format-utils, session-tokens-format, tui-compact-format, modelsdev-pricing, tui.tsx/quota-zh-sidebar.tsx byte snapshots)",
-    "scripts/stage-runtime.mjs: quota-zh runtime staging restricted to dist/, package.json, LICENSE, README.zh.md",
-    "prepare-tui-dist.mjs: upstream babel TUI bundle pipeline retained verbatim as upstream history only; superseded by scripts/build-runtime.mjs raw-TSX entry copies"
+    "scripts/stage-runtime.mjs: quota-zh runtime staging restricted to dist/, package.json, LICENSE, README.zh.md"
   ],
   "excluded": [
     "pnpm-lock.yaml, pnpm-workspace.yaml (repo uses npm single lockfile)",
     ".husky, .lintstagedrc (repo dev tooling not part of the baseline)",
     ".git",
     "references/upstream-plugins/ (third-party plugin reference snapshots incl. dist artifacts and lock.json: not part of runtime/source validation or the offline baseline)",
-    "scripts/sync-upstream-plugin-references.mjs, scripts/check-upstream-plugin-updates.mjs, scripts/prepare-upstream-plugin-review.mjs and scripts/lib/upstream-plugin-*.mjs (upstream plugin-reference sync/check/review tooling that only targets the removed references/upstream-plugins/ tree; removed so no command can rebuild a tree that is not in the baseline)",
-    "tests/upstream-plugin-identity/issues/lock/reference-integrity/registry/review/sanitization/specs/sync.test.ts and tests/upstream.cursor-oauth.reference.test.ts (retained byte-for-byte as upstream history originals but excluded from the local offline baseline because their tooling and reference tree are absent; see vitest.config.ts and UPSTREAM-PROVENANCE.md)"
+    "scripts/sync-upstream-plugin-references.mjs, scripts/check-upstream-plugin-updates.mjs, scripts/prepare-upstream-plugin-review.mjs and scripts/lib/upstream-plugin-*.mjs (upstream plugin-reference sync/check/review tooling that only targets the removed references/upstream-plugins/ tree; removed so no command can rebuild a tree that is not in the baseline)"
   ]
 }
