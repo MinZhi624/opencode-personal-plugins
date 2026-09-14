@@ -3,5 +3,18 @@
   "compilerOptions": {
     "outDir": "./dist"
   },
-  "exclude": ["node_modules", "dist", "dev-dist", "src/tui.tsx", "src/quota-zh-sidebar.tsx"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "dev-dist",
+    "src/tui.tsx",
+    "src/quota-zh-sidebar.tsx",
+    "src/bin/**",
+    "src/lib/init-installer.ts",
+    "src/lib/provider-add.ts",
+    "src/lib/provider-add-command.ts",
+    "src/lib/provider-add-json-v1-questionnaire.ts",
+    "src/lib/scoped-update.ts",
+    "src/lib/scoped-update-migration.ts"
+  ]
 }

@@ -42,6 +42,9 @@ export const xaiProvider = {
                         label: `${period}:`,
                         percentRemaining: result.window.percentRemaining,
                         resetTimeIso: result.window.resetTimeIso,
+                        ...(result.window.fixedWindow
+                            ? { fixedWindow: { ...result.window.fixedWindow } }
+                            : {}),
                     },
                 ], [], { singleWindowDisplayName: result.label });
             },

@@ -11,12 +11,12 @@ import { QuotaToastPlugin } from "./plugin.js";
 // loader, which iterates Object.values(mod) and can conflict with other
 // plugins that also use the legacy path.
 const pluginModule = {
-    id: "@local/opencode-quota-zh",
+    id: "opencode-quota-zh",
     server: QuotaToastPlugin,
 };
 export default pluginModule;
+// Re-export types for consumers (types are erased at runtime, so safe to export)
+export { QUOTA_PROVIDER_MODES, QUOTA_PROVIDER_REMOTE_FORMATS, QUOTA_PROVIDER_WINDOW_TYPES, validateQuotaProviders, } from "./lib/quota-providers.js";
 // Keep the named export for backward compatibility with consumers that import
 // { QuotaToastPlugin } directly.
 export { QuotaToastPlugin } from "./plugin.js";
-// Re-export types for consumers (types are erased at runtime, so safe to export)
-export { QUOTA_PROVIDER_MODES, QUOTA_PROVIDER_REMOTE_FORMATS, QUOTA_PROVIDER_WINDOW_TYPES, validateQuotaProviders, } from "./lib/quota-providers.js";

@@ -22,8 +22,18 @@ export type GoogleAgyAuthSourceKey = "google-agy" | "opencode-agy-auth" | "googl
 export type CursorQuotaPlan = "none" | "pro" | "pro-plus" | "ultra";
 export type PricingSnapshotSource = "auto" | "bundled" | "runtime";
 export type PercentDisplayMode = "remaining" | "used";
+export type PercentLabelStyle = "full" | "bare";
+export type AccountingDetail = "summary" | "detailed";
 export type SessionTokenScope = "current" | "tree";
 export type OpenCodeGoWindowKey = "rolling" | "weekly" | "monthly";
+export type QuotaResetWindow = "fiveHour" | "hourly" | "daily" | "weekly" | "monthly" | "yearly";
+
+export interface QuotaResetNotificationsConfig {
+  /** Whether successful quota-window resets emit a one-shot toast. */
+  enabled: boolean;
+  /** Window classes eligible for reset notifications. */
+  windows: QuotaResetWindow[];
+}
 
 export interface PricingSnapshotConfig {
   source: PricingSnapshotSource;
@@ -34,6 +44,8 @@ export interface TuiSidebarPanelConfig {
   enabled: boolean;
   /** Per-surface formatStyle override. Falls back to root formatStyle when absent. */
   formatStyle?: QuotaFormatStyle;
+  /** Preferred OpenCode Go window for the collapsed sidebar row. */
+  opencodeGoPreferredWindow?: OpenCodeGoWindowKey;
 }
 
 export interface TuiCompactStatusConfig {
@@ -46,6 +58,15 @@ export interface TuiCompactStatusConfig {
   formatStyle?: QuotaFormatStyle;
 }
 
+export interface TuiPromptBarConfig {
+  enabled: boolean;
+}
+
+export interface StartupHintConfig {
+  /** Show a short Chinese hint on the TUI home screen. */
+  enabled: boolean;
+}
+
 export interface QuotaExportConfig {
   /** Whether to write the export file after each background refresh. Default: false. */
   enabled: boolean;
@@ -55,31 +76,6 @@ export interface QuotaExportConfig {
    *   $XDG_CACHE_HOME/opencode/quota-export.json
    */
   path: string;
-}
-
-export interface TuiPromptBarConfig {
-  enabled: boolean;
-}
-
-/** Canonical v2 opt-in prompt bar section (Ticket 07). Defaults off. */
-export interface PromptBarConfig {
-  enabled: boolean;
-}
-
-/** Canonical v2 startup hint section (Ticket 07). Defaults on. */
-export interface StartupHintConfig {
-  enabled: boolean;
-}
-
-/** Canonical v2 quota alert section (Ticket 07 contract; evaluation arrives in Tickets 09/11). */
-export interface QuotaAlertConfig {
-  enabled: boolean;
-  /** Global percent-remaining danger threshold (0..100); current value <= threshold is dangerous. */
-  percentRemainingThreshold: number;
-  /** Null = no repeat within an alert episode; otherwise integer minutes >= 15. */
-  repeatAfterMinutes: number | null;
-  /** Provider -> ISO 4217 currency -> positive amount threshold. */
-  balanceThresholds: Record<string, Record<string, number>>;
 }
 
 export interface QuotaTelemetryConfig {
@@ -97,9 +93,15 @@ export type TuiCommandDisplay = "inline" | "dialog";
 /** Request timeout in milliseconds */
 export const REQUEST_TIMEOUT_MS = 5000;
 
-/** Plugin configuration from opencode-quota-zh/config.jsonc or workspace overrides. */
+/** Plugin configuration from opencode-quota/quota-toast.json or legacy experimental.quotaToast. */
 export interface QuotaToastConfig {
   enabled: boolean;
+
+  /** If false, never show popup toasts (commands/tools still work). */
+  enableToast: boolean;
+
+  /** Opt-in, persisted notifications when selected quota windows reset. */
+  resetNotifications: QuotaResetNotificationsConfig;
 
   /** Where deterministic native TUI command output appears. */
   tuiCommandDisplay: TuiCommandDisplay;
@@ -116,11 +118,19 @@ export interface QuotaToastConfig {
   formatStyle: QuotaFormatStyle;
   /** Shared percent meaning for popup toasts and the TUI sidebar. */
   percentDisplayMode: PercentDisplayMode;
+  /** Optional fixed-window quota exhaustion projection. Unset keeps it disabled. */
+  quotaProjection?: "runway";
+  /** Optional suffix style for percentage labels. Unset preserves full labels. */
+  percentLabelStyle?: PercentLabelStyle;
+  /** Whether human surfaces include supplementary semantic accounting rows. */
+  accountingDetail: AccountingDetail;
   /**
-   * Decimal places for compact reset countdown labels.
-   * Unset preserves the default integer-day and half-hour-step display.
+   * Decimal places for a largest-unit reset countdown override.
+   * Unset uses the default exact-to-minute DdHhMm display.
    */
   resetTimeDecimals?: number;
+  /** Whether exact multi-unit reset countdowns include spaces between units. */
+  resetTimeSpaced?: boolean;
   minIntervalMs: number;
 
   /** Request timeout in milliseconds for remote provider API calls. */
@@ -167,7 +177,11 @@ export interface QuotaToastConfig {
   cursorIncludedApiUsd?: number;
   cursorBillingCycleStartDay?: number;
   pricingSnapshot: PricingSnapshotConfig;
-  /** Toast duration in milliseconds (also used for quota-alert toasts). */
+  showOnIdle: boolean;
+  showOnQuestion: boolean;
+  showOnCompact: boolean;
+  showOnBothFail: boolean;
+  /** Toast duration in milliseconds */
   toastDurationMs: number;
 
   /** If true, only show quota for current model */
@@ -190,20 +204,11 @@ export interface QuotaToastConfig {
   /** Opt-in compact quota/status text for TUI prompt/home surfaces. */
   tuiCompactStatus: TuiCompactStatusConfig;
 
-  /** Quota progress bar rendered under the TUI prompt. Default: disabled. */
+  /** Quota progress bar rendered under the TUI prompt. */
   tuiPromptBar: TuiPromptBarConfig;
 
-  /** Canonical v2 startup hint surface. Default: enabled. */
+  /** Bundle-local Chinese startup hint. */
   startupHint: StartupHintConfig;
-
-  /**
-   * Canonical v2 prompt bar section. Mirrors tuiPromptBar (the upstream v4.6.1
-   * name, which now reports a migration diagnostic); default: disabled.
-   */
-  promptBar: PromptBarConfig;
-
-  /** Canonical v2 quota alert section. Evaluation lands in Tickets 09/11. */
-  alerts: QuotaAlertConfig;
 
   /** Bundled-only maintainer announcement surfaces. */
   maintainerAnnouncements: MaintainerAnnouncementsConfig;
@@ -229,9 +234,15 @@ export interface QuotaToastConfig {
 export const DEFAULT_CONFIG: QuotaToastConfig = {
   enabled: true,
 
+  enableToast: false,
+  resetNotifications: {
+    enabled: false,
+    windows: ["weekly"],
+  },
   tuiCommandDisplay: "inline",
   formatStyle: DEFAULT_QUOTA_FORMAT_STYLE,
   percentDisplayMode: "remaining",
+  accountingDetail: "summary",
   minIntervalMs: 300000, // 5 minutes
   requestTimeoutMs: REQUEST_TIMEOUT_MS,
 
@@ -253,6 +264,10 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
     autoRefresh: 7,
   },
 
+  showOnIdle: true,
+  showOnQuestion: true,
+  showOnCompact: true,
+  showOnBothFail: true,
   toastDurationMs: 9000,
   onlyCurrentModel: false,
   showSessionTokens: true,
@@ -272,15 +287,6 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
   },
   startupHint: {
     enabled: true,
-  },
-  promptBar: {
-    enabled: false,
-  },
-  alerts: {
-    enabled: true,
-    percentRemainingThreshold: 0,
-    repeatAfterMinutes: null,
-    balanceThresholds: {},
   },
   maintainerAnnouncements: {
     enabled: true,
@@ -327,6 +333,14 @@ export interface QwenOAuthAuthData {
 }
 
 export interface CursorOAuthAuthData {
+  type: string;
+  access?: string;
+  refresh?: string;
+  expires?: number;
+  [key: string]: unknown;
+}
+
+export interface AnthropicOAuthAuthData {
   type: string;
   access?: string;
   refresh?: string;
@@ -391,6 +405,11 @@ export interface SyntheticAuthData {
   key: string;
 }
 
+export interface OpenCodeGoAuthData {
+  type: "api";
+  key: string;
+}
+
 export interface MiniMaxAuthData {
   type: string;
   key?: string;
@@ -448,6 +467,7 @@ export interface CopilotQuotaConfig {
 
 /** Full auth.json structure (partial - only what we need) */
 export interface AuthData {
+  anthropic?: AnthropicOAuthAuthData;
   "github-copilot"?: CopilotAuthData;
   copilot?: CopilotAuthData;
   "copilot-chat"?: CopilotAuthData;
@@ -467,8 +487,8 @@ export interface AuthData {
   codex?: OpenAIOAuthData;
   // Some OpenCode installs store ChatGPT auth under "chatgpt".
   chatgpt?: OpenAIOAuthData;
-  // Some OpenCode installs store OpenAI auth under "opencode".
-  opencode?: OpenAIOAuthData;
+  // Canonical OpenCode key. Go uses the API record; older OpenAI auth data may also exist here.
+  opencode?: OpenCodeGoAuthData | OpenAIOAuthData;
   synthetic?: SyntheticAuthData;
   chutes?: {
     type: string;
@@ -777,7 +797,6 @@ export interface GoogleAgyQuotaBucket {
   resetTimeIso?: string;
   remainingAmount?: string;
   accountEmail?: string;
-  accountKey: string;
   accountIndex: number;
   sourceKey: GoogleAgyAuthSourceKey;
 }
@@ -801,6 +820,8 @@ export interface GoogleQuotaResult {
 export interface QuotaError {
   success: false;
   error: string;
+  /** Whether retrying later may succeed without changing credentials or configuration. */
+  retryable?: boolean;
 }
 
 /** Combined quota result */
@@ -866,12 +887,6 @@ export interface OllamaCloudWindow {
   percentRemaining: number;
 }
 
-/** Per-model request count from the Ollama Cloud usage API */
-export interface OllamaCloudModelUsage {
-  model: string;
-  requests: number;
-}
-
 /** Result from the Ollama Cloud usage API */
 export type OllamaCloudResult =
   | {
@@ -880,39 +895,39 @@ export type OllamaCloudResult =
       session?: OllamaCloudWindow;
       /** Weekly usage window, when present */
       weekly?: OllamaCloudWindow;
-      /** Valid per-model request counts */
-      models: OllamaCloudModelUsage[];
-      /** Independent response rows that could not be used */
+      /** Independent response fields that could not be used */
       rowErrors?: string[];
     }
   | QuotaError
   | null;
 
-/** Single usage window from OpenCode Go dashboard */
+/** Single normalized usage window from the OpenCode Go API. */
 export interface OpenCodeGoWindow {
-  /** Usage percentage [0..100] */
+  /** Raw API status after exact validation. */
+  status: "ok" | "rate-limited";
+  /** Usage percentage [0..100]. */
   usagePercent: number;
-  /** Seconds until usage resets */
-  resetInSec: number;
-  /** Remaining percentage [0..100] */
+  /** Remaining percentage [0..100]. */
   percentRemaining: number;
-  /** ISO reset timestamp */
+  /** Canonical ISO reset timestamp. */
   resetTimeIso: string;
 }
 
-/** Result from scraping OpenCode Go dashboard usage */
+/** Strictly validated result from the OpenCode Go usage API. */
 export type OpenCodeGoResult =
   | {
       success: true;
-      /** Rolling (~5h) usage window, when present in the dashboard payload */
-      rolling?: OpenCodeGoWindow;
-      /** Weekly usage window, when present in the dashboard payload */
-      weekly?: OpenCodeGoWindow;
-      /** Monthly usage window, when present in the dashboard payload */
-      monthly?: OpenCodeGoWindow;
+      rolling: OpenCodeGoWindow;
+      weekly: OpenCodeGoWindow;
+      monthly: OpenCodeGoWindow;
     }
-  | QuotaError
-  | null;
+  | (QuotaError & { notSubscribed?: true });
+
+/** Cached toast data */
+export interface CachedToast {
+  message: string;
+  timestamp: number;
+}
 
 // =============================================================================
 // Constants

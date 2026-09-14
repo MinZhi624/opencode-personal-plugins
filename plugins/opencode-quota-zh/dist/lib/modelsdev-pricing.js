@@ -127,11 +127,11 @@ function loadBundledSnapshotSync(override) {
 }
 export function getRuntimePricingSnapshotPath(runtimeDirs) {
     const dirs = runtimeDirs ?? getOpencodeRuntimeDirs();
-    return join(dirs.cacheDir, "opencode-quota", RUNTIME_SNAPSHOT_FILENAME);
+    return join(dirs.cacheDir, "opencode-quota-zh", RUNTIME_SNAPSHOT_FILENAME);
 }
 export function getRuntimePricingRefreshStatePath(runtimeDirs) {
     const dirs = runtimeDirs ?? getOpencodeRuntimeDirs();
-    return join(dirs.cacheDir, "opencode-quota", RUNTIME_REFRESH_STATE_FILENAME);
+    return join(dirs.cacheDir, "opencode-quota-zh", RUNTIME_REFRESH_STATE_FILENAME);
 }
 function loadRuntimeSnapshotSync(runtimeDirs) {
     const path = getRuntimePricingSnapshotPath(runtimeDirs);

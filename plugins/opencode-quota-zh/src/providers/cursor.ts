@@ -11,6 +11,7 @@ import {
 } from "../lib/cursor-pricing.js";
 import { getCurrentCursorUsageSummary } from "../lib/cursor-usage.js";
 import type {
+  AccountingMetadata,
   QuotaProvider,
   QuotaProviderContext,
   QuotaProviderResult,
@@ -18,6 +19,7 @@ import type {
 } from "../lib/entries.js";
 import { fmtUsdAmount } from "../lib/format-utils.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
+import { accountingDecimalFromNumber } from "./accounting-decimal.js";
 import {
   attemptedResult,
   notAttemptedResult,
@@ -25,17 +27,20 @@ import {
   withStatusDetails,
 } from "./result-helpers.js";
 
+const BUDGET_ACCOUNTING: AccountingMetadata = {
+  resultType: "budget",
+  acquisitionMethod: "local_runtime_accounting",
+  ownership: "maintained",
+  authority: "locally_derived",
+};
+const SPEND_ACCOUNTING: AccountingMetadata = {
+  ...BUDGET_ACCOUNTING,
+  resultType: "spend",
+};
+const USD_UNIT = { kind: "currency", code: "USD" } as const;
+
 function buildCursorGroup(plan: string | null): string {
   return plan ? `Cursor (${plan})` : "Cursor";
-}
-
-function buildCursorApiUsageValue(params: {
-  costUsd: number;
-  includedApiUsd: number;
-  partial: boolean;
-}): string {
-  const value = `${fmtUsdAmount(params.costUsd)}/${fmtUsdAmount(params.includedApiUsd)} used`;
-  return params.partial ? `${value} (partial)` : value;
 }
 
 export const cursorProvider: QuotaProvider = {
@@ -105,86 +110,103 @@ export const cursorProvider: QuotaProvider = {
       return withStatusDetails(notAttemptedResult(), statusDetails);
     }
 
-    const errors =
-      usage.unknownModels.length > 0
-        ? [
-            {
-              label: "Cursor",
-              message: "Unknown Cursor model ids present in local history (see /quota_status)",
-            },
-          ]
-        : [];
     const hasPartialApiCoverage = usage.unknownModels.length > 0;
+    const hasPositiveAllowance = includedApiUsd !== undefined && includedApiUsd > 0;
+    const errors = hasPartialApiCoverage
+      ? [
+          {
+            label: "Cursor",
+            message: "Unknown Cursor model ids present in local history (see /quota_status)",
+          },
+        ]
+      : [];
     const entries: QuotaToastEntry[] = [];
+    const resetTimeIso = usage.window.resetTimeIso;
+    const fixedWindow =
+      usage.window.source === "configured_day" &&
+      usage.window.sinceMs < usage.observedAtMs &&
+      usage.observedAtMs < usage.window.untilMs
+        ? ({
+            kind: "fixed_window",
+            startedAtIso: new Date(usage.window.sinceMs).toISOString(),
+            observedAtIso: new Date(usage.observedAtMs).toISOString(),
+            endsAtIso: new Date(usage.window.untilMs).toISOString(),
+            fullReset: true,
+          } as const)
+        : undefined;
 
-    if (includedApiUsd !== undefined) {
-      entries.push(
-        hasPartialApiCoverage
-          ? {
-              kind: "value",
-              accounting: {
-                resultType: "budget",
-                acquisitionMethod: "local_runtime_accounting",
-                ownership: "maintained",
-                authority: "locally_derived",
-              },
-              name: planLabel ? `Cursor API (${planLabel})` : "Cursor API",
-              group,
-              label: "API:",
-              value: buildCursorApiUsageValue({
-                costUsd: usage.api.costUsd,
-                includedApiUsd,
-                partial: true,
-              }),
-              resetTimeIso: usage.window.resetTimeIso,
-            }
-          : {
-              accounting: {
-                resultType: "budget",
-                acquisitionMethod: "local_runtime_accounting",
-                ownership: "maintained",
-                authority: "locally_derived",
-              },
-              name: planLabel ? `Cursor API (${planLabel})` : "Cursor API",
-              group,
-              label: "API:",
-              right: `${fmtUsdAmount(usage.api.costUsd)}/${fmtUsdAmount(includedApiUsd)}`,
-              percentRemaining:
-                includedApiUsd > 0 ? 100 - (usage.api.costUsd / includedApiUsd) * 100 : 0,
-              resetTimeIso: usage.window.resetTimeIso,
-            },
-      );
-    } else {
+    if (hasPositiveAllowance && !hasPartialApiCoverage) {
+      const remainingUsd = Math.max(0, includedApiUsd - usage.api.costUsd);
       entries.push({
-        kind: "value",
-        accounting: {
-          resultType: "spend",
-          acquisitionMethod: "local_runtime_accounting",
-          ownership: "maintained",
-          authority: "locally_derived",
-        },
-        name: "Cursor",
+        accounting: BUDGET_ACCOUNTING,
+        name: planLabel ? `Cursor API (${planLabel})` : "Cursor API",
         group,
-        label: "Usage:",
-        value: `${fmtUsdAmount(usage.total.costUsd)} used this cycle`,
-        resetTimeIso: usage.window.resetTimeIso,
+        percentRemaining: 100 - (usage.api.costUsd / includedApiUsd) * 100,
+        resetTimeIso,
+        ...(fixedWindow ? { fixedWindow } : {}),
+        semantic: {
+          metric: { kind: "named", name: "API" },
+          prominence: "primary",
+        },
+        basis: {
+          used: {
+            quantity: {
+              decimal: accountingDecimalFromNumber(usage.api.costUsd),
+              unit: USD_UNIT,
+            },
+            authority: "locally_derived",
+          },
+          limit: {
+            quantity: {
+              decimal: accountingDecimalFromNumber(includedApiUsd),
+              unit: USD_UNIT,
+            },
+            authority:
+              ctx.config.cursorIncludedApiUsd === undefined ? "locally_derived" : "user_configured",
+          },
+          remaining: {
+            quantity: {
+              decimal: accountingDecimalFromNumber(remainingUsd),
+              unit: USD_UNIT,
+            },
+            authority: "locally_derived",
+          },
+        },
+      });
+    } else {
+      const metricName = hasPartialApiCoverage ? "Known API" : "API";
+      entries.push({
+        kind: "quantity",
+        accounting: SPEND_ACCOUNTING,
+        name: `cursor-${hasPartialApiCoverage ? "known-api" : "api"}-spend`,
+        group,
+        resetTimeIso,
+        semantic: {
+          metric: { kind: "named", name: metricName },
+          prominence: "primary",
+        },
+        quantity: {
+          decimal: accountingDecimalFromNumber(usage.api.costUsd),
+          unit: USD_UNIT,
+        },
       });
     }
 
     if (usage.autoComposer.messageCount > 0 || includedApiUsd !== undefined) {
       entries.push({
-        kind: "value",
-        accounting: {
-          resultType: "spend",
-          acquisitionMethod: "local_runtime_accounting",
-          ownership: "maintained",
-          authority: "locally_derived",
-        },
-        name: "Cursor Auto+Composer",
+        kind: "quantity",
+        accounting: SPEND_ACCOUNTING,
+        name: "cursor-auto-composer-spend",
         group,
-        label: "Auto+Composer:",
-        value: `${fmtUsdAmount(usage.autoComposer.costUsd)} used`,
-        resetTimeIso: usage.window.resetTimeIso,
+        resetTimeIso,
+        semantic: {
+          metric: { kind: "named", name: "Auto+Composer" },
+          prominence: "supplementary",
+        },
+        quantity: {
+          decimal: accountingDecimalFromNumber(usage.autoComposer.costUsd),
+          unit: USD_UNIT,
+        },
       });
     }
 

@@ -15,7 +15,11 @@ export function buildSidebarQuotaPanelLines(params) {
         errors: data.errors,
         style: params.config.formatStyle,
         percentDisplayMode: params.config.percentDisplayMode,
+        percentLabelStyle: params.config.percentLabelStyle,
+        accountingDetail: params.config.accountingDetail,
         resetTimeDecimals: params.config.resetTimeDecimals,
+        resetTimeSpaced: params.config.resetTimeSpaced,
+        wrapLabels: params.config.quotaProjection === "runway",
         sessionTokens: data.sessionTokens,
     });
     return quotaBody ? quotaBody.split("\n") : [];

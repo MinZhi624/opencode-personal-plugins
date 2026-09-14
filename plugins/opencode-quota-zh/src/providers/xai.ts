@@ -60,6 +60,9 @@ export const xaiProvider: QuotaProvider = {
               label: `${period}:`,
               percentRemaining: result.window.percentRemaining,
               resetTimeIso: result.window.resetTimeIso,
+              ...(result.window.fixedWindow
+                ? { fixedWindow: { ...result.window.fixedWindow } }
+                : {}),
             },
           ],
           [],

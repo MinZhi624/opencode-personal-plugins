@@ -201,6 +201,7 @@ export interface InvalidAwareApiKeyAuthConfig<AuthSource extends string> {
   authSource: AuthSource;
   displayName: string;
   defaultMaxAgeMs: number;
+  unsupportedTypeError?: string;
 }
 
 /** Configuration for simple nullable API key resolution. */
@@ -314,7 +315,9 @@ function parseInvalidAwareAuth(
     const sanitized = sanitizeDisplayText(record.type).replace(/\s+/g, " ").trim();
     return {
       state: "invalid",
-      error: `Unsupported ${config.displayName} auth type: "${(sanitized || "unknown").slice(0, 120)}"`,
+      error:
+        config.unsupportedTypeError ??
+        `Unsupported ${config.displayName} auth type: "${(sanitized || "unknown").slice(0, 120)}"`,
     };
   }
 

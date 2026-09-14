@@ -36,7 +36,7 @@ const REQUIRED_COOKIE_NAMES = ["api-platform_serviceToken", "userId"] as const;
 
 function getConfigCandidatePaths(): string[] {
   const { configDirs } = getOpencodeRuntimeDirCandidates();
-  return configDirs.map((dir) => join(dir, "opencode-quota", "mimo.json"));
+  return configDirs.map((dir) => join(dir, "opencode-quota-zh", "mimo.json"));
 }
 
 export function normalizeMimoCookieHeader(raw: string): string | null {

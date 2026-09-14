@@ -8,7 +8,7 @@ import { resolvePricingKey } from "./quota-stats.js";
 import { tokenBucketsFromMessage } from "./token-buckets.js";
 import { calculateUsdFromTokenBuckets } from "./token-cost.js";
 export const QUOTA_PROVIDER_LOCAL_STATE_VERSION = 1;
-const LOCAL_STATE_DIR = "opencode-quota/quota-providers";
+const LOCAL_STATE_DIR = "opencode-quota-zh/quota-providers";
 const DAY_MS = 24 * 60 * 60 * 1000;
 function hasOnlyKeys(value, allowed) {
     const allowedSet = new Set(allowed);
@@ -203,6 +203,18 @@ export function computeLocalQuotaProviderEstimate(params) {
         const sinceMs = windowStart(window, nowMs);
         const messages = params.state.messages.filter((message) => message.atMs >= sinceMs && message.atMs <= nowMs);
         const resetTimeIso = window.type === "utc-day" ? nextUtcMidnight(nowMs) : rollingReset(messages, window);
+        const fixedWindow = window.type === "utc-day" &&
+            resetTimeIso !== undefined &&
+            sinceMs < params.state.updatedAt &&
+            params.state.updatedAt < Date.parse(resetTimeIso)
+            ? {
+                kind: "fixed_window",
+                startedAtIso: new Date(sinceMs).toISOString(),
+                observedAtIso: new Date(params.state.updatedAt).toISOString(),
+                endsAtIso: resetTimeIso,
+                fullReset: true,
+            }
+            : undefined;
         entries.push({
             accounting: {
                 resultType: "rate_limit",
@@ -219,6 +231,7 @@ export function computeLocalQuotaProviderEstimate(params) {
             right: `${messages.length}/${window.requestLimit}`,
             percentRemaining: percentRemaining(messages.length, window.requestLimit),
             ...(resetTimeIso ? { resetTimeIso } : {}),
+            ...(fixedWindow ? { fixedWindow } : {}),
         });
         if (window.usdBudget === undefined)
             continue;
@@ -259,6 +272,7 @@ export function computeLocalQuotaProviderEstimate(params) {
                 kind: "percent",
                 right: `${formatUsd(costUsd)}/${formatUsd(window.usdBudget)}`,
                 percentRemaining: percentRemaining(costUsd, window.usdBudget),
+                ...(fixedWindow ? { fixedWindow } : {}),
             });
         }
     }

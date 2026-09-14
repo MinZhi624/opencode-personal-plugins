@@ -1,20 +1,65 @@
 /**
  * NanoGPT provider wrapper.
  */
-import { fmtUsdAmount } from "../lib/format-utils.js";
-import { serializeQuotaAlertMetric } from "../lib/quota-alert-metrics.js";
-import { formatNanoGptBalanceValue, getNanoGptKeyDiagnostics, hasNanoGptApiKeyConfigured, queryNanoGptQuota, } from "../lib/nanogpt.js";
+import { getNanoGptKeyDiagnostics, hasNanoGptApiKeyConfigured, queryNanoGptQuota, } from "../lib/nanogpt.js";
 import { modelProviderMatchesRuntimeId } from "../lib/provider-model-matching.js";
 import { attemptedResult, mapNullableProviderResult, simpleApiKeyStatusDetails, statusDetailsFromRecord, withStatusDetails, } from "./result-helpers.js";
-function formatUsageAmount(value) {
+const REQUEST_UNIT = { kind: "count", unit: "request" };
+const USD_UNIT = { kind: "currency", code: "USD" };
+const NANO_UNIT = { kind: "custom", symbol: "NANO" };
+function canonicalNumberDecimal(value) {
     if (!Number.isFinite(value))
+        throw new TypeError("NanoGPT usage value must be finite");
+    if (Object.is(value, -0))
         return "0";
-    if (Number.isInteger(value))
-        return String(Math.trunc(value));
-    return value.toFixed(2).replace(/\.?0+$/, "");
+    const raw = String(value);
+    if (!/[eE]/u.test(raw))
+        return raw;
+    const match = /^(-?)(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/u.exec(raw);
+    if (!match)
+        throw new TypeError("NanoGPT usage value must be decimal-compatible");
+    const [, sign, integer, fraction = "", exponentRaw] = match;
+    const digits = `${integer}${fraction}`;
+    const decimalIndex = integer.length + Number(exponentRaw);
+    if (decimalIndex <= 0)
+        return `${sign}0.${"0".repeat(-decimalIndex)}${digits}`;
+    if (decimalIndex >= digits.length) {
+        return `${sign}${digits}${"0".repeat(decimalIndex - digits.length)}`;
+    }
+    return `${sign}${digits.slice(0, decimalIndex)}.${digits.slice(decimalIndex)}`;
 }
-function formatUsageRight(window) {
-    return `${formatUsageAmount(window.used)}/${formatUsageAmount(window.limit)}`;
+function quotaBasis(window) {
+    const basis = {};
+    for (const key of ["used", "limit", "remaining"]) {
+        const value = window.reportedBasis[key];
+        if (value === undefined)
+            continue;
+        basis[key] = {
+            quantity: { decimal: canonicalNumberDecimal(value), unit: REQUEST_UNIT },
+            authority: "provider_reported",
+        };
+    }
+    return basis.used || basis.limit || basis.remaining ? basis : undefined;
+}
+function pushQuotaEntry(entries, window, accountingWindow) {
+    const basis = quotaBasis(window);
+    entries.push({
+        accounting: {
+            resultType: "quota",
+            acquisitionMethod: "remote_api",
+            ownership: "maintained",
+            authority: "provider_reported",
+        },
+        name: `nanogpt-${accountingWindow}-quota`,
+        group: "NanoGPT",
+        percentRemaining: window.percentRemaining,
+        resetTimeIso: window.resetTimeIso,
+        semantic: {
+            metric: { kind: "window", window: accountingWindow },
+            prominence: "primary",
+        },
+        ...(basis ? { basis } : {}),
+    });
 }
 function mapNanoGptSuccess(result) {
     const entries = [];
@@ -23,66 +68,31 @@ function mapNanoGptSuccess(result) {
         message: entry.message,
     })) ?? [];
     const subscription = result.subscription;
-    if (subscription?.daily) {
+    if (subscription?.daily)
+        pushQuotaEntry(entries, subscription.daily, "day");
+    if (subscription?.monthly)
+        pushQuotaEntry(entries, subscription.monthly, "month");
+    const balance = result.balance;
+    if (balance?.usdBalanceRaw || balance?.nanoBalanceRaw) {
         entries.push({
-            accounting: {
-                resultType: "quota",
-                acquisitionMethod: "remote_api",
-                ownership: "maintained",
-                authority: "provider_reported",
-            },
-            name: "NanoGPT Daily",
-            group: "NanoGPT",
-            label: "Daily:",
-            right: formatUsageRight(subscription.daily),
-            percentRemaining: subscription.daily.percentRemaining,
-            resetTimeIso: subscription.daily.resetTimeIso,
-        });
-    }
-    if (subscription?.monthly) {
-        entries.push({
-            accounting: {
-                resultType: "quota",
-                acquisitionMethod: "remote_api",
-                ownership: "maintained",
-                authority: "provider_reported",
-            },
-            name: "NanoGPT Monthly",
-            group: "NanoGPT",
-            label: "Monthly:",
-            right: formatUsageRight(subscription.monthly),
-            percentRemaining: subscription.monthly.percentRemaining,
-            resetTimeIso: subscription.monthly.resetTimeIso,
-        });
-    }
-    const balanceValue = result.balance ? formatNanoGptBalanceValue(result.balance) : null;
-    if (balanceValue) {
-        entries.push({
-            kind: "value",
+            kind: "quantity",
             accounting: {
                 resultType: "balance",
                 acquisitionMethod: "remote_api",
                 ownership: "maintained",
                 authority: "provider_reported",
             },
-            name: "NanoGPT Balance",
+            name: "nanogpt-current-balance",
             group: "NanoGPT",
-            label: "Balance:",
-            value: balanceValue,
+            semantic: {
+                metric: { kind: "component", component: "current_balance" },
+                prominence: "primary",
+            },
+            quantity: balance.usdBalanceRaw
+                ? { decimal: balance.usdBalanceRaw, unit: USD_UNIT }
+                : { decimal: balance.nanoBalanceRaw, unit: NANO_UNIT },
         });
     }
-    // Structured balance fact (Ticket 10): only a finite provider-reported USD
-    // balance participates in quota-alert danger evaluation; a missing or
-    // non-numeric balance stays displayable but never alertable.
-    const rawDetails = typeof result.balance?.usdBalance === "number" && Number.isFinite(result.balance.usdBalance)
-        ? [
-            serializeQuotaAlertMetric({
-                kind: "balance",
-                currency: "USD",
-                amount: result.balance.usdBalance,
-            }),
-        ]
-        : [];
     if (subscription?.state && subscription.state.toLowerCase() !== "active") {
         errors.push({
             label: "NanoGPT",
@@ -96,7 +106,7 @@ function mapNanoGptSuccess(result) {
         });
     }
     const formatSubscriptionUsage = (usage) => usage
-        ? `${formatUsageAmount(usage.used)}/${formatUsageAmount(usage.limit)} remaining=${formatUsageAmount(usage.remaining)} percent_remaining=${usage.percentRemaining} reset_at=${usage.resetTimeIso ?? "(none)"}`
+        ? `${canonicalNumberDecimal(usage.used)}/${canonicalNumberDecimal(usage.limit)} remaining=${canonicalNumberDecimal(usage.remaining)} percent_remaining=${usage.percentRemaining} reset_at=${usage.resetTimeIso ?? "(none)"}`
         : undefined;
     const statusDetails = [
         ...statusDetailsFromRecord({
@@ -111,20 +121,15 @@ function mapNanoGptSuccess(result) {
             monthly_usage: formatSubscriptionUsage(subscription?.monthly),
             billing_period_end: subscription ? (subscription.currentPeriodEndIso ?? "(none)") : undefined,
             grace_until: subscription?.graceUntilIso,
-            balance_usd: typeof result.balance?.usdBalance === "number"
-                ? fmtUsdAmount(result.balance.usdBalance)
-                : "(none)",
-            balance_nano: result.balance?.nanoBalanceRaw ?? "(none)",
+            balance_usd: balance?.usdBalanceRaw ?? "(none)",
+            balance_nano: balance?.nanoBalanceRaw ?? "(none)",
         }),
         ...(result.endpointErrors ?? []).map((endpointError) => ({
             key: `live_error_${endpointError.endpoint}`,
             value: endpointError.message,
         })),
     ];
-    return withStatusDetails({
-        ...attemptedResult(entries, errors),
-        ...(rawDetails.length > 0 ? { rawDetails } : {}),
-    }, statusDetails);
+    return withStatusDetails(attemptedResult(entries, errors), statusDetails);
 }
 export const nanoGptProvider = {
     id: "nanogpt",

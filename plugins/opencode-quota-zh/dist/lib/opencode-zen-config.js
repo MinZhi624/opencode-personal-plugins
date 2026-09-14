@@ -3,7 +3,7 @@ import { join } from "path";
 import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
 function getConfigCandidatePaths() {
     const { configDirs } = getOpencodeRuntimeDirCandidates();
-    return configDirs.map((dir) => join(dir, "opencode-quota", "opencode.json"));
+    return configDirs.map((dir) => join(dir, "opencode-quota-zh", "opencode.json"));
 }
 function getConfigFileError(error) {
     if (error instanceof SyntaxError) {
@@ -30,29 +30,7 @@ async function readConfigFile(path) {
         return { state: "invalid", error: getConfigFileError(error) };
     }
 }
-export function resolveOpenCodeZenConfigFromEnv(env = process.env) {
-    const workspaceId = env.OPENCODE_WORKSPACE_ID?.trim();
-    const authCookie = env.OPENCODE_AUTH_COOKIE?.trim();
-    if (workspaceId && authCookie) {
-        return {
-            state: "configured",
-            config: { workspaceId, authCookie },
-            source: "env(OPENCODE_*)",
-        };
-    }
-    if (workspaceId || authCookie) {
-        return {
-            state: "incomplete",
-            source: "env(OPENCODE_*)",
-            missing: workspaceId ? "OPENCODE_AUTH_COOKIE" : "OPENCODE_WORKSPACE_ID",
-        };
-    }
-    return null;
-}
 export async function resolveOpenCodeZenConfig() {
-    const envResult = resolveOpenCodeZenConfigFromEnv();
-    if (envResult)
-        return envResult;
     for (const path of getConfigCandidatePaths()) {
         const fileResult = await readConfigFile(path);
         if (fileResult.state === "missing")

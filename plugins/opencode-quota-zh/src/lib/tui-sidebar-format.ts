@@ -12,7 +12,13 @@ export const TUI_SIDEBAR_LAYOUT = {
 
 export function buildSidebarQuotaPanelLines(params: {
   data: QuotaRenderData;
-  config: Pick<QuotaToastConfig, "formatStyle" | "percentDisplayMode" | "resetTimeDecimals">;
+  config: Pick<QuotaToastConfig, "formatStyle" | "percentDisplayMode" | "resetTimeDecimals"> &
+    Partial<
+      Pick<
+        QuotaToastConfig,
+        "accountingDetail" | "percentLabelStyle" | "quotaProjection" | "resetTimeSpaced"
+      >
+    >;
 }): string[] {
   const data = sanitizeQuotaRenderData(params.data);
 
@@ -23,7 +29,11 @@ export function buildSidebarQuotaPanelLines(params: {
     errors: data.errors,
     style: params.config.formatStyle,
     percentDisplayMode: params.config.percentDisplayMode,
+    percentLabelStyle: params.config.percentLabelStyle,
+    accountingDetail: params.config.accountingDetail,
     resetTimeDecimals: params.config.resetTimeDecimals,
+    resetTimeSpaced: params.config.resetTimeSpaced,
+    wrapLabels: params.config.quotaProjection === "runway",
     sessionTokens: data.sessionTokens,
   });
   return quotaBody ? quotaBody.split("\n") : [];

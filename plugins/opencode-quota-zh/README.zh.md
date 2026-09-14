@@ -7,19 +7,24 @@
 - 侧边栏、TUI 弹窗和主要统计文案已中文化
 - Provider 官方名称和命令 ID 保持不变
 - 模型价格从 `https://models.dev/api.json` 获取，运行时保留所有有数字价格的 provider/model
-- quota 与增强侧边栏共享 `~/.cache/opencode/opencode-quota/` 价格快照
+- quota 与增强侧边栏共享 `~/.cache/opencode/opencode-quota-zh/` 价格快照
+- 例行额度 toast 能力保留但默认关闭；重置通知同样默认关闭
 
 ## 保留的命令
 
 ```text
 /quota
 /quota_status
+/quota_announcements
 /pricing_refresh
 /tokens_today
+/tokens_daily
 /tokens_weekly
 /tokens_monthly
 /tokens_all
 /tokens_session
+/tokens_session_all
+/tokens_between
 ```
 
 `/pricing_refresh` 强制刷新模型价格。刷新失败时继续使用内置快照；可在
@@ -43,6 +48,9 @@
 ## 本地使用
 
 Server 入口是 `dist/index.js`，TUI 入口是 `dist/tui.tsx`。全局 OpenCode 配置通过这两个入口加载本 Fork。
+
+主配置位于 `opencode-quota-zh/config.jsonc`。中文版默认 `enableToast: false`、
+`resetNotifications.enabled: false`；独立危险阈值告警及 `/quota_alerts` 不再提供。
 
 原始 Provider 和额度逻辑来自 `@slkiser/opencode-quota`，许可证仍为 MIT。
 

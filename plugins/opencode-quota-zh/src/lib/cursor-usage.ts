@@ -27,6 +27,7 @@ export interface CursorUsageBucket {
 
 export interface CursorUsageSummary {
   window: CursorCycleWindow;
+  observedAtMs: number;
   api: CursorUsageBucket;
   autoComposer: CursorUsageBucket;
   total: CursorUsageBucket;
@@ -163,6 +164,7 @@ export async function getCurrentCursorUsageSummary(params?: {
 
   return {
     window,
+    observedAtMs: nowMs,
     api,
     autoComposer,
     total,

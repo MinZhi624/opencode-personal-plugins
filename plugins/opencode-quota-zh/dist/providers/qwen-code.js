@@ -62,6 +62,7 @@ export const qwenCodeProvider = {
                 right: `${quota.day.used}/${quota.day.limit}`,
                 percentRemaining: quota.day.percentRemaining,
                 resetTimeIso: quota.day.resetTimeIso,
+                ...(quota.day.fixedWindow ? { fixedWindow: { ...quota.day.fixedWindow } } : {}),
             },
             {
                 accounting: {

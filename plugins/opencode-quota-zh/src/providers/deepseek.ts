@@ -1,25 +1,23 @@
 /**
  * DeepSeek provider wrapper.
  *
- * Queries the DeepSeek /user/balance endpoint and displays the
- * account balance as a value entry.
+ * Queries the DeepSeek /user/balance endpoint and maps exact source decimals
+ * into provider-neutral accounting rows.
  */
 
 import {
-  formatDeepSeekBalanceValue,
   getDeepSeekKeyDiagnostics,
   hasDeepSeekApiKeyConfigured,
   queryDeepSeekBalance,
-  type DeepSeekAvailability,
 } from "../lib/deepseek.js";
 import type {
+  AccountingComponent,
+  AccountingMetadata,
   QuotaProvider,
   QuotaProviderContext,
   QuotaProviderResult,
-  QuotaProviderStatusDetail,
   QuotaToastEntry,
 } from "../lib/entries.js";
-import { serializeQuotaAlertMetric } from "../lib/quota-alert-metrics.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
 import { modelProviderIncludesAny } from "../lib/provider-model-matching.js";
 import {
@@ -29,71 +27,89 @@ import {
   withStatusDetails,
 } from "./result-helpers.js";
 
-const DEEPSEEK_STATUS_DISPLAY: Record<DeepSeekAvailability, string> = {
-  available: "Available",
-  unavailable: "Low balance",
-  unknown: "Unknown",
+const DEEPSEEK_GROUP = "DeepSeek";
+const BALANCE_ACCOUNTING: AccountingMetadata = {
+  resultType: "balance",
+  acquisitionMethod: "remote_api",
+  ownership: "maintained",
+  authority: "provider_reported",
+};
+const STATUS_ACCOUNTING: AccountingMetadata = {
+  ...BALANCE_ACCOUNTING,
+  resultType: "status",
 };
 
-function buildDeepSeekEntries(
-  result: Extract<NonNullable<Awaited<ReturnType<typeof queryDeepSeekBalance>>>, { success: true }>,
-): { entries: QuotaToastEntry[]; rawDetails: QuotaProviderStatusDetail[] } {
+type DeepSeekBalanceSuccess = Extract<
+  NonNullable<Awaited<ReturnType<typeof queryDeepSeekBalance>>>,
+  { success: true }
+>;
+
+function buildDeepSeekResult(result: DeepSeekBalanceSuccess): QuotaProviderResult {
   const entries: QuotaToastEntry[] = [];
-  const rawDetails: QuotaProviderStatusDetail[] = [];
+  let hasTotalBalance = false;
 
   for (const info of result.balanceInfos) {
-    entries.push({
-      kind: "value",
-      accounting: {
-        resultType: "balance",
-        acquisitionMethod: "remote_api",
-        ownership: "maintained",
-        authority: "provider_reported",
+    const unit = { kind: "currency", code: info.currency } as const;
+    const rows: Array<{
+      component: AccountingComponent;
+      decimal: string | undefined;
+      prominence: "primary" | "supplementary";
+    }> = [
+      {
+        component: "total_balance",
+        decimal: info.totalBalance,
+        prominence: "primary",
       },
-      name: "DeepSeek Balance",
-      group: "DeepSeek",
-      label: "Balance:",
-      value: formatDeepSeekBalanceValue({
-        currency: info.currency,
-        totalBalance: info.totalBalance,
-      }),
-    });
-    // Structured balance facts travel separately from display text; a
-    // malformed amount (null) is displayable but never alertable.
-    if (info.totalBalanceAmount !== null) {
-      rawDetails.push(
-        serializeQuotaAlertMetric({
-          kind: "balance",
-          currency: info.currency,
-          amount: info.totalBalanceAmount,
-        }),
-      );
+      {
+        component: "granted_balance",
+        decimal: info.grantedBalance,
+        prominence: "supplementary",
+      },
+      {
+        component: "topped_up_balance",
+        decimal: info.toppedUpBalance,
+        prominence: "supplementary",
+      },
+    ];
+
+    for (const row of rows) {
+      if (row.decimal === undefined) continue;
+      if (row.component === "total_balance") hasTotalBalance = true;
+      entries.push({
+        kind: "quantity",
+        accounting: BALANCE_ACCOUNTING,
+        name: `deepseek-${info.currency.toLowerCase()}-${row.component.replaceAll("_", "-")}`,
+        group: DEEPSEEK_GROUP,
+        semantic: {
+          metric: { kind: "component", component: row.component },
+          prominence: row.prominence,
+        },
+        quantity: { decimal: row.decimal, unit },
+      });
     }
   }
 
-  // The tri-state availability fact is always carried so the unified
-  // snapshot can trigger on explicit unavailability and later recover on
-  // available; a missing API field stays "unknown" and never alerts.
-  rawDetails.push(serializeQuotaAlertMetric({ kind: "availability", status: result.availability }));
-
-  // If the API returned no balance info, show the availability status.
-  if (entries.length === 0) {
+  if (!hasTotalBalance && result.isAvailable !== undefined) {
     entries.push({
-      kind: "value",
-      accounting: {
-        resultType: "status",
-        acquisitionMethod: "remote_api",
-        ownership: "maintained",
-        authority: "provider_reported",
+      kind: "boolean",
+      accounting: STATUS_ACCOUNTING,
+      name: "deepseek-availability",
+      group: DEEPSEEK_GROUP,
+      semantic: {
+        metric: { kind: "named", name: "Availability" },
+        prominence: "primary",
       },
-      name: "DeepSeek",
-      group: "DeepSeek",
-      label: "Status:",
-      value: DEEPSEEK_STATUS_DISPLAY[result.availability],
+      value: result.isAvailable,
     });
   }
 
-  return { entries, rawDetails };
+  return attemptedResult(
+    entries,
+    result.parseIssues.map((issue) => ({
+      label: `DeepSeek ${issue.currency}`,
+      message: `${issue.field} returned an invalid decimal`,
+    })),
+  );
 }
 
 export const deepseekProvider: QuotaProvider = {
@@ -125,13 +141,7 @@ export const deepseekProvider: QuotaProvider = {
     const result = await queryDeepSeekBalance({ requestTimeoutMs: ctx.config?.requestTimeoutMs });
     const providerResult = mapNullableProviderResult(result, {
       errorLabel: "DeepSeek",
-      onSuccess: (result) => {
-        const { entries, rawDetails } = buildDeepSeekEntries(result);
-        return {
-          ...attemptedResult(entries),
-          rawDetails,
-        };
-      },
+      onSuccess: buildDeepSeekResult,
     });
     return withStatusDetails(providerResult, simpleApiKeyStatusDetails(diagnostics));
   },

@@ -1,4 +1,5 @@
 import { sanitizeSingleLineDisplayText } from "./display-sanitize.js";
+import type { QuotaRunwayProjection } from "./entries.js";
 import type { PercentDisplayMode } from "./types.js";
 
 const SIDEBAR_LOADING_LINE = "Loading…";
@@ -12,6 +13,7 @@ export type SidebarPanelState = {
   lines: string[];
   linesExpanded?: string[];
   providerCount?: number;
+  headerPercentMode?: PercentDisplayMode;
 };
 
 export type CompactStatusState =
@@ -24,16 +26,14 @@ export type HomeBottomState =
   | { status: "disabled"; announcementText?: string; compact: CompactStatusState }
   | { status: "ready"; announcementText?: string; compact: CompactStatusState };
 
-/** Startup hint rendered on the OpenCode home page (Ticket 07). */
-export type StartupHintState =
-  | { status: "loading" | "disabled" }
-  | { status: "ready"; text: string };
-
 export type PromptBarEntry = {
+  /** Preformatted primary semantic label/value segment for rich accounting rows. */
+  semanticSegment?: string;
   label?: string;
   name?: string;
   percentRemaining?: number;
   resetTimeIso?: string;
+  runway?: QuotaRunwayProjection;
 };
 
 export type PromptBarState =
@@ -43,6 +43,7 @@ export type PromptBarState =
       entry?: PromptBarEntry;
       percentDisplayMode?: PercentDisplayMode;
       resetTimeDecimals?: number;
+      resetTimeSpaced?: boolean;
     };
 
 export function shouldRenderSidebarPanel(panel: SidebarPanelState): boolean {

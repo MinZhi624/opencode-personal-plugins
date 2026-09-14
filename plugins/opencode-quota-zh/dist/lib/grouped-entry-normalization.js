@@ -1,3 +1,5 @@
+import { compareAccountingSemanticEntries } from "./accounting-format.js";
+import { cloneQuotaToastEntry } from "./entries.js";
 function trimOptional(value) {
     const trimmed = value?.trim();
     return trimmed ? trimmed : undefined;
@@ -52,19 +54,29 @@ function getDurationRank(entry) {
         return entry.sortPriority;
     return entry.label ? getDurationRankFromText(entry.label) : getDurationRankFromText(entry.name);
 }
+function ownStructuredEntry(entry) {
+    // Normalized provider results always have accounting metadata. The guard keeps this
+    // presentation helper tolerant of isolated legacy test fixtures without weakening the type.
+    return entry.accounting ? cloneQuotaToastEntry(entry) : entry;
+}
 function normalizeGroupedQuotaEntry(entry, target) {
-    const group = trimOptional(entry.group);
-    const label = trimOptional(entry.label);
-    const right = trimOptional(entry.right);
+    const owned = ownStructuredEntry(entry);
+    const group = trimOptional(owned.group);
+    const label = trimOptional(owned.label);
+    const right = trimOptional(owned.right);
     const normalized = {
-        ...entry,
+        ...owned,
         ...(label ? { label } : {}),
         ...(right ? { right } : {}),
     };
+    if (!label)
+        delete normalized.label;
+    if (!right)
+        delete normalized.right;
     if (group) {
         return { ...normalized, group };
     }
-    const googleFallback = getGoogleFallbackMeta(entry.name);
+    const googleFallback = getGoogleFallbackMeta(owned.name);
     if (googleFallback) {
         return {
             ...normalized,
@@ -74,9 +86,42 @@ function normalizeGroupedQuotaEntry(entry, target) {
     }
     return {
         ...normalized,
-        group: entry.name.trim(),
+        group: owned.name.trim(),
         ...(target === "quota" ? { label: label ?? "Status:" } : {}),
     };
+}
+function sortLegacyEntries(entries) {
+    return entries.slice().sort((left, right) => {
+        if (left.rank !== null && right.rank !== null && left.rank !== right.rank) {
+            return left.rank - right.rank;
+        }
+        if (left.rank !== null && right.rank === null)
+            return -1;
+        if (left.rank === null && right.rank !== null)
+            return 1;
+        return left.originalIndex - right.originalIndex;
+    });
+}
+function sortMixedEntries(entries) {
+    if (!entries.some(({ entry }) => entry.semantic))
+        return sortLegacyEntries(entries);
+    const sorted = entries.slice();
+    let index = 0;
+    while (index < sorted.length) {
+        if (!sorted[index].entry.semantic) {
+            index += 1;
+            continue;
+        }
+        const start = index;
+        while (index < sorted.length && sorted[index].entry.semantic)
+            index += 1;
+        const run = sorted.slice(start, index).sort((left, right) => {
+            const semanticOrder = compareAccountingSemanticEntries(left.entry, right.entry);
+            return semanticOrder || left.originalIndex - right.originalIndex;
+        });
+        sorted.splice(start, run.length, ...run);
+    }
+    return sorted;
 }
 export function groupQuotaEntries(entries, target) {
     const groupOrder = [];
@@ -86,7 +131,7 @@ export function groupQuotaEntries(entries, target) {
         const rankedEntry = {
             entry: normalizedEntry,
             originalIndex,
-            rank: getDurationRank(normalizedEntry),
+            rank: normalizedEntry.semantic ? null : getDurationRank(normalizedEntry),
         };
         const existing = groupedEntries.get(normalizedEntry.group);
         if (existing) {
@@ -98,19 +143,7 @@ export function groupQuotaEntries(entries, target) {
     }
     return groupOrder.map((group) => {
         const rankedEntries = groupedEntries.get(group) ?? [];
-        const entries = rankedEntries
-            .slice()
-            .sort((left, right) => {
-            if (left.rank !== null && right.rank !== null && left.rank !== right.rank) {
-                return left.rank - right.rank;
-            }
-            if (left.rank !== null && right.rank === null)
-                return -1;
-            if (left.rank === null && right.rank !== null)
-                return 1;
-            return left.originalIndex - right.originalIndex;
-        })
-            .map(({ entry }) => entry);
+        const entries = sortMixedEntries(rankedEntries).map(({ entry }) => entry);
         return { group, entries };
     });
 }

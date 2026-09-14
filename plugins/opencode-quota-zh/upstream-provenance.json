@@ -1,30 +1,20 @@
 {
   "repository": "https://github.com/slkiser/opencode-quota.git",
-  "version": "4.4.1",
-  "tag": "v4.4.1",
-  "commit": "73dfcf1a4c4c6214f73993de5c81b22d394ff0a5",
-  "versionMismatch": {
-    "tag": "v4.4.1",
-    "packageJsonVersion": "4.4.0",
-    "note": "Known upstream mismatch: the v4.4.1 tag ships a package.json whose internal version field is 4.4.0. The baseline preserves the upstream value verbatim; it is not a fork edit."
-  },
-  "source": "https://github.com/slkiser/opencode-quota/archive/refs/tags/v4.4.1.tar.gz",
-  "sha256": "d936af7c36b97f0284b2ad9e46ba7f17d86baf2242e3ff3f14549008c28b17b7",
-  "license": "MIT",
-  "snapshot": "src/, scripts/ (dev-build subset only; upstream plugin-reference sync/review tooling removed, see excluded), docs/, contributing/, references/upstream-quota/CONTRIBUTING.md, README.md, LICENSE.upstream, package.upstream.json, tsconfig.upstream.json",
+  "version": "4.9.0",
+  "describe": "v4.9.0-34-gfa9e66b",
+  "commit": "fa9e66b53f8a5de1e0dc4c2ef623c83bef38c8b7",
+  "syncedAt": "2026-09-14",
+  "snapshot": "src/ runtime core; upstream tests, CI, pnpm workflow, release/update workflow and reference trees are excluded",
   "adaptations": [
-    "tsconfig.json: upstream tsconfig with outDir redirected to ./dev-dist (dev-only output)",
-    "tsconfig.runtime.json: runtime build config (outDir ./dist; excludes src/tui.tsx and src/quota-zh-sidebar.tsx, which are copied byte-for-byte as the single supported raw-TSX TUI entry pair)",
-    "scripts/build-runtime.mjs: runtime build from src/ into dist/ (tsc + data copy + TUI entry copy)",
-    "scripts/lib/cross-platform-command.mjs: cross-platform child-process invocation helper ({command, shell}; Windows runs bare npm/tsc via cmd.exe, POSIX no shell)",
-    "scripts/build-dev.mjs: dev-only build entry (tsc via cross-platform-command helper + data copy), never writes dist/",
-    "scripts/stage-runtime.mjs: quota-zh runtime staging restricted to dist/, package.json, LICENSE, README.zh.md"
+    "plugin id and all private config/cache/state paths use the isolated opencode-quota-zh namespace",
+    "routine upstream quota toasts remain available but default enableToast is false; reset notifications remain available and default disabled",
+    "Chinese /quota and token-report presentation, card sidebar, startup hint, and models.dev API list-price estimation extensions",
+    "bundle-owned npm build, runtime staging, install.sh and install.ps1 distribution"
   ],
-  "excluded": [
-    "pnpm-lock.yaml, pnpm-workspace.yaml (repo uses npm single lockfile)",
-    ".husky, .lintstagedrc (repo dev tooling not part of the baseline)",
-    ".git",
-    "references/upstream-plugins/ (third-party plugin reference snapshots incl. dist artifacts and lock.json: not part of runtime/source validation or the offline baseline)",
-    "scripts/sync-upstream-plugin-references.mjs, scripts/check-upstream-plugin-updates.mjs, scripts/prepare-upstream-plugin-review.mjs and scripts/lib/upstream-plugin-*.mjs (upstream plugin-reference sync/check/review tooling that only targets the removed references/upstream-plugins/ tree; removed so no command can rebuild a tree that is not in the baseline)"
-  ]
+  "removed": [
+    "/quota_alerts and the local alerts.* configuration",
+    "Quota Alert Episode persistence and threshold notification modules",
+    "legacy OpenCode Go workspace HTML/cookie scraping"
+  ],
+  "license": "MIT"
 }

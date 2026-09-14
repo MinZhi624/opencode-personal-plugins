@@ -126,7 +126,8 @@ function parseInvalidAwareAuth(auth, config) {
         const sanitized = sanitizeDisplayText(record.type).replace(/\s+/g, " ").trim();
         return {
             state: "invalid",
-            error: `Unsupported ${config.displayName} auth type: "${(sanitized || "unknown").slice(0, 120)}"`,
+            error: config.unsupportedTypeError ??
+                `Unsupported ${config.displayName} auth type: "${(sanitized || "unknown").slice(0, 120)}"`,
         };
     }
     const apiKey = typeof record.key === "string" ? record.key.trim() : "";

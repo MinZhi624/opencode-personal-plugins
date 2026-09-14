@@ -10,36 +10,30 @@ import { existsSync } from "fs";
 import { join } from "path";
 import { getEffectiveConfigRoot } from "./config-file-utils.js";
 import { isResetTimeDecimals } from "./format-utils.js";
-import { buildOpenCodeConfigCandidates, readOpenCodeConfigCandidate, } from "./opencode-config-read.js";
+import { readOpenCodeConfigCandidate } from "./opencode-config-read.js";
 import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
 import { getQuotaProviderShape, normalizeQuotaProviderId } from "./provider-metadata.js";
 import { isQuotaFormatStyle, resolveQuotaFormatStyle } from "./quota-format-style.js";
 import { cloneQuotaProviders, validateQuotaProviders } from "./quota-providers.js";
 import { DEFAULT_CONFIG } from "./types.js";
-/**
- * Canonical v2 config sidecar paths under the isolated `opencode-quota-zh`
- * namespace (ADR 0002). JSONC is preferred; JSON remains accepted.
- */
 export const QUOTA_TOAST_CONFIG_RELATIVE_PATHS = [
     "opencode-quota-zh/config.jsonc",
     "opencode-quota-zh/config.json",
 ];
 export const QUOTA_TOAST_CONFIG_RELATIVE_PATH = QUOTA_TOAST_CONFIG_RELATIVE_PATHS[1];
-/**
- * Legacy upstream-namespace sidecar paths. They are no longer configuration
- * sources (ADR 0001/0002); their presence is reported as a migration
- * requirement by the diagnostics and never applied.
- */
-export const LEGACY_QUOTA_TOAST_CONFIG_RELATIVE_PATHS = [
-    "opencode-quota/quota-toast.jsonc",
-    "opencode-quota/quota-toast.json",
-];
 export const QUOTA_TOAST_SETTING_SOURCE_KEYS = [
     "enabled",
+    "enableToast",
+    "resetNotifications.enabled",
+    "resetNotifications.windows",
     "tuiCommandDisplay",
     "formatStyle",
     "percentDisplayMode",
+    "quotaProjection",
+    "percentLabelStyle",
+    "accountingDetail",
     "resetTimeDecimals",
+    "resetTimeSpaced",
     "minIntervalMs",
     "requestTimeoutMs",
     "debug",
@@ -54,12 +48,17 @@ export const QUOTA_TOAST_SETTING_SOURCE_KEYS = [
     "opencodeMonthlyLimit",
     "pricingSnapshot.source",
     "pricingSnapshot.autoRefresh",
+    "showOnIdle",
+    "showOnQuestion",
+    "showOnCompact",
+    "showOnBothFail",
     "toastDurationMs",
     "onlyCurrentModel",
     "showSessionTokens",
     "sessionTokenScope",
     "tuiSidebarPanel.enabled",
     "tuiSidebarPanel.formatStyle",
+    "tuiSidebarPanel.opencodeGoPreferredWindow",
     "tuiCompactStatus.enabled",
     "tuiCompactStatus.homeBottom",
     "tuiCompactStatus.sessionPrompt",
@@ -68,11 +67,6 @@ export const QUOTA_TOAST_SETTING_SOURCE_KEYS = [
     "tuiCompactStatus.formatStyle",
     "tuiPromptBar.enabled",
     "startupHint.enabled",
-    "promptBar.enabled",
-    "alerts.enabled",
-    "alerts.percentRemainingThreshold",
-    "alerts.repeatAfterMinutes",
-    "alerts.balanceThresholds",
     "maintainerAnnouncements.enabled",
     "maintainerAnnouncements.home",
     "layout.maxWidth",
@@ -101,6 +95,10 @@ const NETWORK_SETTING_SOURCE_KEYS = [
     "requestTimeoutMs",
     "pricingSnapshot.source",
     "pricingSnapshot.autoRefresh",
+    "showOnIdle",
+    "showOnQuestion",
+    "showOnCompact",
+    "showOnBothFail",
 ];
 export function getQuotaToastConfigPath(configRootDir, format = "json") {
     return join(configRootDir, `opencode-quota-zh/config.${format}`);
@@ -132,6 +130,12 @@ function isValidPricingSnapshotAutoRefresh(value) {
 function isValidPercentDisplayMode(value) {
     return value === "remaining" || value === "used";
 }
+function isValidPercentLabelStyle(value) {
+    return value === "full" || value === "bare";
+}
+function isValidAccountingDetail(value) {
+    return value === "summary" || value === "detailed";
+}
 function isValidTuiCommandDisplay(value) {
     return value === "inline" || value === "dialog";
 }
@@ -145,13 +149,16 @@ function isValidCursorBillingCycleStartDay(value) {
     return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 28;
 }
 const VALID_OPENCODE_GO_WINDOWS = ["rolling", "weekly", "monthly"];
+function isValidOpenCodeGoWindow(value) {
+    return (typeof value === "string" &&
+        VALID_OPENCODE_GO_WINDOWS.includes(value));
+}
 function isValidOpenCodeGoWindows(value) {
     if (!Array.isArray(value))
         return false;
     if (value.length === 0)
         return false;
-    return value.every((v) => typeof v === "string" &&
-        VALID_OPENCODE_GO_WINDOWS.includes(v));
+    return value.every(isValidOpenCodeGoWindow);
 }
 function normalizeOptionalString(value) {
     if (typeof value !== "string") {
@@ -194,6 +201,10 @@ function cloneConfig(config) {
             ? [...config.enabledProviders]
             : config.enabledProviders,
         quotaProviders: cloneQuotaProviders(config.quotaProviders),
+        resetNotifications: {
+            ...config.resetNotifications,
+            windows: [...config.resetNotifications.windows],
+        },
         googleModels: [...config.googleModels],
         opencodeGoWindows: [...config.opencodeGoWindows],
         opencodeMonthlyLimit: config.opencodeMonthlyLimit,
@@ -202,23 +213,41 @@ function cloneConfig(config) {
         tuiCompactStatus: { ...config.tuiCompactStatus },
         tuiPromptBar: { ...config.tuiPromptBar },
         startupHint: { ...config.startupHint },
-        promptBar: { ...config.promptBar },
-        alerts: {
-            ...config.alerts,
-            balanceThresholds: cloneBalanceThresholds(config.alerts.balanceThresholds),
-        },
         maintainerAnnouncements: { ...config.maintainerAnnouncements },
         layout: { ...config.layout },
         export: { ...config.export },
         telemetry: { ...config.telemetry },
     };
 }
-function cloneBalanceThresholds(balanceThresholds) {
-    const cloned = {};
-    for (const [providerId, thresholds] of Object.entries(balanceThresholds)) {
-        cloned[providerId] = { ...thresholds };
+const QUOTA_RESET_WINDOWS = [
+    "fiveHour",
+    "hourly",
+    "daily",
+    "weekly",
+    "monthly",
+    "yearly",
+];
+function extractQuotaResetNotificationsPatch(value, reportIssue) {
+    if (!isPlainObject(value))
+        return undefined;
+    const patch = {};
+    if (hasOwnKey(value, "enabled")) {
+        if (typeof value.enabled === "boolean")
+            patch.enabled = value.enabled;
+        else
+            reportIssue?.("resetNotifications.enabled", "expected boolean");
     }
-    return cloned;
+    if (hasOwnKey(value, "windows")) {
+        if (Array.isArray(value.windows) &&
+            value.windows.length > 0 &&
+            value.windows.every((window) => QUOTA_RESET_WINDOWS.includes(window))) {
+            patch.windows = dedupe(value.windows);
+        }
+        else {
+            reportIssue?.("resetNotifications.windows", `expected a non-empty array of: ${QUOTA_RESET_WINDOWS.join(", ")}`);
+        }
+    }
+    return Object.keys(patch).length > 0 ? patch : undefined;
 }
 function describeInvalidProviderValue(value) {
     return typeof value === "string" ? value : typeof value;
@@ -294,6 +323,10 @@ function extractTuiSidebarPanelPatch(value) {
     if (sidebarFormatStyle) {
         patch.formatStyle = sidebarFormatStyle;
     }
+    if (hasOwnKey(value, "opencodeGoPreferredWindow") &&
+        isValidOpenCodeGoWindow(value.opencodeGoPreferredWindow)) {
+        patch.opencodeGoPreferredWindow = value.opencodeGoPreferredWindow;
+    }
     return Object.keys(patch).length > 0 ? patch : undefined;
 }
 function extractTuiCompactStatusPatch(value) {
@@ -334,114 +367,12 @@ function extractTuiPromptBarPatch(value) {
     return Object.keys(patch).length > 0 ? patch : undefined;
 }
 function extractStartupHintPatch(value) {
-    if (!isPlainObject(value)) {
-        return { issues: [] };
+    if (!isPlainObject(value))
+        return undefined;
+    if (hasOwnKey(value, "enabled") && typeof value.enabled === "boolean") {
+        return { enabled: value.enabled };
     }
-    const patch = {};
-    const issues = [];
-    if (hasOwnKey(value, "enabled")) {
-        if (typeof value.enabled === "boolean") {
-            patch.enabled = value.enabled;
-        }
-        else {
-            issues.push({ key: "startupHint.enabled", message: "expected boolean" });
-        }
-    }
-    return { ...(Object.keys(patch).length > 0 ? { value: patch } : {}), issues };
-}
-function extractPromptBarPatch(value) {
-    if (!isPlainObject(value)) {
-        return { issues: [] };
-    }
-    const patch = {};
-    const issues = [];
-    if (hasOwnKey(value, "enabled")) {
-        if (typeof value.enabled === "boolean") {
-            patch.enabled = value.enabled;
-        }
-        else {
-            issues.push({ key: "promptBar.enabled", message: "expected boolean" });
-        }
-    }
-    return { ...(Object.keys(patch).length > 0 ? { value: patch } : {}), issues };
-}
-const ISO_CURRENCY_PATTERN = /^[A-Z]{3}$/u;
-function isValidBalanceThresholds(value) {
-    if (!isPlainObject(value)) {
-        return false;
-    }
-    for (const thresholds of Object.values(value)) {
-        if (!isPlainObject(thresholds)) {
-            return false;
-        }
-        for (const [currency, amount] of Object.entries(thresholds)) {
-            if (!ISO_CURRENCY_PATTERN.test(currency)) {
-                return false;
-            }
-            if (typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0) {
-                return false;
-            }
-        }
-    }
-    return true;
-}
-function isValidPercentRemainingThreshold(value) {
-    return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100;
-}
-function isValidRepeatAfterMinutes(value) {
-    if (value === null) {
-        return true;
-    }
-    return typeof value === "number" && Number.isInteger(value) && value >= 15;
-}
-function extractAlertsPatch(value) {
-    if (!isPlainObject(value)) {
-        return { issues: [] };
-    }
-    const patch = {};
-    const issues = [];
-    if (hasOwnKey(value, "enabled")) {
-        if (typeof value.enabled === "boolean") {
-            patch.enabled = value.enabled;
-        }
-        else {
-            issues.push({ key: "alerts.enabled", message: "expected boolean" });
-        }
-    }
-    if (hasOwnKey(value, "percentRemainingThreshold")) {
-        if (isValidPercentRemainingThreshold(value.percentRemainingThreshold)) {
-            patch.percentRemainingThreshold = value.percentRemainingThreshold;
-        }
-        else {
-            issues.push({
-                key: "alerts.percentRemainingThreshold",
-                message: "expected a number between 0 and 100 (percent remaining)",
-            });
-        }
-    }
-    if (hasOwnKey(value, "repeatAfterMinutes")) {
-        if (isValidRepeatAfterMinutes(value.repeatAfterMinutes)) {
-            patch.repeatAfterMinutes = value.repeatAfterMinutes;
-        }
-        else {
-            issues.push({
-                key: "alerts.repeatAfterMinutes",
-                message: "expected null or an integer of at least 15 minutes",
-            });
-        }
-    }
-    if (hasOwnKey(value, "balanceThresholds")) {
-        if (isValidBalanceThresholds(value.balanceThresholds)) {
-            patch.balanceThresholds = value.balanceThresholds;
-        }
-        else {
-            issues.push({
-                key: "alerts.balanceThresholds",
-                message: "expected provider -> ISO currency -> positive number",
-            });
-        }
-    }
-    return { ...(Object.keys(patch).length > 0 ? { value: patch } : {}), issues };
+    return undefined;
 }
 function extractMaintainerAnnouncementsPatch(value) {
     if (!isPlainObject(value)) {
@@ -500,10 +431,14 @@ function extractValidatedQuotaToastPatch(quotaToastConfig, reportIssue) {
     if (hasOwnKey(quotaToastConfig, "enabled") && typeof quotaToastConfig.enabled === "boolean") {
         patch.enabled = quotaToastConfig.enabled;
     }
-    if (hasOwnKey(quotaToastConfig, "enableToast")) {
-        // Ticket 13: the legacy routine-toast field no longer has any effect; it
-        // only reports a migration requirement.
-        reportIssue?.("enableToast", 'removed in v2: routine quota toasts are disabled; migrate to "startupHint"/"promptBar"/"alerts"');
+    if (hasOwnKey(quotaToastConfig, "enableToast") &&
+        typeof quotaToastConfig.enableToast === "boolean") {
+        patch.enableToast = quotaToastConfig.enableToast;
+    }
+    if (hasOwnKey(quotaToastConfig, "resetNotifications")) {
+        const resetNotifications = extractQuotaResetNotificationsPatch(quotaToastConfig.resetNotifications, reportIssue);
+        if (resetNotifications)
+            patch.resetNotifications = resetNotifications;
     }
     if (hasOwnKey(quotaToastConfig, "tuiCommandDisplay")) {
         if (isValidTuiCommandDisplay(quotaToastConfig.tuiCommandDisplay)) {
@@ -521,9 +456,33 @@ function extractValidatedQuotaToastPatch(quotaToastConfig, reportIssue) {
         isValidPercentDisplayMode(quotaToastConfig.percentDisplayMode)) {
         patch.percentDisplayMode = quotaToastConfig.percentDisplayMode;
     }
+    if (hasOwnKey(quotaToastConfig, "quotaProjection")) {
+        if (quotaToastConfig.quotaProjection === "runway") {
+            patch.quotaProjection = "runway";
+        }
+        else {
+            reportIssue?.("quotaProjection", 'expected "runway"');
+        }
+    }
+    if (hasOwnKey(quotaToastConfig, "percentLabelStyle") &&
+        isValidPercentLabelStyle(quotaToastConfig.percentLabelStyle)) {
+        patch.percentLabelStyle = quotaToastConfig.percentLabelStyle;
+    }
+    if (hasOwnKey(quotaToastConfig, "accountingDetail")) {
+        if (isValidAccountingDetail(quotaToastConfig.accountingDetail)) {
+            patch.accountingDetail = quotaToastConfig.accountingDetail;
+        }
+        else {
+            reportIssue?.("accountingDetail", 'expected "summary" or "detailed"');
+        }
+    }
     if (hasOwnKey(quotaToastConfig, "resetTimeDecimals") &&
         isResetTimeDecimals(quotaToastConfig.resetTimeDecimals)) {
         patch.resetTimeDecimals = quotaToastConfig.resetTimeDecimals;
+    }
+    if (hasOwnKey(quotaToastConfig, "resetTimeSpaced") &&
+        typeof quotaToastConfig.resetTimeSpaced === "boolean") {
+        patch.resetTimeSpaced = quotaToastConfig.resetTimeSpaced;
     }
     if (hasOwnKey(quotaToastConfig, "minIntervalMs") &&
         isPositiveNumber(quotaToastConfig.minIntervalMs)) {
@@ -580,18 +539,30 @@ function extractValidatedQuotaToastPatch(quotaToastConfig, reportIssue) {
         isPositiveNumber(quotaToastConfig.opencodeMonthlyLimit)) {
         patch.opencodeMonthlyLimit = quotaToastConfig.opencodeMonthlyLimit;
     }
+    if (hasOwnKey(quotaToastConfig, "opencodeZenDisplay")) {
+        reportIssue?.("opencodeZenDisplay", 'removed; use root "accountingDetail" ("summary" or "detailed")');
+    }
     if (hasOwnKey(quotaToastConfig, "pricingSnapshot")) {
         const pricingSnapshot = extractPricingSnapshotPatch(quotaToastConfig.pricingSnapshot);
         if (pricingSnapshot) {
             patch.pricingSnapshot = pricingSnapshot;
         }
     }
-    for (const key of ["showOnIdle", "showOnQuestion", "showOnCompact", "showOnBothFail"]) {
-        if (hasOwnKey(quotaToastConfig, key)) {
-            // Ticket 13: legacy lifecycle trigger fields no longer have any
-            // effect; they only report a migration requirement.
-            reportIssue?.(key, "removed in v2: lifecycle events no longer trigger a quota toast; migrate to passive surfaces (startup hint, sidebar, /quota)");
-        }
+    if (hasOwnKey(quotaToastConfig, "showOnIdle") &&
+        typeof quotaToastConfig.showOnIdle === "boolean") {
+        patch.showOnIdle = quotaToastConfig.showOnIdle;
+    }
+    if (hasOwnKey(quotaToastConfig, "showOnQuestion") &&
+        typeof quotaToastConfig.showOnQuestion === "boolean") {
+        patch.showOnQuestion = quotaToastConfig.showOnQuestion;
+    }
+    if (hasOwnKey(quotaToastConfig, "showOnCompact") &&
+        typeof quotaToastConfig.showOnCompact === "boolean") {
+        patch.showOnCompact = quotaToastConfig.showOnCompact;
+    }
+    if (hasOwnKey(quotaToastConfig, "showOnBothFail") &&
+        typeof quotaToastConfig.showOnBothFail === "boolean") {
+        patch.showOnBothFail = quotaToastConfig.showOnBothFail;
     }
     if (hasOwnKey(quotaToastConfig, "toastDurationMs") &&
         isPositiveNumber(quotaToastConfig.toastDurationMs)) {
@@ -619,11 +590,13 @@ function extractValidatedQuotaToastPatch(quotaToastConfig, reportIssue) {
             patch.tuiSidebarPanel = tuiSidebarPanel;
         }
     }
+    if (hasOwnKey(quotaToastConfig, "tuiCompactStatus")) {
+        const tuiCompactStatus = extractTuiCompactStatusPatch(quotaToastConfig.tuiCompactStatus);
+        if (tuiCompactStatus) {
+            patch.tuiCompactStatus = tuiCompactStatus;
+        }
+    }
     if (hasOwnKey(quotaToastConfig, "tuiPromptBar")) {
-        // Legacy upstream v4.6.1 entrypoint: behavior is preserved through the
-        // canonical promptBar section, but its presence is reported as a migration
-        // requirement instead of being silently accepted.
-        reportIssue?.("tuiPromptBar", 'legacy upstream section; use the canonical "promptBar" section');
         const tuiPromptBar = extractTuiPromptBarPatch(quotaToastConfig.tuiPromptBar);
         if (tuiPromptBar) {
             patch.tuiPromptBar = tuiPromptBar;
@@ -631,35 +604,8 @@ function extractValidatedQuotaToastPatch(quotaToastConfig, reportIssue) {
     }
     if (hasOwnKey(quotaToastConfig, "startupHint")) {
         const startupHint = extractStartupHintPatch(quotaToastConfig.startupHint);
-        for (const issue of startupHint.issues) {
-            reportIssue?.(issue.key, issue.message);
-        }
-        if (startupHint.value) {
-            patch.startupHint = startupHint.value;
-        }
-    }
-    if (hasOwnKey(quotaToastConfig, "promptBar")) {
-        const promptBar = extractPromptBarPatch(quotaToastConfig.promptBar);
-        for (const issue of promptBar.issues) {
-            reportIssue?.(issue.key, issue.message);
-        }
-        if (promptBar.value) {
-            patch.promptBar = promptBar.value;
-        }
-    }
-    if (hasOwnKey(quotaToastConfig, "alerts")) {
-        const alerts = extractAlertsPatch(quotaToastConfig.alerts);
-        for (const issue of alerts.issues) {
-            reportIssue?.(issue.key, issue.message);
-        }
-        if (alerts.value) {
-            patch.alerts = alerts.value;
-        }
-    }
-    if (hasOwnKey(quotaToastConfig, "tuiCompactStatus")) {
-        const tuiCompactStatus = extractTuiCompactStatusPatch(quotaToastConfig.tuiCompactStatus);
-        if (tuiCompactStatus) {
-            patch.tuiCompactStatus = tuiCompactStatus;
+        if (startupHint) {
+            patch.startupHint = startupHint;
         }
     }
     if (hasOwnKey(quotaToastConfig, "maintainerAnnouncements")) {
@@ -696,6 +642,20 @@ function applyValidatedQuotaToastPatch(config, patch, sourcePath, settingSources
         config.enabled = patch.enabled;
         applySettingSource(settingSources, "enabled", sourcePath);
     }
+    if (hasOwnKey(patch, "enableToast")) {
+        config.enableToast = patch.enableToast;
+        applySettingSource(settingSources, "enableToast", sourcePath);
+    }
+    if (patch.resetNotifications) {
+        if (hasOwnKey(patch.resetNotifications, "enabled")) {
+            config.resetNotifications.enabled = patch.resetNotifications.enabled;
+            applySettingSource(settingSources, "resetNotifications.enabled", sourcePath);
+        }
+        if (hasOwnKey(patch.resetNotifications, "windows")) {
+            config.resetNotifications.windows = [...patch.resetNotifications.windows];
+            applySettingSource(settingSources, "resetNotifications.windows", sourcePath);
+        }
+    }
     if (hasOwnKey(patch, "tuiCommandDisplay")) {
         config.tuiCommandDisplay = patch.tuiCommandDisplay;
         applySettingSource(settingSources, "tuiCommandDisplay", sourcePath);
@@ -708,9 +668,25 @@ function applyValidatedQuotaToastPatch(config, patch, sourcePath, settingSources
         config.percentDisplayMode = patch.percentDisplayMode;
         applySettingSource(settingSources, "percentDisplayMode", sourcePath);
     }
+    if (hasOwnKey(patch, "quotaProjection")) {
+        config.quotaProjection = patch.quotaProjection;
+        applySettingSource(settingSources, "quotaProjection", sourcePath);
+    }
+    if (hasOwnKey(patch, "percentLabelStyle")) {
+        config.percentLabelStyle = patch.percentLabelStyle;
+        applySettingSource(settingSources, "percentLabelStyle", sourcePath);
+    }
+    if (hasOwnKey(patch, "accountingDetail")) {
+        config.accountingDetail = patch.accountingDetail;
+        applySettingSource(settingSources, "accountingDetail", sourcePath);
+    }
     if (hasOwnKey(patch, "resetTimeDecimals")) {
         config.resetTimeDecimals = patch.resetTimeDecimals;
         applySettingSource(settingSources, "resetTimeDecimals", sourcePath);
+    }
+    if (hasOwnKey(patch, "resetTimeSpaced")) {
+        config.resetTimeSpaced = patch.resetTimeSpaced;
+        applySettingSource(settingSources, "resetTimeSpaced", sourcePath);
     }
     if (hasOwnKey(patch, "minIntervalMs")) {
         config.minIntervalMs = patch.minIntervalMs;
@@ -769,6 +745,22 @@ function applyValidatedQuotaToastPatch(config, patch, sourcePath, settingSources
             applySettingSource(settingSources, "pricingSnapshot.autoRefresh", sourcePath);
         }
     }
+    if (hasOwnKey(patch, "showOnIdle")) {
+        config.showOnIdle = patch.showOnIdle;
+        applySettingSource(settingSources, "showOnIdle", sourcePath);
+    }
+    if (hasOwnKey(patch, "showOnQuestion")) {
+        config.showOnQuestion = patch.showOnQuestion;
+        applySettingSource(settingSources, "showOnQuestion", sourcePath);
+    }
+    if (hasOwnKey(patch, "showOnCompact")) {
+        config.showOnCompact = patch.showOnCompact;
+        applySettingSource(settingSources, "showOnCompact", sourcePath);
+    }
+    if (hasOwnKey(patch, "showOnBothFail")) {
+        config.showOnBothFail = patch.showOnBothFail;
+        applySettingSource(settingSources, "showOnBothFail", sourcePath);
+    }
     if (hasOwnKey(patch, "toastDurationMs")) {
         config.toastDurationMs = patch.toastDurationMs;
         applySettingSource(settingSources, "toastDurationMs", sourcePath);
@@ -793,6 +785,11 @@ function applyValidatedQuotaToastPatch(config, patch, sourcePath, settingSources
         if (hasOwnKey(patch.tuiSidebarPanel, "formatStyle")) {
             config.tuiSidebarPanel.formatStyle = patch.tuiSidebarPanel.formatStyle;
             applySettingSource(settingSources, "tuiSidebarPanel.formatStyle", sourcePath);
+        }
+        if (hasOwnKey(patch.tuiSidebarPanel, "opencodeGoPreferredWindow")) {
+            config.tuiSidebarPanel.opencodeGoPreferredWindow =
+                patch.tuiSidebarPanel.opencodeGoPreferredWindow;
+            applySettingSource(settingSources, "tuiSidebarPanel.opencodeGoPreferredWindow", sourcePath);
         }
     }
     if (patch.tuiCompactStatus) {
@@ -825,44 +822,12 @@ function applyValidatedQuotaToastPatch(config, patch, sourcePath, settingSources
     if (patch.tuiPromptBar) {
         if (hasOwnKey(patch.tuiPromptBar, "enabled")) {
             config.tuiPromptBar.enabled = patch.tuiPromptBar.enabled;
-            // Mirror into the canonical section so the TUI prompt bar keeps one
-            // effective value regardless of which entrypoint was used.
-            config.promptBar.enabled = patch.tuiPromptBar.enabled;
             applySettingSource(settingSources, "tuiPromptBar.enabled", sourcePath);
         }
     }
-    if (patch.startupHint) {
-        if (hasOwnKey(patch.startupHint, "enabled")) {
-            config.startupHint.enabled = patch.startupHint.enabled;
-            applySettingSource(settingSources, "startupHint.enabled", sourcePath);
-        }
-    }
-    // Canonical promptBar is applied after the legacy tuiPromptBar so that a
-    // config containing both sections honors the canonical value.
-    if (patch.promptBar) {
-        if (hasOwnKey(patch.promptBar, "enabled")) {
-            config.promptBar.enabled = patch.promptBar.enabled;
-            config.tuiPromptBar.enabled = patch.promptBar.enabled;
-            applySettingSource(settingSources, "promptBar.enabled", sourcePath);
-        }
-    }
-    if (patch.alerts) {
-        if (hasOwnKey(patch.alerts, "enabled")) {
-            config.alerts.enabled = patch.alerts.enabled;
-            applySettingSource(settingSources, "alerts.enabled", sourcePath);
-        }
-        if (hasOwnKey(patch.alerts, "percentRemainingThreshold")) {
-            config.alerts.percentRemainingThreshold = patch.alerts.percentRemainingThreshold;
-            applySettingSource(settingSources, "alerts.percentRemainingThreshold", sourcePath);
-        }
-        if (hasOwnKey(patch.alerts, "repeatAfterMinutes")) {
-            config.alerts.repeatAfterMinutes = patch.alerts.repeatAfterMinutes;
-            applySettingSource(settingSources, "alerts.repeatAfterMinutes", sourcePath);
-        }
-        if (hasOwnKey(patch.alerts, "balanceThresholds")) {
-            config.alerts.balanceThresholds = cloneBalanceThresholds(patch.alerts.balanceThresholds);
-            applySettingSource(settingSources, "alerts.balanceThresholds", sourcePath);
-        }
+    if (patch.startupHint && hasOwnKey(patch.startupHint, "enabled")) {
+        config.startupHint.enabled = patch.startupHint.enabled;
+        applySettingSource(settingSources, "startupHint.enabled", sourcePath);
     }
     if (patch.maintainerAnnouncements) {
         if (hasOwnKey(patch.maintainerAnnouncements, "enabled")) {
@@ -921,18 +886,9 @@ function buildConfigLayerCandidatesForRoot(dir, scope) {
             scope,
             kind: "plugin",
         })),
-        ...buildOpenCodeConfigCandidates({
-            directories: [dir],
-            formatOrder: ["json", "jsonc"],
-        }).map((candidate) => ({
-            path: candidate.path,
-            rootDir: dir,
-            scope,
-            kind: "legacy",
-        })),
     ];
 }
-function buildConfigLayerCandidates(configDirs, configRootDir) {
+export function buildConfigLayerCandidates(configDirs, configRootDir) {
     const workspaceCandidates = buildConfigLayerCandidatesForRoot(configRootDir, "workspace");
     const globalCandidates = configDirs.flatMap((dir) => buildConfigLayerCandidatesForRoot(dir, "global"));
     const globalPaths = new Set(globalCandidates.map((candidate) => candidate.path));
@@ -973,20 +929,6 @@ export async function loadConfig(client, meta, options) {
         const settingSources = {};
         const configIssues = [];
         const authoritativeSidecarRoots = new Set();
-        // ADR 0002: legacy upstream-namespace sidecars are not configuration
-        // sources anymore; their presence is reported as a migration requirement.
-        for (const dir of new Set([configRootDir, ...configDirs])) {
-            for (const relativePath of LEGACY_QUOTA_TOAST_CONFIG_RELATIVE_PATHS) {
-                const legacyPath = join(dir, relativePath);
-                if (!existsSync(legacyPath))
-                    continue;
-                configIssues.push({
-                    path: `${legacyPath} (${relativePath})`,
-                    key: "$legacy",
-                    message: "removed in v2; migrate to the opencode-quota-zh/config.jsonc sidecar",
-                });
-            }
-        }
         for (const candidate of buildConfigLayerCandidates(configDirs, configRootDir)) {
             const rootKey = `${candidate.scope}:${candidate.rootDir}`;
             if (candidate.kind === "legacy" && authoritativeSidecarRoots.has(rootKey)) {
@@ -1034,25 +976,6 @@ export async function loadConfig(client, meta, options) {
                     ? parsed.experimental.quotaToast
                     : undefined;
             if (!isPlainObject(extractedQuotaToast)) {
-                continue;
-            }
-            if (candidate.kind === "legacy") {
-                // ADR 0001/0002: experimental.quotaToast is no longer a runtime
-                // configuration source; its presence is reported as a migration
-                // requirement and never applied.
-                const sourcePath = getConfigLayerSourceLabel(candidate);
-                usedPaths.push(sourcePath);
-                if (candidate.scope === "global") {
-                    globalConfigPaths.push(sourcePath);
-                }
-                else {
-                    workspaceConfigPaths.push(sourcePath);
-                }
-                configIssues.push({
-                    path: sourcePath,
-                    key: "experimental.quotaToast",
-                    message: "removed in v2; migrate to the opencode-quota-zh/config.jsonc sidecar",
-                });
                 continue;
             }
             const sourcePath = getConfigLayerSourceLabel(candidate);
@@ -1133,36 +1056,6 @@ export async function loadConfig(client, meta, options) {
             meta.configIssues = fileConfig.configIssues;
         }
         return fileConfig.config;
-    }
-    if (client) {
-        try {
-            const response = await client.config.get();
-            // ADR 0001/0002: experimental.quotaToast is no longer a runtime
-            // configuration source. Its presence is reported as a migration
-            // requirement and never applied.
-            const quotaToastConfig = response.data?.experimental?.quotaToast;
-            if (isPlainObject(quotaToastConfig)) {
-                if (meta) {
-                    meta.source = "sdk";
-                    meta.paths = ["client.config.get (experimental.quotaToast)"];
-                    meta.globalConfigPaths = [];
-                    meta.workspaceConfigPaths = [];
-                    meta.settingSources = {};
-                    meta.networkSettingSources = {};
-                    meta.configIssues = [
-                        {
-                            path: "client.config.get",
-                            key: "experimental.quotaToast",
-                            message: "removed in v2; migrate to the opencode-quota-zh/config.jsonc sidecar",
-                        },
-                    ];
-                }
-                return cloneDefaultConfig();
-            }
-        }
-        catch {
-            // ignore; fall back to defaults below
-        }
     }
     if (meta) {
         meta.source = "defaults";

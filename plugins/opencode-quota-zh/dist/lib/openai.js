@@ -4,10 +4,11 @@
  * Uses OpenCode's auth.json native OpenCode OAuth entries and queries:
  * https://chatgpt.com/backend-api/wham/usage
  */
-import { sanitizeDisplaySnippet, sanitizeDisplayText } from "./display-sanitize.js";
+import { sanitizeDisplayText } from "./display-sanitize.js";
 import { clampPercent } from "./format-utils.js";
 import { fetchWithTimeout } from "./http.js";
 import { readAuthFileCached } from "./opencode-auth.js";
+import { deriveResolvedAuthIdentity } from "./resolved-auth-identity.js";
 function base64UrlDecode(input) {
     const base64 = input.replace(/-/g, "+").replace(/_/g, "/");
     const padLen = (4 - (base64.length % 4)) % 4;
@@ -42,11 +43,11 @@ function isoFromMilliseconds(milliseconds) {
     const date = new Date(milliseconds);
     return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 }
-function resetIsoFromNowSeconds(seconds) {
+function resetIsoFromNowSeconds(seconds, observedAtMs) {
     if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds <= 0) {
         return undefined;
     }
-    return isoFromMilliseconds(Date.now() + Math.round(seconds * 1000));
+    return isoFromMilliseconds(observedAtMs + Math.round(seconds * 1000));
 }
 function resetIsoFromResetAt(resetAt) {
     if (typeof resetAt !== "number" || !Number.isFinite(resetAt) || resetAt <= 0) {
@@ -54,7 +55,7 @@ function resetIsoFromResetAt(resetAt) {
     }
     return isoFromMilliseconds(Math.round(resetAt * 1000));
 }
-function parseWindowValue(window) {
+function parseWindowValue(window, observedAtMs) {
     if (!window || typeof window !== "object")
         return null;
     const value = window;
@@ -63,10 +64,11 @@ function parseWindowValue(window) {
     }
     return {
         percentRemaining: clampPercent(100 - value.used_percent),
-        resetTimeIso: resetIsoFromResetAt(value.reset_at) ?? resetIsoFromNowSeconds(value.reset_after_seconds),
+        resetTimeIso: resetIsoFromResetAt(value.reset_at) ??
+            resetIsoFromNowSeconds(value.reset_after_seconds, observedAtMs),
     };
 }
-function parseRemainingWindowValue(window) {
+function parseRemainingWindowValue(window, observedAtMs) {
     if (!window || typeof window !== "object")
         return null;
     const value = window;
@@ -75,10 +77,11 @@ function parseRemainingWindowValue(window) {
     }
     return {
         percentRemaining: clampPercent(value.remaining_percent),
-        resetTimeIso: resetIsoFromResetAt(value.reset_at) ?? resetIsoFromNowSeconds(value.reset_after_seconds),
+        resetTimeIso: resetIsoFromResetAt(value.reset_at) ??
+            resetIsoFromNowSeconds(value.reset_after_seconds, observedAtMs),
     };
 }
-function parseRateLimitWindow(window) {
+function parseRateLimitWindow(window, observedAtMs) {
     if (!window || typeof window !== "object")
         return null;
     const raw = window;
@@ -88,8 +91,21 @@ function parseRateLimitWindow(window) {
     const kind = WINDOW_KIND_BY_DURATION[raw.limit_window_seconds];
     if (!kind)
         return null;
-    const value = parseWindowValue(window);
-    return value ? { kind, value } : null;
+    const value = parseWindowValue(window, observedAtMs);
+    if (!value)
+        return null;
+    const endsAtMs = value.resetTimeIso ? Date.parse(value.resetTimeIso) : Number.NaN;
+    const startedAtMs = endsAtMs - raw.limit_window_seconds * 1000;
+    if (Number.isFinite(startedAtMs) && startedAtMs < observedAtMs && observedAtMs < endsAtMs) {
+        value.fixedWindow = {
+            kind: "fixed_window",
+            startedAtIso: new Date(startedAtMs).toISOString(),
+            observedAtIso: new Date(observedAtMs).toISOString(),
+            endsAtIso: new Date(endsAtMs).toISOString(),
+            fullReset: true,
+        };
+    }
+    return { kind, value };
 }
 function derivePlanLabel(planType) {
     const normalized = (planType ?? "").trim().toLowerCase();
@@ -141,6 +157,25 @@ export function resolveOpenAIOAuth(auth) {
 export function hasOpenAIOAuth(auth) {
     return resolveOpenAIOAuth(auth).state === "configured";
 }
+export async function resolveOpenAIAuthIdentity(params) {
+    const auth = await readAuthFileCached({
+        maxAgeMs: Math.max(0, params?.maxAgeMs ?? DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS),
+    });
+    const resolved = resolveOpenAIOAuth(auth);
+    if (resolved.state !== "configured")
+        return null;
+    if (resolved.accountId) {
+        return deriveResolvedAuthIdentity({
+            providerId: "openai",
+            principal: { kind: "stable-id", value: resolved.accountId },
+        });
+    }
+    const credential = resolved.refreshToken ?? resolved.accessToken;
+    return deriveResolvedAuthIdentity({
+        providerId: "openai",
+        principal: { kind: "credential", value: credential },
+    });
+}
 export async function hasOpenAIOAuthCached(params) {
     const auth = await readAuthFileCached({
         maxAgeMs: Math.max(0, params?.maxAgeMs ?? DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS),
@@ -171,17 +206,17 @@ export async function queryOpenAIQuota(options = {}) {
             timeoutMs: options.requestTimeoutMs,
             consume: async (resp) => {
                 if (!resp.ok) {
-                    const text = await resp.text();
                     return {
                         success: false,
-                        error: `OpenAI API error ${resp.status}: ${sanitizeDisplaySnippet(text, 120)}`,
+                        error: `OpenAI API error ${resp.status}`,
                     };
                 }
                 const data = (await resp.json());
-                const primary = parseRateLimitWindow(data.rate_limit?.primary_window);
-                const secondary = parseRateLimitWindow(data.rate_limit?.secondary_window);
-                const individualLimit = parseRemainingWindowValue(data.spend_control?.individual_limit);
-                const codeReview = parseWindowValue(data.code_review_rate_limit?.primary_window);
+                const observedAtMs = Date.now();
+                const primary = parseRateLimitWindow(data.rate_limit?.primary_window, observedAtMs);
+                const secondary = parseRateLimitWindow(data.rate_limit?.secondary_window, observedAtMs);
+                const individualLimit = parseRemainingWindowValue(data.spend_control?.individual_limit, observedAtMs);
+                const codeReview = parseWindowValue(data.code_review_rate_limit?.primary_window, observedAtMs);
                 const credits = data.credits ?? null;
                 const windows = {};
                 const conflictingKinds = new Set();

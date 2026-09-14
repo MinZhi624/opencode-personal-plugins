@@ -1,47 +1,21 @@
-import { createHash } from "crypto";
-import { readdir, readFile, rm, stat } from "fs/promises";
-import { join } from "path";
+import { createHash } from "node:crypto";
+import { readdir, readFile, rm, stat } from "node:fs/promises";
+import { join } from "node:path";
 import { writeJsonAtomic } from "./atomic-json.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 import { getQuotaProviderDisplayLabel, isLiveLocalUsageProviderId } from "./provider-metadata.js";
 import { QUOTA_PROVIDERS_AGGREGATE_ID, selectEligibleQuotaProviderDefinitions, } from "./quota-providers.js";
+import { cloneQuotaProviderResult, decodePersistedQuotaProviderCacheEntry, encodePersistedQuotaProviderCacheEntry, normalizeQuotaProviderResult, } from "./quota-state-codec.js";
 import { updateQuotaTelemetrySnapshot } from "./quota-telemetry.js";
 import { getPackageVersion } from "./version.js";
-const QUOTA_PROVIDER_CACHE_VERSION = 2;
 const QUOTA_PROVIDER_CACHE_PACKAGE_VERSION_FALLBACK = "unknown";
 const QUOTA_PROVIDER_CACHE_DIRNAME = "quota-provider-state";
 const QUOTA_PROVIDER_CACHE_RETENTION_MS = 24 * 60 * 60 * 1000;
 const QUOTA_PROVIDER_CACHE_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
 const inMemoryCache = new Map();
 const inFlightByKey = new Map();
+let processLocalLatestByRuntime = new WeakMap();
 let lastPruneAtMs = 0;
-export function cloneQuotaProviderResult(result) {
-    return {
-        attempted: result.attempted,
-        entries: result.entries.map((entry) => ({
-            ...entry,
-            accounting: { ...entry.accounting },
-        })),
-        errors: result.errors.map((error) => ({ ...error })),
-        ...(result.diagnostics
-            ? {
-                diagnostics: result.diagnostics.map((diagnostic) => ({
-                    ...diagnostic,
-                    modelIds: diagnostic.modelIds ? [...diagnostic.modelIds] : null,
-                    checkedPaths: [...diagnostic.checkedPaths],
-                    authPaths: [...diagnostic.authPaths],
-                })),
-            }
-            : {}),
-        ...(result.statusDetails
-            ? { statusDetails: result.statusDetails.map((detail) => ({ ...detail })) }
-            : {}),
-        ...(result.rawDetails
-            ? { rawDetails: result.rawDetails.map((detail) => ({ ...detail })) }
-            : {}),
-        ...(result.presentation ? { presentation: { ...result.presentation } } : {}),
-    };
-}
 export function buildQuotaProviderStateCacheKey(providerId, ctx, options = {}) {
     const googleModels = ctx.config.googleModels.join(",");
     const cursorPlan = ctx.config.cursorPlan;
@@ -60,244 +34,38 @@ export function buildQuotaProviderStateCacheKey(providerId, ctx, options = {}) {
     const quotaProvidersIdentity = relevantQuotaProviders.length > 0
         ? `|quotaProviders=${JSON.stringify(["quota-providers-cache-v1", relevantQuotaProviders])}`
         : "";
+    const resolvedAuthIdentity = options.resolvedAuthIdentity
+        ? `|resolvedAuthIdentity=${options.resolvedAuthIdentity}`
+        : "";
     const runtimeEligibleIdentity = isAggregateCache
         ? `|runtimeEligibleQuotaProviders=${JSON.stringify([
             "quota-providers-runtime-eligible-v1",
             options.runtimeEligibleQuotaProviders ?? [],
         ])}`
         : "";
-    return `${providerId}${quotaProvidersIdentity}${runtimeEligibleIdentity}|anthropicBinaryPath=${anthropicBinaryPath}|googleModels=${googleModels}|cursorPlan=${cursorPlan}|cursorIncludedApiUsd=${cursorIncludedApiUsd}|cursorBillingCycleStartDay=${cursorBillingCycleStartDay}|opencodeGoWindows=${opencodeGoWindows}|onlyCurrentModel=${onlyCurrentModel}|currentModel=${currentModel}|currentProviderID=${currentProviderID}`;
+    return `${providerId}${quotaProvidersIdentity}${runtimeEligibleIdentity}|anthropicBinaryPath=${anthropicBinaryPath}|googleModels=${googleModels}|cursorPlan=${cursorPlan}|cursorIncludedApiUsd=${cursorIncludedApiUsd}|cursorBillingCycleStartDay=${cursorBillingCycleStartDay}|opencodeGoWindows=${opencodeGoWindows}|onlyCurrentModel=${onlyCurrentModel}|currentModel=${currentModel}|currentProviderID=${currentProviderID}${resolvedAuthIdentity}`;
 }
 function getQuotaProviderCacheDir() {
     return join(getOpencodeRuntimeDirs().cacheDir, QUOTA_PROVIDER_CACHE_DIRNAME);
 }
+function getQuotaProviderStateCacheLocator(key) {
+    return createHash("sha256").update(key).digest("hex");
+}
+function getQuotaProviderCacheFileStem(providerId) {
+    const windowsReserved = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/iu;
+    if (providerId !== "." &&
+        providerId !== ".." &&
+        /^[A-Za-z0-9._-]+$/u.test(providerId) &&
+        !windowsReserved.test(providerId)) {
+        return providerId;
+    }
+    return `provider-${createHash("sha256").update(providerId).digest("hex")}`;
+}
 export function getQuotaProviderStateCacheFilePath(providerId, key) {
-    const digest = createHash("sha1").update(key).digest("hex");
-    return join(getQuotaProviderCacheDir(), `${providerId}-${digest}.json`);
-}
-function hasOnlyKeys(value, allowed) {
-    const allowedKeys = new Set(allowed);
-    return Object.keys(value).every((key) => allowedKeys.has(key));
-}
-const ISO_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
-function isOptionalIsoTimestamp(value) {
-    return (value === undefined ||
-        (typeof value === "string" &&
-            ISO_TIMESTAMP_RE.test(value) &&
-            Number.isFinite(Date.parse(value))));
-}
-function isAccountingMetadata(value) {
-    if (!value || typeof value !== "object" || Array.isArray(value))
-        return false;
-    const accounting = value;
-    return (hasOnlyKeys(accounting, [
-        "resultType",
-        "acquisitionMethod",
-        "ownership",
-        "authority",
-        "sourceId",
-        "observedAtIso",
-    ]) &&
-        ["quota", "rate_limit", "usage", "spend", "budget", "balance", "status"].includes(String(accounting.resultType)) &&
-        [
-            "remote_api",
-            "dashboard_scrape",
-            "local_cli",
-            "local_runtime_accounting",
-            "local_estimation",
-        ].includes(String(accounting.acquisitionMethod)) &&
-        ["maintained", "user_configured"].includes(String(accounting.ownership)) &&
-        ["provider_reported", "locally_derived"].includes(String(accounting.authority)) &&
-        (accounting.sourceId === undefined || typeof accounting.sourceId === "string") &&
-        isOptionalIsoTimestamp(accounting.observedAtIso));
-}
-function isQuotaToastEntry(value) {
-    if (!value || typeof value !== "object" || Array.isArray(value))
-        return false;
-    const entry = value;
-    if (!hasOnlyKeys(entry, [
-        "accounting",
-        "kind",
-        "name",
-        "percentRemaining",
-        "value",
-        "resetTimeIso",
-        "group",
-        "label",
-        "metricLabel",
-        "right",
-        "sortPriority",
-    ]) ||
-        !isAccountingMetadata(entry.accounting) ||
-        typeof entry.name !== "string" ||
-        !isOptionalIsoTimestamp(entry.resetTimeIso) ||
-        (entry.sortPriority !== undefined &&
-            (typeof entry.sortPriority !== "number" || !Number.isFinite(entry.sortPriority))) ||
-        !["group", "label", "metricLabel", "right"].every((key) => entry[key] === undefined || typeof entry[key] === "string")) {
-        return false;
-    }
-    if (entry.kind === "value") {
-        return typeof entry.value === "string" && entry.percentRemaining === undefined;
-    }
-    return ((entry.kind === undefined || entry.kind === "percent") &&
-        typeof entry.percentRemaining === "number" &&
-        Number.isFinite(entry.percentRemaining) &&
-        entry.value === undefined);
-}
-function isQuotaToastError(value) {
-    if (!value || typeof value !== "object" || Array.isArray(value))
-        return false;
-    const error = value;
-    return (hasOnlyKeys(error, ["label", "message"]) &&
-        typeof error.label === "string" &&
-        typeof error.message === "string");
-}
-function isQuotaProviderDiagnostic(value) {
-    if (!value || typeof value !== "object" || Array.isArray(value))
-        return false;
-    const diagnostic = value;
-    return (hasOnlyKeys(diagnostic, [
-        "sourceId",
-        "providerId",
-        "mode",
-        "format",
-        "modelIds",
-        "apiKeyEnv",
-        "selected",
-        "attempted",
-        "credentialSource",
-        "outcome",
-        "httpStatus",
-        "entryCount",
-        "checkedPaths",
-        "authPaths",
-        "statePath",
-        "stateHealth",
-        "stateVersion",
-        "stateLastUpdatedAt",
-    ]) &&
-        typeof diagnostic.sourceId === "string" &&
-        typeof diagnostic.providerId === "string" &&
-        ["remote-api", "local-estimate"].includes(String(diagnostic.mode)) &&
-        (diagnostic.format === undefined ||
-            ["quota-v1", "openrouter-key-v1", "json-v1"].includes(String(diagnostic.format))) &&
-        (diagnostic.mode === "remote-api"
-            ? diagnostic.format !== undefined
-            : diagnostic.format === undefined) &&
-        (diagnostic.modelIds === null ||
-            (Array.isArray(diagnostic.modelIds) &&
-                diagnostic.modelIds.every((modelId) => typeof modelId === "string"))) &&
-        (diagnostic.apiKeyEnv === null || typeof diagnostic.apiKeyEnv === "string") &&
-        diagnostic.selected === true &&
-        typeof diagnostic.attempted === "boolean" &&
-        (diagnostic.credentialSource === null ||
-            ["explicit_env", "global_opencode_json", "global_opencode_jsonc", "auth_json"].includes(String(diagnostic.credentialSource))) &&
-        [
-            "missing_credential",
-            "success",
-            "http_error",
-            "redirect_error",
-            "timeout",
-            "body_too_large",
-            "invalid_content_type",
-            "invalid_json",
-            "invalid_response",
-            "network_error",
-            "local_state_error",
-        ].includes(String(diagnostic.outcome)) &&
-        (diagnostic.httpStatus === undefined ||
-            (typeof diagnostic.httpStatus === "number" &&
-                Number.isInteger(diagnostic.httpStatus) &&
-                diagnostic.httpStatus >= 100 &&
-                diagnostic.httpStatus <= 599)) &&
-        typeof diagnostic.entryCount === "number" &&
-        Number.isInteger(diagnostic.entryCount) &&
-        diagnostic.entryCount >= 0 &&
-        Array.isArray(diagnostic.checkedPaths) &&
-        diagnostic.checkedPaths.every((path) => typeof path === "string") &&
-        Array.isArray(diagnostic.authPaths) &&
-        diagnostic.authPaths.every((path) => typeof path === "string") &&
-        (diagnostic.statePath === undefined || typeof diagnostic.statePath === "string") &&
-        (diagnostic.stateHealth === undefined ||
-            ["missing", "healthy", "malformed", "version_mismatch"].includes(String(diagnostic.stateHealth))) &&
-        (diagnostic.stateVersion === undefined ||
-            diagnostic.stateVersion === null ||
-            (typeof diagnostic.stateVersion === "number" &&
-                Number.isInteger(diagnostic.stateVersion) &&
-                diagnostic.stateVersion >= 0)) &&
-        (diagnostic.stateLastUpdatedAt === undefined ||
-            diagnostic.stateLastUpdatedAt === null ||
-            (typeof diagnostic.stateLastUpdatedAt === "number" &&
-                Number.isFinite(diagnostic.stateLastUpdatedAt))));
-}
-function isQuotaProviderStatusDetail(value) {
-    if (!value || typeof value !== "object" || Array.isArray(value))
-        return false;
-    const detail = value;
-    return (hasOnlyKeys(detail, ["key", "value"]) &&
-        typeof detail.key === "string" &&
-        typeof detail.value === "string");
-}
-function isQuotaProviderPresentation(value) {
-    if (!value || typeof value !== "object" || Array.isArray(value))
-        return false;
-    const presentation = value;
-    return (hasOnlyKeys(presentation, [
-        "singleWindowDisplayName",
-        "singleWindowShowRight",
-        "redundantQuotaFamily",
-        "classicStrategy",
-    ]) &&
-        (presentation.singleWindowDisplayName === undefined ||
-            typeof presentation.singleWindowDisplayName === "string") &&
-        (presentation.singleWindowShowRight === undefined ||
-            typeof presentation.singleWindowShowRight === "boolean") &&
-        (presentation.redundantQuotaFamily === undefined ||
-            typeof presentation.redundantQuotaFamily === "string") &&
-        (presentation.classicStrategy === undefined || presentation.classicStrategy === "preserve"));
-}
-function isQuotaProviderResult(value) {
-    if (!value || typeof value !== "object" || Array.isArray(value))
-        return false;
-    const result = value;
-    return (hasOnlyKeys(result, [
-        "attempted",
-        "entries",
-        "errors",
-        "diagnostics",
-        "statusDetails",
-        "rawDetails",
-        "presentation",
-    ]) &&
-        typeof result.attempted === "boolean" &&
-        Array.isArray(result.entries) &&
-        result.entries.every(isQuotaToastEntry) &&
-        Array.isArray(result.errors) &&
-        result.errors.every(isQuotaToastError) &&
-        (result.diagnostics === undefined ||
-            (Array.isArray(result.diagnostics) && result.diagnostics.every(isQuotaProviderDiagnostic))) &&
-        (result.statusDetails === undefined ||
-            (Array.isArray(result.statusDetails) &&
-                result.statusDetails.every(isQuotaProviderStatusDetail))) &&
-        (result.rawDetails === undefined ||
-            (Array.isArray(result.rawDetails) && result.rawDetails.every(isQuotaProviderStatusDetail))) &&
-        (result.presentation === undefined || isQuotaProviderPresentation(result.presentation)));
+    return join(getQuotaProviderCacheDir(), `${getQuotaProviderCacheFileStem(providerId)}-${getQuotaProviderStateCacheLocator(key)}.json`);
 }
 async function getQuotaProviderCachePackageVersion() {
     return (await getPackageVersion()) ?? QUOTA_PROVIDER_CACHE_PACKAGE_VERSION_FALLBACK;
-}
-function isPersistedQuotaProviderCacheEntry(value, key, providerId, packageVersion) {
-    if (!value || typeof value !== "object") {
-        return false;
-    }
-    const entry = value;
-    return (entry.version === QUOTA_PROVIDER_CACHE_VERSION &&
-        entry.packageVersion === packageVersion &&
-        entry.key === key &&
-        entry.providerId === providerId &&
-        typeof entry.timestamp === "number" &&
-        Number.isFinite(entry.timestamp) &&
-        isQuotaProviderResult(entry.result));
 }
 async function safeRm(path) {
     try {
@@ -340,32 +108,31 @@ async function readPersistedQuotaProviderCacheEntry(params) {
         return null;
     }
     const path = getQuotaProviderStateCacheFilePath(params.providerId, params.key);
+    const cacheLocator = getQuotaProviderStateCacheLocator(params.key);
     try {
         const raw = await readFile(path, "utf-8");
         const parsed = JSON.parse(raw);
-        if (!isPersistedQuotaProviderCacheEntry(parsed, params.key, params.providerId, params.packageVersion)) {
+        const decoded = decodePersistedQuotaProviderCacheEntry(parsed, {
+            key: cacheLocator,
+            providerId: params.providerId,
+            packageVersion: params.packageVersion,
+        });
+        if (!decoded) {
             await safeRm(path);
             return null;
         }
-        if (!params.ignoreExpiry && params.now - parsed.timestamp >= params.ttlMs) {
+        if (!params.ignoreExpiry && params.now - decoded.timestamp >= params.ttlMs) {
             return null;
         }
-        return {
-            version: parsed.version,
-            packageVersion: parsed.packageVersion,
-            key: parsed.key,
-            providerId: parsed.providerId,
-            timestamp: parsed.timestamp,
-            result: cloneQuotaProviderResult(parsed.result),
-        };
+        return decoded;
     }
     catch {
         return null;
     }
 }
-async function writePersistedQuotaProviderCacheEntry(entry) {
+async function writePersistedQuotaProviderCacheEntry(entry, logicalKey) {
     try {
-        await writeJsonAtomic(getQuotaProviderStateCacheFilePath(entry.providerId, entry.key), entry, {
+        await writeJsonAtomic(getQuotaProviderStateCacheFilePath(entry.providerId, logicalKey), entry, {
             trailingNewline: true,
         });
     }
@@ -373,11 +140,11 @@ async function writePersistedQuotaProviderCacheEntry(entry) {
         // persistence failures should not break quota fetches
     }
 }
-async function fetchValidatedProviderResult(provider, ctx) {
-    const fetched = await provider.fetch(ctx);
-    if (isQuotaProviderResult(fetched)) {
-        return cloneQuotaProviderResult(fetched);
-    }
+async function fetchValidatedProviderResult(provider, ctx, cacheContext) {
+    const fetched = await provider.fetch(ctx, cacheContext);
+    const normalized = normalizeQuotaProviderResult(fetched);
+    if (normalized)
+        return normalized;
     return {
         attempted: true,
         entries: [],
@@ -394,8 +161,7 @@ async function resolveRuntimeEligibleQuotaProviders(providerId, ctx) {
         return undefined;
     }
     try {
-        const response = await ctx.client.config.providers();
-        const availableProviderIds = new Set((response.data?.providers ?? []).map((provider) => provider.id));
+        const availableProviderIds = await ctx.resolveRuntimeProviderIds();
         return selectEligibleQuotaProviderDefinitions({
             definitions: ctx.config.quotaProviders ?? [],
             availableProviderIds,
@@ -408,16 +174,77 @@ async function resolveRuntimeEligibleQuotaProviders(providerId, ctx) {
         return null;
     }
 }
+async function resolveProviderCacheScope(provider, ctx, cacheContext) {
+    const policy = provider.cachePolicy;
+    if (!policy || policy.kind === "uncached")
+        return null;
+    if (policy.kind === "account-neutral")
+        return {};
+    try {
+        const resolvedAuthIdentity = await policy.resolveIdentity(ctx, cacheContext);
+        return resolvedAuthIdentity ? { resolvedAuthIdentity } : null;
+    }
+    catch {
+        return null;
+    }
+}
+async function isProviderCacheScopeCurrent(provider, ctx, scope) {
+    if (provider.cachePolicy?.kind === "account-neutral")
+        return true;
+    if (provider.cachePolicy?.kind !== "resolved-auth")
+        return false;
+    try {
+        const runtimeEligibleQuotaProviders = await resolveRuntimeEligibleQuotaProviders(provider.id, ctx);
+        if (runtimeEligibleQuotaProviders === null)
+            return false;
+        return ((await provider.cachePolicy.resolveIdentity(ctx, { runtimeEligibleQuotaProviders })) ===
+            scope.resolvedAuthIdentity);
+    }
+    catch {
+        return false;
+    }
+}
+function getProcessLocalRuntimeOwner(ctx) {
+    const owner = ctx.client;
+    return owner && (typeof owner === "object" || typeof owner === "function") ? owner : null;
+}
+function rememberProcessLocalLatest(params) {
+    const runtimeOwner = getProcessLocalRuntimeOwner(params.ctx);
+    if (!runtimeOwner)
+        return;
+    let runtimeSnapshots = processLocalLatestByRuntime.get(runtimeOwner);
+    if (!runtimeSnapshots) {
+        runtimeSnapshots = new WeakMap();
+        processLocalLatestByRuntime.set(runtimeOwner, runtimeSnapshots);
+    }
+    runtimeSnapshots.set(params.provider, {
+        result: cloneQuotaProviderResult(params.result),
+        timestamp: Date.now(),
+    });
+}
+function readProcessLocalLatest(params) {
+    const runtimeOwner = getProcessLocalRuntimeOwner(params.ctx);
+    if (!runtimeOwner)
+        return { hit: false };
+    const entry = processLocalLatestByRuntime.get(runtimeOwner)?.get(params.provider);
+    if (!entry)
+        return { hit: false };
+    return {
+        hit: true,
+        result: cloneQuotaProviderResult(entry.result),
+        timestamp: entry.timestamp,
+    };
+}
 function publishQuotaTelemetry(params) {
     if (!params.ctx.config.telemetryToken)
         return;
     const uncachedSnapshotId = `uncached:${params.providerId}`;
+    const cachedSnapshotId = `cached:${params.providerId}`;
+    const isUncached = params.snapshotId.startsWith("uncached:");
     updateQuotaTelemetrySnapshot({
         token: params.ctx.config.telemetryToken,
-        snapshotId: params.snapshotId,
-        ...(params.snapshotId !== uncachedSnapshotId
-            ? { supersededSnapshotIds: [uncachedSnapshotId] }
-            : {}),
+        snapshotId: isUncached ? uncachedSnapshotId : cachedSnapshotId,
+        supersededSnapshotIds: [isUncached ? cachedSnapshotId : uncachedSnapshotId],
         providerId: params.providerId,
         result: params.result,
         ...(params.cacheTimestamp !== undefined ? { cacheTimestamp: params.cacheTimestamp } : {}),
@@ -425,8 +252,9 @@ function publishQuotaTelemetry(params) {
 }
 export async function fetchQuotaProviderResult(params) {
     const { provider, ctx, ttlMs, bypassCache = false } = params;
-    if (bypassCache) {
-        const snapshot = await fetchValidatedProviderResult(provider, ctx);
+    const fetchUncached = async (cacheContext = {}) => {
+        const snapshot = await fetchValidatedProviderResult(provider, ctx, cacheContext);
+        rememberProcessLocalLatest({ provider, ctx, result: snapshot });
         publishQuotaTelemetry({
             ctx,
             providerId: provider.id,
@@ -434,34 +262,48 @@ export async function fetchQuotaProviderResult(params) {
             result: snapshot,
         });
         return snapshot;
-    }
-    if (isLiveLocalUsageProviderId(provider.id)) {
-        const snapshot = await fetchValidatedProviderResult(provider, ctx);
-        publishQuotaTelemetry({
-            ctx,
-            providerId: provider.id,
-            snapshotId: `uncached:${provider.id}`,
-            result: snapshot,
-        });
-        return snapshot;
-    }
+    };
+    if (bypassCache && !isLiveLocalUsageProviderId(provider.id))
+        return fetchUncached();
     const runtimeEligibleQuotaProviders = await resolveRuntimeEligibleQuotaProviders(provider.id, ctx);
-    if (runtimeEligibleQuotaProviders === null) {
-        const snapshot = await fetchValidatedProviderResult(provider, ctx);
+    if (runtimeEligibleQuotaProviders === null)
+        return fetchUncached();
+    const cacheContext = { runtimeEligibleQuotaProviders };
+    const scope = await resolveProviderCacheScope(provider, ctx, cacheContext);
+    if (!scope)
+        return fetchUncached(cacheContext);
+    const key = buildQuotaProviderStateCacheKey(provider.id, ctx, {
+        runtimeEligibleQuotaProviders,
+        resolvedAuthIdentity: scope.resolvedAuthIdentity,
+    });
+    if (isLiveLocalUsageProviderId(provider.id)) {
+        const snapshot = await fetchValidatedProviderResult(provider, ctx, cacheContext);
+        if (!(await isProviderCacheScopeCurrent(provider, ctx, scope))) {
+            return snapshot;
+        }
+        const entry = encodePersistedQuotaProviderCacheEntry({
+            packageVersion: await getQuotaProviderCachePackageVersion(),
+            key: getQuotaProviderStateCacheLocator(key),
+            providerId: provider.id,
+            timestamp: Date.now(),
+            result: snapshot,
+        });
+        inMemoryCache.set(key, {
+            ...entry,
+            result: cloneQuotaProviderResult(entry.result),
+        });
         publishQuotaTelemetry({
             ctx,
             providerId: provider.id,
-            snapshotId: `uncached:${provider.id}`,
+            snapshotId: key,
             result: snapshot,
+            cacheTimestamp: entry.timestamp,
         });
         return snapshot;
     }
     const forceAggregateRefresh = provider.id === QUOTA_PROVIDERS_AGGREGATE_ID &&
         runtimeEligibleQuotaProviders?.some((definition) => definition.mode === "local-estimate") ===
             true;
-    const key = buildQuotaProviderStateCacheKey(provider.id, ctx, {
-        runtimeEligibleQuotaProviders,
-    });
     const now = Date.now();
     const packageVersion = await getQuotaProviderCachePackageVersion();
     await maybePrunePersistedQuotaProviderCache(now);
@@ -514,26 +356,39 @@ export async function fetchQuotaProviderResult(params) {
         });
         return cloneQuotaProviderResult(persisted.result);
     }
+    const inFlightAfterDiskRead = inFlightByKey.get(key);
+    if (inFlightAfterDiskRead) {
+        const snapshot = await inFlightAfterDiskRead;
+        publishQuotaTelemetry({
+            ctx,
+            providerId: provider.id,
+            snapshotId: key,
+            result: snapshot,
+            cacheTimestamp: inMemoryCache.get(key)?.timestamp,
+        });
+        return cloneQuotaProviderResult(snapshot);
+    }
     const fetchPromise = (async () => {
-        const snapshot = await fetchValidatedProviderResult(provider, ctx);
-        if (!snapshot.attempted || snapshot.entries.length === 0) {
+        const snapshot = await fetchValidatedProviderResult(provider, ctx, cacheContext);
+        if (!snapshot.attempted ||
+            snapshot.entries.length === 0 ||
+            !(await isProviderCacheScopeCurrent(provider, ctx, scope))) {
             inMemoryCache.delete(key);
             await safeRm(getQuotaProviderStateCacheFilePath(provider.id, key));
             return snapshot;
         }
-        const entry = {
-            version: QUOTA_PROVIDER_CACHE_VERSION,
+        const entry = encodePersistedQuotaProviderCacheEntry({
             packageVersion,
-            key,
+            key: getQuotaProviderStateCacheLocator(key),
             providerId: provider.id,
             timestamp: Date.now(),
-            result: cloneQuotaProviderResult(snapshot),
-        };
+            result: snapshot,
+        });
         inMemoryCache.set(key, {
             ...entry,
             result: cloneQuotaProviderResult(entry.result),
         });
-        await writePersistedQuotaProviderCacheEntry(entry);
+        await writePersistedQuotaProviderCacheEntry(entry, key);
         return snapshot;
     })().finally(() => {
         inFlightByKey.delete(key);
@@ -551,14 +406,21 @@ export async function fetchQuotaProviderResult(params) {
 }
 export async function readCachedProviderResult(params) {
     const runtimeEligibleQuotaProviders = await resolveRuntimeEligibleQuotaProviders(params.provider.id, params.ctx);
-    if (runtimeEligibleQuotaProviders === null) {
+    if (runtimeEligibleQuotaProviders === null)
         return { hit: false };
+    const cacheContext = { runtimeEligibleQuotaProviders };
+    const scope = await resolveProviderCacheScope(params.provider, params.ctx, cacheContext);
+    if (!scope) {
+        return readProcessLocalLatest({
+            provider: params.provider,
+            ctx: params.ctx,
+        });
     }
     const key = buildQuotaProviderStateCacheKey(params.provider.id, params.ctx, {
         runtimeEligibleQuotaProviders,
+        resolvedAuthIdentity: scope.resolvedAuthIdentity,
     });
     const now = Date.now();
-    // Check in-memory cache first.
     const inMemory = inMemoryCache.get(key);
     if (inMemory) {
         publishQuotaTelemetry({
@@ -574,7 +436,6 @@ export async function readCachedProviderResult(params) {
             timestamp: inMemory.timestamp,
         };
     }
-    // Fall back to disk cache with no expiry guard.
     const packageVersion = await getQuotaProviderCachePackageVersion();
     const persisted = await readPersistedQuotaProviderCacheEntry({
         key,
@@ -585,7 +446,6 @@ export async function readCachedProviderResult(params) {
         ignoreExpiry: true,
     });
     if (persisted) {
-        // Populate in-memory cache for subsequent reads.
         inMemoryCache.set(key, {
             ...persisted,
             result: cloneQuotaProviderResult(persisted.result),
@@ -608,5 +468,6 @@ export async function readCachedProviderResult(params) {
 export function __resetQuotaStateForTests() {
     inMemoryCache.clear();
     inFlightByKey.clear();
+    processLocalLatestByRuntime = new WeakMap();
     lastPruneAtMs = 0;
 }

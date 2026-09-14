@@ -4,8 +4,8 @@
 import { fmtUsdAmount } from "../lib/format-utils.js";
 import { queryKiloQuota } from "../lib/kilo.js";
 import { getKiloKeyDiagnostics, hasKiloApiKey } from "../lib/kilo-config.js";
-import { serializeQuotaAlertMetric } from "../lib/quota-alert-metrics.js";
 import { modelProviderMatchesRuntimeId } from "../lib/provider-model-matching.js";
+import { accountingDecimalFromNumber } from "./accounting-decimal.js";
 import { attemptedResult, notAttemptedResult, simpleApiKeyStatusDetails, statusDetailsFromRecord, withStatusDetails, } from "./result-helpers.js";
 const KILO_QUOTA_ACCOUNTING = {
     resultType: "quota",
@@ -21,30 +21,53 @@ const KILO_BALANCE_ACCOUNTING = {
 };
 function buildKiloPassEntries(state) {
     const totalCreditsUsd = state.baseCreditsUsd + state.bonusCreditsUsd;
-    const entries = [];
-    if (totalCreditsUsd > 0) {
-        entries.push({
-            accounting: KILO_QUOTA_ACCOUNTING,
-            name: "Kilo Gateway Credits",
-            group: "Kilo Gateway",
-            label: "Credits:",
-            metricLabel: "Credits",
-            right: `${fmtUsdAmount(state.remainingUsd)} left`,
-            percentRemaining: Math.min(100, Math.max(0, ((totalCreditsUsd - state.usageUsd) / totalCreditsUsd) * 100)),
-            resetTimeIso: state.resetTimeIso,
-        });
-    }
-    entries.push({
-        kind: "value",
-        accounting: KILO_QUOTA_ACCOUNTING,
-        name: "Kilo Gateway Remaining Credits",
-        group: "Kilo Gateway",
-        label: "Left:",
-        metricLabel: "Left",
-        value: fmtUsdAmount(state.remainingUsd),
-        ...(totalCreditsUsd === 0 && state.resetTimeIso ? { resetTimeIso: state.resetTimeIso } : {}),
+    const quantity = (value) => ({
+        decimal: accountingDecimalFromNumber(value),
+        unit: { kind: "currency", code: "USD" },
     });
-    return entries;
+    if (totalCreditsUsd > 0) {
+        return [
+            {
+                accounting: KILO_QUOTA_ACCOUNTING,
+                name: "kilo-gateway-credits",
+                group: "Kilo Gateway",
+                percentRemaining: Math.min(100, Math.max(0, ((totalCreditsUsd - state.usageUsd) / totalCreditsUsd) * 100)),
+                semantic: {
+                    metric: { kind: "component", component: "remaining_credits" },
+                    prominence: "primary",
+                },
+                basis: {
+                    used: {
+                        quantity: quantity(state.usageUsd),
+                        authority: "provider_reported",
+                    },
+                    limit: {
+                        quantity: quantity(totalCreditsUsd),
+                        authority: "locally_derived",
+                    },
+                    remaining: {
+                        quantity: quantity(state.remainingUsd),
+                        authority: "locally_derived",
+                    },
+                },
+                ...(state.resetTimeIso ? { resetTimeIso: state.resetTimeIso } : {}),
+            },
+        ];
+    }
+    return [
+        {
+            kind: "quantity",
+            accounting: KILO_QUOTA_ACCOUNTING,
+            name: "kilo-gateway-remaining-credits",
+            group: "Kilo Gateway",
+            semantic: {
+                metric: { kind: "component", component: "remaining_credits" },
+                prominence: "primary",
+            },
+            quantity: quantity(state.remainingUsd),
+            ...(state.resetTimeIso ? { resetTimeIso: state.resetTimeIso } : {}),
+        },
+    ];
 }
 function mapKiloPassSuccess(state) {
     const rawDetails = statusDetailsFromRecord({
@@ -56,34 +79,27 @@ function mapKiloPassSuccess(state) {
         reset_at: state.resetTimeIso ?? "(none)",
     });
     return withStatusDetails({
-        ...attemptedResult(buildKiloPassEntries(state), [], {
-            singleWindowDisplayName: "Kilo Gateway",
-            singleWindowShowRight: true,
-        }),
+        ...attemptedResult(buildKiloPassEntries(state)),
         rawDetails,
     }, [...statusDetailsFromRecord({ accounting_mode: "kilo_pass" }), ...rawDetails]);
 }
 function mapKiloBalanceSuccess(state) {
-    // Structured balance fact (Ticket 10): the gateway balance is a
-    // provider-reported USD account balance and may participate in quota-alert
-    // danger evaluation. Kilo Pass credits are period quota (not account
-    // balance) and intentionally carry no fact.
-    const rawDetails = [
-        serializeQuotaAlertMetric({ kind: "balance", currency: "USD", amount: state.balanceUsd }),
-    ];
-    return withStatusDetails({
-        ...attemptedResult([
-            {
-                kind: "value",
-                accounting: KILO_BALANCE_ACCOUNTING,
-                name: "Kilo Gateway Balance",
-                group: "Kilo Gateway",
-                label: "Balance:",
-                value: fmtUsdAmount(state.balanceUsd),
+    return withStatusDetails(attemptedResult([
+        {
+            kind: "quantity",
+            accounting: KILO_BALANCE_ACCOUNTING,
+            name: "kilo-gateway-total-balance",
+            group: "Kilo Gateway",
+            semantic: {
+                metric: { kind: "component", component: "total_balance" },
+                prominence: "primary",
             },
-        ]),
-        rawDetails,
-    }, statusDetailsFromRecord({
+            quantity: {
+                decimal: accountingDecimalFromNumber(state.balanceUsd),
+                unit: { kind: "currency", code: "USD" },
+            },
+        },
+    ]), statusDetailsFromRecord({
         accounting_mode: "gateway_balance",
         balance_usd: fmtUsdAmount(state.balanceUsd),
     }));

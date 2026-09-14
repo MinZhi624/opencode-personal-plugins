@@ -1,6 +1,7 @@
 import { sanitizeSingleLineDisplaySnippet } from "../lib/display-sanitize.js";
 import type {
   AccountingMetadata,
+  AccountingUnit,
   QuotaProvider,
   QuotaProviderContext,
   QuotaToastEntry,
@@ -19,6 +20,7 @@ import {
   resolveMimoConfigCached,
 } from "../lib/mimo-config.js";
 import { getQuotaProviderRuntimeIds } from "../lib/provider-metadata.js";
+import { accountingDecimalFromNumber } from "./accounting-decimal.js";
 import {
   attemptedErrorResult,
   attemptedResult,
@@ -64,29 +66,32 @@ function getGroup(detail: MimoEndpointResult<MimoPlanDetail>): string {
   return plan ? `${MIMO_LABEL}: ${plan}` : MIMO_LABEL;
 }
 
-function formatBalanceAmount(amount: number, currency: string | null): string {
-  const value = amount.toFixed(2);
-  if (currency === "USD") return `$${value}`;
-  return currency ? `${currency} ${value}` : value;
-}
-
 function buildBalanceEntries(balance: MimoBalance, group: string): QuotaToastEntry[] {
   const entries: QuotaToastEntry[] = [];
+  const unit: AccountingUnit = balance.currency
+    ? { kind: "currency", code: balance.currency }
+    : { kind: "count", unit: "credit" };
   const rows = [
-    { label: "Total:", suffix: "Total Balance", amount: balance.total },
-    { label: "Cash:", suffix: "Cash Balance", amount: balance.cash },
-    { label: "Gift:", suffix: "Gift Balance", amount: balance.gift },
-  ];
+    { component: "total_balance", amount: balance.total, prominence: "primary" },
+    { component: "cash_balance", amount: balance.cash, prominence: "supplementary" },
+    { component: "gift_balance", amount: balance.gift, prominence: "supplementary" },
+  ] as const;
 
   for (const row of rows) {
     if (row.amount === null) continue;
     entries.push({
       accounting: BALANCE_ACCOUNTING,
-      kind: "value",
-      name: `${MIMO_LABEL} ${row.suffix}`,
+      kind: "quantity",
+      name: `xiaomi-mimo-${row.component}`,
       group,
-      label: row.label,
-      value: formatBalanceAmount(row.amount, balance.currency),
+      semantic: {
+        metric: { kind: "component", component: row.component },
+        prominence: row.prominence,
+      },
+      quantity: {
+        decimal: accountingDecimalFromNumber(row.amount),
+        unit,
+      },
     });
   }
 
@@ -155,9 +160,27 @@ export const xiaomiProvider: QuotaProvider = {
         accounting: QUOTA_ACCOUNTING,
         name: `${group} Monthly`,
         group,
-        label: "Monthly:",
-        right: `${used}/${limit}`,
         percentRemaining: 100 - (used / limit) * 100,
+        semantic: {
+          metric: { kind: "window", window: "month" },
+          prominence: "primary",
+        },
+        basis: {
+          used: {
+            quantity: {
+              decimal: accountingDecimalFromNumber(used),
+              unit: { kind: "count", unit: "token" },
+            },
+            authority: "provider_reported",
+          },
+          limit: {
+            quantity: {
+              decimal: accountingDecimalFromNumber(limit),
+              unit: { kind: "count", unit: "token" },
+            },
+            authority: "provider_reported",
+          },
+        },
       });
     }
 

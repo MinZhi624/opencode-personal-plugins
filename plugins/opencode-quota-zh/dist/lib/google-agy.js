@@ -4,6 +4,7 @@ import { getCachedAccessToken, makeAccountCacheKey, setCachedAccessToken, } from
 import { fetchWithTimeout } from "./http.js";
 import { mapWithConcurrency } from "./map-with-concurrency.js";
 import { readAuthFileCached } from "./opencode-auth.js";
+import { composeResolvedAuthIdentities, deriveResolvedAuthIdentity, } from "./resolved-auth-identity.js";
 export const DEFAULT_AGY_AUTH_CACHE_MAX_AGE_MS = 5_000;
 export const AGY_AUTH_KEYS = [
     "google-agy",
@@ -19,16 +20,6 @@ const AGY_ACCOUNTS_CONCURRENCY = 3;
 const AGY_USER_AGENT = "antigravity/cli/1.0.3 darwin/amd64";
 function createAgyActivityRequestId() {
     return crypto.randomUUID();
-}
-function createAgyAccountKey(account) {
-    return crypto
-        .createHash("sha256")
-        .update(account.sourceKey)
-        .update("\0")
-        .update(account.projectId)
-        .update("\0")
-        .update(account.refreshToken)
-        .digest("hex");
 }
 function normalizeString(value) {
     if (typeof value !== "string") {
@@ -109,6 +100,34 @@ export async function resolveAgyConfiguredProjectId(client) {
     }
     return (normalizeString(process.env.GOOGLE_CLOUD_PROJECT) ??
         normalizeString(process.env.GOOGLE_CLOUD_PROJECT_ID));
+}
+export async function resolveGoogleAgyAuthIdentity(client) {
+    const [auth, configuredProjectId, credentials] = await Promise.all([
+        readAuthFileCached({ maxAgeMs: DEFAULT_AGY_AUTH_CACHE_MAX_AGE_MS }),
+        resolveAgyConfiguredProjectId(client),
+        resolveAgyClientCredentials(),
+    ]);
+    const accounts = resolveAgyAccounts(auth, configuredProjectId);
+    if (accounts.length === 0 || credentials.state !== "configured")
+        return null;
+    const accountIdentities = await Promise.all(accounts.map((account) => deriveResolvedAuthIdentity({
+        providerId: "google-agy",
+        principal: { kind: "credential", value: account.refreshToken },
+        qualifiers: [account.projectId],
+    })));
+    if (accountIdentities.some((identity) => identity === null))
+        return null;
+    const companionIdentity = await deriveResolvedAuthIdentity({
+        providerId: "google-agy:companion",
+        principal: { kind: "credential", value: credentials.clientSecret },
+        qualifiers: [credentials.clientId],
+    });
+    if (!companionIdentity)
+        return null;
+    return composeResolvedAuthIdentities({
+        providerId: "google-agy",
+        identities: [...accountIdentities, companionIdentity],
+    });
 }
 export async function inspectAgyAuthPresence(client) {
     const [auth, configuredProjectId] = await Promise.all([
@@ -203,7 +222,6 @@ async function refreshAgyAccessTokenWithCache(params) {
     const key = makeAccountCacheKey({
         refreshToken: params.account.refreshToken,
         projectId: params.account.projectId,
-        email: params.account.email,
     });
     if (!params.force) {
         const cached = await getCachedAccessToken({ key, skewMs });
@@ -228,8 +246,6 @@ async function refreshAgyAccessTokenWithCache(params) {
         entry: {
             accessToken: refreshed.accessToken,
             expiresAt: Date.now() + Math.max(1, refreshed.expiresIn) * 1000,
-            projectId: params.account.projectId,
-            email: params.account.email,
         },
     });
     return { accessToken: refreshed.accessToken };
@@ -403,7 +419,6 @@ function normalizeSummaryBucket(params) {
         ...(resetTimeIso ? { resetTimeIso } : {}),
         ...(remainingAmount ? { remainingAmount } : {}),
         ...(params.account.email ? { accountEmail: params.account.email } : {}),
-        accountKey: createAgyAccountKey(params.account),
         accountIndex: params.accountIndex,
         sourceKey: params.account.sourceKey,
     };

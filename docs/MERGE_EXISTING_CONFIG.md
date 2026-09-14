@@ -27,33 +27,24 @@ v2 起，`opencode-quota-zh` 的主配置统一放在独立侧车文件 `opencod
 
 旧配置入口 `experimental.quotaToast` 与 `opencode-quota/quota-toast.json(c)` 不再作为配置来源，插件会明确报告迁移要求（见 `/quota_status` 与启动日志）。手工迁移时把仍需要的设置复制到新侧车文件：
 
-- 删除旧字段 `enableToast`、`showOnIdle`、`showOnQuestion`、`showOnCompact`、`showOnBothFail`（v2 已移除，不再有任何效果）。
+- `enableToast` 与 `showOnIdle`、`showOnQuestion`、`showOnCompact`、`showOnBothFail` 跟随上游恢复；中文版仍默认 `enableToast: false`。
 - 其余键名（`enabledProviders`、`formatStyle`、`tuiCommandDisplay`、`tuiSidebarPanel` 等）不变，直接复制。
-- 例行额度弹窗已由「启动提示 + 额度告警」取代，新接口：
+- 启动提示默认开启；例行额度弹窗和重置通知都默认关闭，可按需显式开启：
 
 ```jsonc
 {
   "startupHint": {
     "enabled": true
   },
-  "promptBar": {
-    "enabled": false
-  },
-  "alerts": {
-    "enabled": true,
-    "percentRemainingThreshold": 0,
-    "repeatAfterMinutes": null,
-    "balanceThresholds": {
-      "deepseek": {
-        "CNY": 2,
-        "USD": 0.5
-      }
-    }
+  "enableToast": false,
+  "resetNotifications": {
+    "enabled": false,
+    "windows": ["weekly"]
   }
 }
 ```
 
-`percentRemainingThreshold` 与货币余额阈值均按「当前值 ≤ 阈值」触发；`repeatAfterMinutes: null` 表示每告警周期只提醒一次，非空值必须是至少 15 的整数分钟。`promptBar` 默认关闭，迁移时不要自动开启。初始化安装器会在新侧车文件不存在时自动从旧 `experimental.quotaToast` 播种，手工合并时才需要上述步骤。
+独立的 `alerts.*` 与 `/quota_alerts` 已删除，不要迁移。`tuiPromptBar.enabled`、例行 toast 和重置通知都保持显式选择，不由安装器自动开启。
 
 Workshop 会保留 OpenCode 内置和已有 agents，新增七个 Workshop agents，并把 `tinker` 设为默认 Primary Agent。
 
