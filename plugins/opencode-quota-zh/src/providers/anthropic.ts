@@ -26,7 +26,7 @@ import {
 } from "./result-helpers.js";
 
 export function getAnthropicNoDataMessage(): string {
-  return "Quota unavailable via local Claude CLI or Claude OAuth fallback";
+  return "Quota unavailable via local Claude CLI or OAuth credentials";
 }
 
 export const anthropicProvider: QuotaProvider = {
@@ -57,15 +57,20 @@ export const anthropicProvider: QuotaProvider = {
       requestTimeoutMs: ctx.config?.requestTimeoutMs,
     };
     let statusDetails;
+    let acquisitionMethod: QuotaToastEntry["accounting"]["acquisitionMethod"] = "local_cli";
     try {
       const diagnostics = await getAnthropicDiagnostics(options);
       const quota = diagnostics.quotaSupported ? diagnostics.quota : undefined;
+      if (diagnostics.quotaSupported && diagnostics.quotaSource !== "claude-auth-status-json") {
+        acquisitionMethod = "remote_api";
+      }
       statusDetails = statusDetailsFromRecord({
         cli_installed: diagnostics.installed ? "true" : "false",
         cli_version: diagnostics.version ?? "(none)",
         auth_status: diagnostics.authStatus,
         quota_supported: diagnostics.quotaSupported ? "true" : "false",
         quota_source: diagnostics.quotaSource === "none" ? "(none)" : diagnostics.quotaSource,
+        oauth_credential_source: diagnostics.oauthCredentialSource ?? "(none)",
         checked_commands: diagnostics.checkedCommands.join(" | ") || "(none)",
         message: diagnostics.message,
         five_hour_remaining: quota
@@ -73,6 +78,9 @@ export const anthropicProvider: QuotaProvider = {
           : undefined,
         seven_day_remaining: quota
           ? `${quota.seven_day.percentRemaining}% reset_at=${quota.seven_day.resetTimeIso ?? "(none)"}`
+          : undefined,
+        fable_weekly_remaining: quota?.fable_weekly
+          ? `${quota.fable_weekly.percentRemaining}% reset_at=${quota.fable_weekly.resetTimeIso ?? "(none)"}`
           : undefined,
       });
     } catch (error) {
@@ -95,7 +103,7 @@ export const anthropicProvider: QuotaProvider = {
       {
         accounting: {
           resultType: "quota",
-          acquisitionMethod: "local_cli",
+          acquisitionMethod,
           ownership: "maintained",
           authority: "provider_reported",
         },
@@ -108,7 +116,7 @@ export const anthropicProvider: QuotaProvider = {
       {
         accounting: {
           resultType: "quota",
-          acquisitionMethod: "local_cli",
+          acquisitionMethod,
           ownership: "maintained",
           authority: "provider_reported",
         },
@@ -119,6 +127,41 @@ export const anthropicProvider: QuotaProvider = {
         resetTimeIso: result.seven_day.resetTimeIso,
       },
     ];
+
+    if (result.extra_usage) {
+      entries.push({
+        accounting: {
+          resultType: "quota",
+          acquisitionMethod,
+          ownership: "maintained",
+          authority: "provider_reported",
+        },
+        name: "Claude Usage Credits",
+        group: "Claude Usage Credits",
+        label: "Monthly:",
+        percentRemaining: result.extra_usage.percentRemaining,
+      });
+    }
+
+    if (result.fable_weekly) {
+      entries.push({
+        accounting: {
+          resultType: "quota",
+          acquisitionMethod,
+          ownership: "maintained",
+          authority: "provider_reported",
+        },
+        name: "Claude Fable Weekly",
+        group: "Claude",
+        label: "Fable:",
+        semantic: {
+          metric: { kind: "named", name: "Fable weekly" },
+          prominence: "primary",
+        },
+        percentRemaining: result.fable_weekly.percentRemaining,
+        resetTimeIso: result.fable_weekly.resetTimeIso,
+      });
+    }
 
     return withStatusDetails(attemptedResult(entries), statusDetails);
   },

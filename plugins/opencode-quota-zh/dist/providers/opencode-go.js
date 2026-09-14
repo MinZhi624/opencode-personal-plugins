@@ -1,41 +1,27 @@
-/**
- * OpenCode Go provider wrapper.
- *
- * Scrapes the OpenCode Go workspace dashboard and reports rolling (~5h),
- * weekly, and monthly usage as percentage-based quota entries.
- */
+import { createHash } from "node:crypto";
 import { queryOpenCodeGoQuota } from "../lib/opencode-go.js";
-import { DEFAULT_OPENCODE_GO_CONFIG_CACHE_MAX_AGE_MS, getOpenCodeGoConfigDiagnostics, resolveOpenCodeGoConfigCached, } from "../lib/opencode-go-config.js";
+import { DEFAULT_OPENCODE_GO_AUTH_CACHE_MAX_AGE_MS, getOpenCodeGoAuthDiagnostics, resolveOpenCodeGoAuthCached, } from "../lib/opencode-go-auth.js";
 import { normalizeQuotaProviderId } from "../lib/provider-metadata.js";
-import { attemptedErrorResult, attemptedResult, configStatusDetails, notAttemptedResult, withStatusDetails, } from "./result-helpers.js";
+import { attemptedErrorResult, attemptedResult, notAttemptedResult, statusDetailsFromRecord, withStatusDetails, } from "./result-helpers.js";
 const OPENCODE_GO_PROVIDER_LABEL = "OpenCode Go";
 const OPENCODE_GO_WINDOW_ORDER = ["rolling", "weekly", "monthly"];
 const OPENCODE_GO_WINDOW_LABELS = {
-    rolling: {
-        name: `${OPENCODE_GO_PROVIDER_LABEL} 5h`,
-        label: "5h:",
-        dashboardField: "rollingUsage",
-    },
-    weekly: {
-        name: `${OPENCODE_GO_PROVIDER_LABEL} Weekly`,
-        label: "Weekly:",
-        dashboardField: "weeklyUsage",
-    },
-    monthly: {
-        name: `${OPENCODE_GO_PROVIDER_LABEL} Monthly`,
-        label: "Monthly:",
-        dashboardField: "monthlyUsage",
-    },
+    rolling: { name: `${OPENCODE_GO_PROVIDER_LABEL} 5h`, label: "5h:" },
+    weekly: { name: `${OPENCODE_GO_PROVIDER_LABEL} Weekly`, label: "Weekly:" },
+    monthly: { name: `${OPENCODE_GO_PROVIDER_LABEL} Monthly`, label: "Monthly:" },
 };
-function isDefaultOpenCodeGoWindowSelection(windows) {
-    const selected = new Set(windows);
-    return (selected.size === OPENCODE_GO_WINDOW_ORDER.length &&
-        OPENCODE_GO_WINDOW_ORDER.every((window) => selected.has(window)));
+let notSubscribedCredentialFingerprint = null;
+export function __resetOpenCodeGoNotSubscribedForTests() {
+    notSubscribedCredentialFingerprint = null;
 }
-function formatMissingWindowList(windows) {
-    return windows
-        .map((window) => `${window} (${OPENCODE_GO_WINDOW_LABELS[window].dashboardField})`)
-        .join(", ");
+function authStatusDetails(diagnostics) {
+    return statusDetailsFromRecord({
+        auth_state: diagnostics.state,
+        auth_source: diagnostics.source ?? "(none)",
+        auth_checked_paths: diagnostics.checkedPaths.join(" | ") || "(none)",
+        auth_paths: diagnostics.authPaths.join(" | ") || "(none)",
+        auth_error: diagnostics.state === "invalid" ? diagnostics.error : undefined,
+    });
 }
 function buildOpenCodeGoEntries(result, selectedWindows) {
     const selected = new Set(selectedWindows);
@@ -44,13 +30,11 @@ function buildOpenCodeGoEntries(result, selectedWindows) {
         if (!selected.has(window))
             continue;
         const usage = result[window];
-        if (!usage)
-            continue;
         const labels = OPENCODE_GO_WINDOW_LABELS[window];
         entries.push({
             accounting: {
                 resultType: "quota",
-                acquisitionMethod: "dashboard_scrape",
+                acquisitionMethod: "remote_api",
                 ownership: "maintained",
                 authority: "provider_reported",
             },
@@ -66,68 +50,74 @@ function buildOpenCodeGoEntries(result, selectedWindows) {
 export const opencodeGoProvider = {
     id: "opencode-go",
     async isAvailable(_ctx) {
-        const config = await resolveOpenCodeGoConfigCached({
-            maxAgeMs: DEFAULT_OPENCODE_GO_CONFIG_CACHE_MAX_AGE_MS,
+        const auth = await resolveOpenCodeGoAuthCached({
+            maxAgeMs: DEFAULT_OPENCODE_GO_AUTH_CACHE_MAX_AGE_MS,
         });
-        return config.state === "configured";
+        if (auth.state !== "configured") {
+            notSubscribedCredentialFingerprint = null;
+            return false;
+        }
+        return true;
     },
     matchesCurrentModel(model) {
         const [provider] = model.toLowerCase().split("/", 2);
         return normalizeQuotaProviderId(provider) === "opencode-go";
     },
     async fetch(ctx) {
-        const diagnostics = await getOpenCodeGoConfigDiagnostics();
+        const diagnostics = await getOpenCodeGoAuthDiagnostics({
+            maxAgeMs: DEFAULT_OPENCODE_GO_AUTH_CACHE_MAX_AGE_MS,
+        });
         const windows = ctx.config.opencodeGoWindows ?? OPENCODE_GO_WINDOW_ORDER;
         const statusDetails = [
-            ...configStatusDetails(diagnostics),
+            ...authStatusDetails(diagnostics),
             { key: "selected_windows", value: windows.join(",") },
         ];
-        const config = await resolveOpenCodeGoConfigCached({
-            maxAgeMs: DEFAULT_OPENCODE_GO_CONFIG_CACHE_MAX_AGE_MS,
+        const auth = await resolveOpenCodeGoAuthCached({
+            maxAgeMs: DEFAULT_OPENCODE_GO_AUTH_CACHE_MAX_AGE_MS,
         });
-        if (config.state === "none") {
+        if (auth.state === "none") {
+            notSubscribedCredentialFingerprint = null;
             return withStatusDetails(notAttemptedResult(), statusDetails);
         }
-        if (config.state === "incomplete") {
-            return withStatusDetails(attemptedErrorResult(OPENCODE_GO_PROVIDER_LABEL, `Missing ${config.missing} (source: ${config.source})`), statusDetails);
+        if (auth.state === "invalid") {
+            notSubscribedCredentialFingerprint = null;
+            return withStatusDetails(attemptedErrorResult(OPENCODE_GO_PROVIDER_LABEL, auth.error), statusDetails);
         }
-        if (config.state === "invalid") {
-            return withStatusDetails(attemptedErrorResult(OPENCODE_GO_PROVIDER_LABEL, `Invalid config (${config.source}): ${config.error}`), statusDetails);
+        const credentialFingerprint = createHash("sha256").update(auth.apiKey).digest("hex");
+        if (notSubscribedCredentialFingerprint !== credentialFingerprint) {
+            notSubscribedCredentialFingerprint = null;
         }
-        const result = await queryOpenCodeGoQuota(config.config.workspaceId, config.config.authCookie, {
-            requestTimeoutMs: ctx.config?.requestTimeoutMsConfigured
-                ? ctx.config.requestTimeoutMs
-                : undefined,
-        });
-        if (!result) {
-            return withStatusDetails(notAttemptedResult(), [
+        if (notSubscribedCredentialFingerprint !== null) {
+            return withStatusDetails(attemptedResult([]), [
                 ...statusDetails,
-                { key: "live_fetch_error", value: "OpenCode Go returned null" },
+                { key: "opencode_go_state", value: "not_subscribed" },
             ]);
         }
+        const result = await queryOpenCodeGoQuota(auth.apiKey, {
+            requestTimeoutMs: ctx.config.requestTimeoutMs,
+        });
         if (!result.success) {
-            return withStatusDetails(attemptedErrorResult(OPENCODE_GO_PROVIDER_LABEL, result.error), [
-                ...statusDetails,
-                { key: "live_fetch_error", value: result.error },
-            ]);
+            if (result.notSubscribed === true) {
+                notSubscribedCredentialFingerprint = credentialFingerprint;
+                return withStatusDetails(attemptedResult([]), [
+                    ...statusDetails,
+                    { key: "opencode_go_state", value: "not_subscribed" },
+                ]);
+            }
+            return withStatusDetails(attemptedErrorResult(OPENCODE_GO_PROVIDER_LABEL, result.error, {
+                retryable: result.retryable,
+            }), [...statusDetails, { key: "live_fetch_error", value: result.error }]);
         }
-        const entries = buildOpenCodeGoEntries(result, windows);
-        const missingSelectedWindows = windows.filter((window) => !result[window]);
-        const liveDetails = OPENCODE_GO_WINDOW_ORDER.flatMap((window) => {
+        const liveDetails = OPENCODE_GO_WINDOW_ORDER.map((window) => {
             const usage = result[window];
-            return usage
-                ? [
-                    {
-                        key: `${window}_usage`,
-                        value: `percent_used=${usage.usagePercent} percent_remaining=${usage.percentRemaining} reset_in_sec=${usage.resetInSec} reset_at=${usage.resetTimeIso}`,
-                    },
-                ]
-                : [];
+            return {
+                key: `${window}_usage`,
+                value: `status=${usage.status} percent_used=${usage.usagePercent} percent_remaining=${usage.percentRemaining} reset_at=${usage.resetTimeIso}`,
+            };
         });
-        if (missingSelectedWindows.length > 0 && !isDefaultOpenCodeGoWindowSelection(windows)) {
-            const message = `Selected OpenCode Go dashboard window(s) missing: ${formatMissingWindowList(missingSelectedWindows)}`;
-            return withStatusDetails(attemptedResult(entries, [{ label: OPENCODE_GO_PROVIDER_LABEL, message }]), [...statusDetails, ...liveDetails, { key: "live_fetch_error", value: message }]);
-        }
-        return withStatusDetails(attemptedResult(entries), [...statusDetails, ...liveDetails]);
+        return withStatusDetails(attemptedResult(buildOpenCodeGoEntries(result, windows)), [
+            ...statusDetails,
+            ...liveDetails,
+        ]);
     },
 };

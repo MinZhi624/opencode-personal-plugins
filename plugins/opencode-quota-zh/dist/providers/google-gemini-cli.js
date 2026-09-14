@@ -9,7 +9,7 @@ function isGeminiCliModel(model) {
     if (["google-gemini-cli", "gemini-cli", "gemini", "opencode-gemini-auth"].includes(providerId)) {
         return true;
     }
-    return providerId === "google" && modelId.includes("gemini");
+    return (providerId === "google" && !modelId.startsWith("antigravity-") && modelId.includes("gemini"));
 }
 async function isGeminiCliConfigured(ctx) {
     try {

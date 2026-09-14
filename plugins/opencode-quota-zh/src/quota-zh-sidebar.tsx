@@ -2,6 +2,11 @@
 import { For, Show, createSignal, onCleanup } from "solid-js";
 import type { TuiPluginApi } from "@opencode-ai/plugin/tui";
 import type { QuotaToastEntry } from "./lib/entries.js";
+import {
+  formatAccountingBoolean,
+  formatAccountingQuantity,
+  getAccountingEntryLabel,
+} from "./lib/accounting-format.js";
 import { createQuotaRuntimeRequestContext, resolveQuotaRuntimeContext } from "./lib/quota-runtime-context.js";
 import { collectQuotaRenderData } from "./lib/quota-render-data.js";
 import {
@@ -94,7 +99,11 @@ function entryGroup(entry: QuotaToastEntry): string {
 }
 
 function entryLabel(entry: QuotaToastEntry): string {
-  const label = entry.group ? entry.label || entry.name : entry.name;
+  const label = entry.semantic
+    ? getAccountingEntryLabel(entry)
+    : entry.group
+      ? entry.label || entry.name
+      : entry.name;
   return label.replace(/\bBalance\b:?/gi, "额度");
 }
 
@@ -113,6 +122,20 @@ function buildCards(result: any): SidebarCard[] {
       card.rows.push({
         label: entryLabel(entry),
         value: entry.value,
+        right: entry.right,
+        resetTimeIso: entry.resetTimeIso,
+      });
+    } else if (entry.kind === "quantity") {
+      card.rows.push({
+        label: entryLabel(entry),
+        value: formatAccountingQuantity(entry.quantity),
+        right: entry.right,
+        resetTimeIso: entry.resetTimeIso,
+      });
+    } else if (entry.kind === "boolean") {
+      card.rows.push({
+        label: entryLabel(entry),
+        value: formatAccountingBoolean(entry.value, entry.semantic),
         right: entry.right,
         resetTimeIso: entry.resetTimeIso,
       });

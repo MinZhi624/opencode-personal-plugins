@@ -6,36 +6,20 @@
  * - Uses one line per limit, grouped under provider headers
  * - Includes session token summary (input/output per model)
  */
-import { isValueEntry } from "./entries.js";
-import { bar, formatDisplayedPercentLabel, formatLocalCallTimestamp, formatTokenCount, padLeft, padRight, resolveDisplayedPercent, } from "./format-utils.js";
-import { formatGroupedHeader } from "./grouped-header-format.js";
+import { interpretAccountingRow } from "./accounting-format.js";
+import { isPercentEntry, isValueEntry } from "./entries.js";
+import { bar, formatDisplayedPercentLabel, formatLocalCallTimestamp, formatQuotaModeHeading, formatResetCountdown, formatTokenCount, padLeft, padRight, resolveDisplayedPercent, } from "./format-utils.js";
 import { groupQuotaEntries } from "./grouped-entry-normalization.js";
+import { formatGroupedHeader } from "./grouped-header-format.js";
+import { classifyQuotaWindowText } from "./quota-entry-display.js";
+import { formatQuotaRunway } from "./quota-exhaustion-projection.js";
 import { renderPlainTextReport, } from "./report-document.js";
 import { SESSION_TOKEN_SECTION_HEADING } from "./session-tokens-format.js";
-import { classifyQuotaWindowText } from "./quota-entry-display.js";
-/**
- * Format reset time in compact form (different from toast countdown).
- * Uses seconds/minutes/hours/days format for /quota command.
- */
-function formatResetTimeSeconds(diffSeconds) {
-    if (!Number.isFinite(diffSeconds) || diffSeconds <= 0)
-        return "现在";
-    if (diffSeconds < 60)
-        return `${Math.ceil(diffSeconds)}秒`;
-    if (diffSeconds < 3600)
-        return `${Math.ceil(diffSeconds / 60)}分钟`;
-    if (diffSeconds < 86400)
-        return `${Math.round(diffSeconds / 3600)}小时`;
-    return `${Math.round(diffSeconds / 86400)}天`;
-}
-function formatResetsIn(iso) {
-    if (!iso)
+function formatCommandReset(iso, spaced) {
+    if (!iso || !Number.isFinite(new Date(iso).getTime()))
         return "";
-    const t = new Date(iso).getTime();
-    if (!Number.isFinite(t))
-        return "";
-    const diffSeconds = (t - Date.now()) / 1000;
-    return ` | ${formatResetTimeSeconds(diffSeconds)}后重置`;
+    const countdown = formatResetCountdown(iso, { spaced });
+    return countdown === "reset" ? "已重置" : `重置于 ${countdown}`;
 }
 export const QUOTA_COMMAND_BAR_WIDTH = 10;
 export const QUOTA_COMMAND_LABEL_WIDTH = 12;
@@ -47,50 +31,17 @@ const COMMAND_WINDOW_LABELS = {
     five_hour: "5h",
     hour: "小时",
     week: "周",
-    day: "天",
+    day: "日",
     month: "月",
     year: "年",
 };
-const SNAPSHOT_INTEGRITY_LABELS = {
-    complete: "完整",
-    partial: "部分",
-    unknown: "未知",
-};
-const SNAPSHOT_STATE_LABELS = {
-    ok: "正常",
-    partial: "部分可用",
-    unknown: "未知",
-    none: "无",
-};
-/**
- * Snapshot section rendered from the Ticket 07 unified snapshot + projection
- * pipeline. Additive: row rendering keeps using the full entry data so the
- * pre-migration /quota output stays semantically equivalent.
- */
-function buildSnapshotSection(params) {
-    const providerCount = params.snapshot.providers.length;
-    const freshCount = params.snapshot.providers.filter((provider) => provider.quality === "fresh").length;
-    const state = params.projection?.startupHint.state;
-    const statePart = state ? ` · 总体状态：${SNAPSHOT_STATE_LABELS[state]}` : "";
-    return {
-        id: "snapshot",
-        title: "统一快照",
-        blocks: [
-            {
-                kind: "lines",
-                lines: [
-                    `  v${params.snapshot.version} · 完整性：${SNAPSHOT_INTEGRITY_LABELS[params.snapshot.integrity]}${statePart}`,
-                    `  监控 Provider：${providerCount}（正常 ${freshCount} · 未知 ${providerCount - freshCount}） · 额度窗口：${params.snapshot.windows.length}`,
-                ],
-            },
-        ],
-    };
-}
 function getCommandWindowLabel(entry) {
     const kind = classifyQuotaWindowText(normalizeMetricText(entry.label || entry.name));
     return kind ? (COMMAND_WINDOW_LABELS[kind] ?? null) : null;
 }
-function getCommandMetricLabel(entry) {
+function getCommandMetricLabel(entry, semanticLabel) {
+    if (entry.semantic)
+        return semanticLabel;
     const window = getCommandWindowLabel(entry);
     const resultType = entry.accounting?.resultType;
     if (resultType === "balance")
@@ -112,49 +63,74 @@ function getCommandMetricLabel(entry) {
         return window ? `${window} ${noun}` : metricLabel || noun[0].toUpperCase() + noun.slice(1);
     }
     if (window)
-        return `${window} 额度`;
-    return explicit || (isValueEntry(entry) ? "数值" : "额度");
+        return `${window}额度`;
+    return explicit || (isValueEntry(entry) ? "值" : "额度");
 }
-function formatCommandDetails(entry, rightWidth) {
+function formatCommandDetails(entry, rightWidth, resetTimeSpaced) {
     const right = entry.right?.trim();
-    const reset = formatResetsIn(entry.resetTimeIso).replace(/^ \| /u, "");
-    if (right && reset)
-        return ` | ${padRight(right, rightWidth)} | ${reset}`;
-    if (right)
-        return ` | ${right}`;
-    if (reset)
-        return ` | ${reset}`;
-    return "";
+    const reset = formatCommandReset(entry.resetTimeIso, resetTimeSpaced);
+    const runway = isPercentEntry(entry) ? formatQuotaRunway(entry.runway) : "";
+    if (!runway) {
+        if (right && reset)
+            return ` | ${padRight(right, rightWidth)} | ${reset}`;
+        if (right)
+            return ` | ${right}`;
+        if (reset)
+            return ` | ${reset}`;
+        return "";
+    }
+    const details = [
+        ...(right ? [padRight(right, rightWidth)] : []),
+        ...(reset ? [reset] : []),
+        `预计耗尽 ${runway}`,
+    ];
+    return ` | ${details.join(" | ")}`;
+}
+function getCommandBasisLines(basis) {
+    if (!basis)
+        return [];
+    const details = basis.kind === "detailed"
+        ? basis.facts.map((fact) => fact.text)
+        : basis.text
+            ? [basis.text]
+            : [];
+    return details.map((detail) => `    ${detail}`);
 }
 function buildQuotaCommandDocument(params) {
     const groups = groupQuotaEntries(params.entries, "quota");
-    const sections = [];
-    if (params.snapshot) {
-        sections.push(buildSnapshotSection({
-            snapshot: params.snapshot,
-            projection: params.projection,
-        }));
-    }
-    for (const [index, group] of groups.entries()) {
+    const sections = groups.map((group, index) => {
         const lines = [];
-        const rightWidth = Math.max(0, ...group.entries.map((row) => row.right?.trim().length ?? 0));
-        for (const row of group.entries) {
-            const label = padRight(getCommandMetricLabel(row), QUOTA_COMMAND_LABEL_WIDTH);
-            const details = formatCommandDetails(row, rightWidth);
-            if (isValueEntry(row)) {
-                lines.push(`  ${label}  ${row.value}${details}`);
+        const interpretedRows = group.entries.map((entry) => ({
+            entry,
+            interpretation: interpretAccountingRow(entry, {
+                booleanWording: "semantic",
+                basis: (params.accountingDetail ?? "summary") === "detailed"
+                    ? { kind: "detailed" }
+                    : { kind: "summary", mode: params.percentDisplayMode ?? "remaining" },
+            }),
+        }));
+        const rightWidth = Math.max(0, ...interpretedRows.map(({ entry }) => entry.right?.trim().length ?? 0));
+        const labelWidth = Math.max(QUOTA_COMMAND_LABEL_WIDTH, ...interpretedRows
+            .filter(({ entry }) => Boolean(entry.semantic))
+            .map(({ entry, interpretation }) => getCommandMetricLabel(entry, interpretation.label).length));
+        for (const { entry: row, interpretation } of interpretedRows) {
+            const label = padRight(getCommandMetricLabel(row, interpretation.label), labelWidth);
+            const details = formatCommandDetails(row, rightWidth, params.resetTimeSpaced);
+            if (interpretation.display.kind === "value") {
+                lines.push(`  ${label}  ${interpretation.display.text}${details}`);
                 continue;
             }
-            const pctLabel = formatDisplayedPercentLabel(row.percentRemaining, params.percentDisplayMode);
-            const displayedPercent = resolveDisplayedPercent(row.percentRemaining, params.percentDisplayMode);
-            lines.push(`  ${label}  ${bar(displayedPercent, QUOTA_COMMAND_BAR_WIDTH)}  ${padLeft(pctLabel, 9)}${details}`);
+            const pctLabel = formatDisplayedPercentLabel(interpretation.display.percentRemaining, params.percentDisplayMode, params.percentLabelStyle);
+            const displayedPercent = resolveDisplayedPercent(interpretation.display.percentRemaining, params.percentDisplayMode);
+            lines.push(`  ${label}  ${bar(displayedPercent, QUOTA_COMMAND_BAR_WIDTH)}  ${padLeft(pctLabel, Math.max(9, pctLabel.length))}${details}`);
+            lines.push(...getCommandBasisLines(interpretation.basis));
         }
-        sections.push({
+        return {
             id: `group-${index}`,
             title: `→ ${formatGroupedHeader(group.group)}`,
             blocks: [{ kind: "lines", lines }],
-        });
-    }
+        };
+    });
     if (params.sessionTokens && params.sessionTokens.models.length > 0) {
         sections.push({
             id: "session-tokens",
@@ -177,7 +153,7 @@ function buildQuotaCommandDocument(params) {
     if (params.errors.length > 0) {
         sections.push({
             id: "errors",
-            title: "部分失败",
+            title: "部分获取失败",
             blocks: [
                 {
                     kind: "lines",
@@ -193,7 +169,11 @@ function buildQuotaCommandDocument(params) {
                 blocks: [
                     {
                         kind: "lines",
-                        lines: [`额度（/quota）${formatLocalCallTimestamp(params.generatedAtMs)}`],
+                        lines: [
+                            `${params.percentLabelStyle === "bare"
+                                ? formatQuotaModeHeading(params.percentDisplayMode)
+                                : "额度"} (/quota) ${formatLocalCallTimestamp(params.generatedAtMs)}`,
+                        ],
                     },
                 ],
             },

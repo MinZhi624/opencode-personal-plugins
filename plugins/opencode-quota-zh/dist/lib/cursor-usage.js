@@ -99,6 +99,7 @@ export async function getCurrentCursorUsageSummary(params) {
     }
     return {
         window,
+        observedAtMs: nowMs,
         api,
         autoComposer,
         total,

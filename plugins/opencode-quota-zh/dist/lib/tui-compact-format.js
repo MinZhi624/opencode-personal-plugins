@@ -1,8 +1,10 @@
-import { isValueEntry } from "./entries.js";
-import { formatDisplayedPercentLabel } from "./format-utils.js";
+import { interpretAccountingRow } from "./accounting-format.js";
 import { sanitizeQuotaRenderData, sanitizeSingleLineDisplayText } from "./display-sanitize.js";
-import { extractSingleWindowWindowLabel } from "./quota-entry-display.js";
+import { isPercentEntry, isValueEntry } from "./entries.js";
+import { formatDisplayedPercentLabel, formatResetCountdown } from "./format-utils.js";
 import { formatGroupedHeader } from "./grouped-header-format.js";
+import { extractSingleWindowWindowLabel } from "./quota-entry-display.js";
+import { compareQuotaRunwayUrgency, formatQuotaRunway } from "./quota-exhaustion-projection.js";
 const COMPACT_SEGMENT_SEPARATOR = " | ";
 const COMPACT_WINDOW_SEPARATOR = ", ";
 const ELLIPSIS = "…";
@@ -71,57 +73,238 @@ function getWindowLabel(entry) {
     const explicitLabel = entry.label?.trim().replace(/:+$/u, "").trim();
     return explicitLabel ? { text: compactText(explicitLabel), isWindow: false } : null;
 }
-function formatCompactValueEntrySegment(entry) {
+function formatCompactValueEntrySegment(entry, resetTimeSpaced) {
     const name = getProviderName(entry);
     const value = compactText(entry.value);
-    const segment = [name, value].filter(Boolean).join(" - ");
+    const reset = formatResetCountdown(entry.resetTimeIso, { spaced: resetTimeSpaced });
+    const segment = [name, value, reset].filter(Boolean).join(" - ");
     return segment || null;
 }
-function formatCompactPercentGroupSegment(group) {
-    const windows = group.windows;
+function formatCompactPercentGroupSegment(group, windows = group.windows) {
     if (windows.length === 0)
         return null;
     const summary = windows.length === 1
         ? windows[0].label && !windows[0].isWindow
-            ? `${windows[0].label} ${windows[0].percent}`
-            : windows[0].percent
+            ? `${windows[0].label} ${windows[0].value}`
+            : windows[0].value
         : windows
-            .map((window) => (window.label ? `${window.label} ${window.percent}` : window.percent))
+            .map((window) => (window.label ? `${window.label} ${window.value}` : window.value))
             .join(COMPACT_WINDOW_SEPARATOR);
     const separator = windows.every((window) => window.label && !window.isWindow) ? ": " : " ";
     return compactText(`${group.provider}${separator}${summary}`);
 }
-function formatCompactEntrySegments(params) {
+function buildSemanticCandidate(entry, percentDisplayMode, accountingDetail, resetTimeSpaced) {
+    if (!entry.semantic)
+        return null;
+    const shouldRequestBasis = accountingDetail === "detailed" &&
+        isPercentEntry(entry) &&
+        Number.isFinite(entry.percentRemaining);
+    const interpretation = interpretAccountingRow(entry, {
+        booleanWording: "semantic",
+        ...(shouldRequestBasis ? { basis: { kind: "detailed" } } : {}),
+    });
+    const value = interpretation.display.kind === "percent"
+        ? Number.isFinite(interpretation.display.percentRemaining)
+            ? formatCompactPercentLabel(interpretation.display.percentRemaining, percentDisplayMode)
+            : null
+        : interpretation.display.entryKind === "value"
+            ? compactText(interpretation.display.text)
+            : interpretation.display.text;
+    if (!value)
+        return null;
+    const provider = getProviderName(entry);
+    const label = compactText(interpretation.label);
+    const prefix = compactText([provider, label].filter(Boolean).join(": "));
+    const runway = isPercentEntry(entry) ? formatQuotaRunway(entry.runway) : "";
+    const displayValue = compactText([
+        value,
+        formatResetCountdown(entry.resetTimeIso, { spaced: resetTimeSpaced }),
+        runway ? `r/o ${runway}` : "",
+    ]
+        .filter(Boolean)
+        .join(" "));
+    const segment = compactText([prefix, displayValue].filter(Boolean).join(" "));
+    if (!segment)
+        return null;
+    const detailRole = percentDisplayMode === "used" ? "used" : "remaining";
+    const detail = interpretation.basis?.kind === "detailed"
+        ? interpretation.basis.facts.find((fact) => fact.role === detailRole)?.text
+        : undefined;
+    return {
+        segment,
+        prominence: entry.semantic.prominence === "supplementary" ? 1 : 0,
+        ...(isPercentEntry(entry) && entry.runway ? { runway: entry.runway } : {}),
+        ...(detail ? { detail } : {}),
+        ...(interpretation.display.kind === "value" && interpretation.display.entryKind !== "value"
+            ? { atomic: { prefix, value: displayValue } }
+            : {}),
+    };
+}
+function formatCompactEntryCandidates(params) {
+    const semantic = [];
     const groups = new Map();
-    const pendingSegments = [];
+    const pendingLegacy = [];
     for (const entry of params.entries) {
-        if (isValueEntry(entry)) {
-            const segment = formatCompactValueEntrySegment(entry);
-            if (segment)
-                pendingSegments.push({ kind: "value", segment });
+        if (entry.semantic) {
+            const candidate = buildSemanticCandidate(entry, params.percentDisplayMode, params.accountingDetail, params.resetTimeSpaced);
+            if (candidate)
+                semantic.push(candidate);
             continue;
         }
+        if (isValueEntry(entry)) {
+            const segment = formatCompactValueEntrySegment(entry, params.resetTimeSpaced);
+            if (segment)
+                pendingLegacy.push({ kind: "value", segment });
+            continue;
+        }
+        if (!isPercentEntry(entry))
+            continue;
         const provider = getProviderName(entry);
-        const percent = formatCompactPercentLabel(entry.percentRemaining, params.percentDisplayMode);
+        const runway = formatQuotaRunway(entry.runway);
+        const value = compactText([
+            formatCompactPercentLabel(entry.percentRemaining, params.percentDisplayMode),
+            formatResetCountdown(entry.resetTimeIso, { spaced: params.resetTimeSpaced }),
+            runway ? `r/o ${runway}` : "",
+        ]
+            .filter(Boolean)
+            .join(" "));
         const label = getWindowLabel(entry);
         const key = provider.toLowerCase();
         let group = groups.get(key);
         if (!group) {
             group = { provider, windows: [] };
             groups.set(key, group);
-            pendingSegments.push({ kind: "percent", key });
+            pendingLegacy.push({ kind: "percent", key });
         }
         group.windows.push({
             label: label?.text ?? null,
-            percent,
+            value,
             isWindow: label?.isWindow ?? false,
+            ...(entry.runway ? { runway: entry.runway } : {}),
         });
     }
-    return pendingSegments
-        .map((pending) => pending.kind === "value"
-        ? pending.segment
-        : formatCompactPercentGroupSegment(groups.get(pending.key)))
-        .filter((segment) => Boolean(segment));
+    const legacy = pendingLegacy
+        .map((pending) => {
+        if (pending.kind === "value")
+            return { segment: pending.segment, prominence: 0 };
+        const group = groups.get(pending.key);
+        const segment = formatCompactPercentGroupSegment(group);
+        if (!segment)
+            return null;
+        const eligible = group.windows
+            .map((window, index) => ({ window, index }))
+            .filter(({ window }) => window.runway)
+            .sort((left, right) => compareQuotaRunwayUrgency(left.window.runway, right.window.runway) ||
+            left.index - right.index);
+        const urgent = eligible[0]?.window;
+        const fallbackValue = urgent
+            ? compactText([urgent.label, urgent.value].filter(Boolean).join(" ")) || undefined
+            : undefined;
+        const fallbackSegment = fallbackValue
+            ? compactText(`${group.provider} ${fallbackValue}`) || undefined
+            : undefined;
+        return {
+            segment,
+            prominence: 0,
+            ...(fallbackSegment && fallbackSegment !== segment && fallbackValue
+                ? {
+                    fallbackSegment,
+                    fallbackAtomic: { prefix: group.provider, value: fallbackValue },
+                }
+                : {}),
+            ...(urgent?.runway ? { runway: urgent.runway } : {}),
+        };
+    })
+        .filter((candidate) => Boolean(candidate));
+    return [...legacy, ...semantic]
+        .map((candidate, index) => ({ candidate, index }))
+        .sort((left, right) => left.candidate.prominence - right.candidate.prominence || left.index - right.index)
+        .map(({ candidate }) => candidate);
+}
+function fitAtomicCandidate(atomic, maxWidth) {
+    if (atomic.value.length > maxWidth)
+        return null;
+    const full = compactText(`${atomic.prefix} ${atomic.value}`);
+    if (full.length <= maxWidth)
+        return full;
+    const prefixWidth = maxWidth - atomic.value.length - 1;
+    if (prefixWidth <= 0)
+        return atomic.value;
+    const prefix = truncateSingleLine(atomic.prefix, prefixWidth);
+    return compactText(`${prefix} ${atomic.value}`);
+}
+function admitCompactCandidates(candidates, maxWidth) {
+    const admitted = [];
+    const fullLine = candidates.map((candidate) => candidate.segment).join(COMPACT_SEGMENT_SEPARATOR);
+    const ordered = fullLine.length <= maxWidth
+        ? candidates
+        : candidates
+            .map((candidate, index) => ({ candidate, index }))
+            .sort((left, right) => {
+            if (left.candidate.runway && right.candidate.runway) {
+                return (compareQuotaRunwayUrgency(left.candidate.runway, right.candidate.runway) ||
+                    left.index - right.index);
+            }
+            if (left.candidate.runway)
+                return -1;
+            if (right.candidate.runway)
+                return 1;
+            return left.index - right.index;
+        })
+            .map(({ candidate }) => candidate);
+    for (const candidate of ordered) {
+        const separatorWidth = admitted.length > 0 ? COMPACT_SEGMENT_SEPARATOR.length : 0;
+        const usedWidth = admitted.reduce((total, item, index) => total + item.segment.length + (index > 0 ? COMPACT_SEGMENT_SEPARATOR.length : 0), 0);
+        const available = maxWidth - usedWidth - separatorWidth;
+        if (available <= 0)
+            continue;
+        if (candidate.segment.length <= available) {
+            admitted.push({ ...candidate });
+            continue;
+        }
+        if (candidate.fallbackSegment) {
+            if (candidate.fallbackSegment.length <= available) {
+                admitted.push({ ...candidate, segment: candidate.fallbackSegment });
+                continue;
+            }
+            if (admitted.length > 0)
+                continue;
+            if (candidate.fallbackAtomic) {
+                const fitted = fitAtomicCandidate(candidate.fallbackAtomic, available);
+                if (fitted) {
+                    admitted.push({ ...candidate, segment: fitted });
+                    continue;
+                }
+            }
+            const truncated = truncateSingleLine(candidate.fallbackSegment, available);
+            if (truncated)
+                admitted.push({ ...candidate, segment: truncated });
+            continue;
+        }
+        if (admitted.length > 0)
+            continue;
+        if (candidate.atomic) {
+            const fitted = fitAtomicCandidate(candidate.atomic, available);
+            if (fitted)
+                admitted.push({ ...candidate, segment: fitted });
+            continue;
+        }
+        const truncated = truncateSingleLine(candidate.segment, available);
+        if (truncated)
+            admitted.push({ ...candidate, segment: truncated });
+    }
+    return admitted;
+}
+function admitBasisDetails(candidates, maxWidth) {
+    for (const candidate of candidates) {
+        if (!candidate.detail)
+            continue;
+        const original = candidate.segment;
+        candidate.segment = `${original} (${candidate.detail})`;
+        const line = candidates.map((item) => item.segment).join(COMPACT_SEGMENT_SEPARATOR);
+        if (line.length > maxWidth)
+            candidate.segment = original;
+    }
 }
 function formatCompactTokenCount(count) {
     if (!Number.isFinite(count))
@@ -148,10 +331,10 @@ function formatCompactSessionTokensSegment(data) {
     const inputSegment = totalCached > 0
         ? `${formatCompactTokenCount(sessionTokens.totalInput)} (${formatCompactTokenCount(totalCached)})`
         : formatCompactTokenCount(sessionTokens.totalInput);
-    return compactText(`token ${inputSegment} 输入 / ${formatCompactTokenCount(sessionTokens.totalOutput)} 输出`);
+    return compactText(`tok ${inputSegment} in / ${formatCompactTokenCount(sessionTokens.totalOutput)} out`);
 }
 function formatIssueCount(count) {
-    return `+${count} 个问题`;
+    return `+${count} issue${count === 1 ? "" : "s"}`;
 }
 function formatFirstErrorSegment(errors) {
     const first = errors[0];
@@ -168,24 +351,35 @@ export function buildCompactQuotaStatusLine(params) {
         return "";
     const data = sanitizeQuotaRenderData(params.data);
     const percentDisplayMode = params.percentDisplayMode ?? "remaining";
-    const segments = formatCompactEntrySegments({ entries: data.entries, percentDisplayMode });
+    const accountingDetail = params.accountingDetail ?? "summary";
+    const candidates = formatCompactEntryCandidates({
+        entries: data.entries,
+        percentDisplayMode,
+        accountingDetail,
+        resetTimeSpaced: params.resetTimeSpaced,
+    });
     const sessionTokensSegment = formatCompactSessionTokensSegment(data);
     if (sessionTokensSegment) {
-        segments.push(sessionTokensSegment);
+        candidates.push({ segment: sessionTokensSegment, prominence: 0 });
     }
-    if (data.errors.length > 0) {
-        if (segments.length === 0) {
-            const errorSegment = formatFirstErrorSegment(data.errors);
-            if (errorSegment)
-                segments.push(errorSegment);
+    const admitted = admitCompactCandidates(candidates, maxWidth);
+    const issues = data.errors.filter((error) => error.kind !== "intentional-filter");
+    if (issues.length > 0) {
+        if (admitted.length === 0) {
+            const errorSegment = formatFirstErrorSegment(issues);
+            if (errorSegment) {
+                return truncateSingleLine(errorSegment, maxWidth);
+            }
         }
         else {
-            const issueSegment = formatIssueCount(data.errors.length);
-            const candidate = [...segments, issueSegment].join(COMPACT_SEGMENT_SEPARATOR);
-            if (compactText(candidate).length <= maxWidth) {
-                segments.push(issueSegment);
+            const issueSegment = formatIssueCount(issues.length);
+            const candidate = [...admitted.map((item) => item.segment), issueSegment].join(COMPACT_SEGMENT_SEPARATOR);
+            if (candidate.length <= maxWidth) {
+                admitted.push({ segment: issueSegment, prominence: 0 });
             }
         }
     }
-    return truncateSingleLine(segments.join(COMPACT_SEGMENT_SEPARATOR), maxWidth);
+    if (accountingDetail === "detailed")
+        admitBasisDetails(admitted, maxWidth);
+    return admitted.map((candidate) => candidate.segment).join(COMPACT_SEGMENT_SEPARATOR);
 }

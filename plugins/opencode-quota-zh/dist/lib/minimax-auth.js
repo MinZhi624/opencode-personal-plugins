@@ -3,7 +3,7 @@
  *
  * Resolves MiniMax credentials from trusted env vars, trusted user/global
  * OpenCode config, and auth.json fallback into the standardized shape used
- * by the MiniMax Coding Plan providers.
+ * by the MiniMax Token Plan providers.
  */
 import { getApiKeyCheckedPaths, getFirstAuthEntryValue, getGlobalOpencodeConfigCandidatePaths, readOpencodeConfig, } from "./api-key-resolver.js";
 import { sanitizeDisplayText } from "./display-sanitize.js";

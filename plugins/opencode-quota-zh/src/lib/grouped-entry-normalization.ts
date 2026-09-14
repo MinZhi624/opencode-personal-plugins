@@ -1,4 +1,6 @@
+import { compareAccountingSemanticEntries } from "./accounting-format.js";
 import type { QuotaToastEntry } from "./entries.js";
+import { cloneQuotaToastEntry } from "./entries.js";
 
 export type GroupedRenderTarget = "toast" | "quota";
 
@@ -72,24 +74,33 @@ function getDurationRank(entry: NormalizedGroupedQuotaEntry): number | null {
   return entry.label ? getDurationRankFromText(entry.label) : getDurationRankFromText(entry.name);
 }
 
+function ownStructuredEntry(entry: QuotaToastEntry): QuotaToastEntry {
+  // Normalized provider results always have accounting metadata. The guard keeps this
+  // presentation helper tolerant of isolated legacy test fixtures without weakening the type.
+  return (entry as { accounting?: unknown }).accounting ? cloneQuotaToastEntry(entry) : entry;
+}
+
 function normalizeGroupedQuotaEntry(
   entry: QuotaToastEntry,
   target: GroupedRenderTarget,
 ): NormalizedGroupedQuotaEntry {
-  const group = trimOptional(entry.group);
-  const label = trimOptional(entry.label);
-  const right = trimOptional(entry.right);
+  const owned = ownStructuredEntry(entry);
+  const group = trimOptional(owned.group);
+  const label = trimOptional(owned.label);
+  const right = trimOptional(owned.right);
   const normalized = {
-    ...entry,
+    ...owned,
     ...(label ? { label } : {}),
     ...(right ? { right } : {}),
   };
+  if (!label) delete normalized.label;
+  if (!right) delete normalized.right;
 
   if (group) {
     return { ...normalized, group };
   }
 
-  const googleFallback = getGoogleFallbackMeta(entry.name);
+  const googleFallback = getGoogleFallbackMeta(owned.name);
   if (googleFallback) {
     return {
       ...normalized,
@@ -100,9 +111,42 @@ function normalizeGroupedQuotaEntry(
 
   return {
     ...normalized,
-    group: entry.name.trim(),
+    group: owned.name.trim(),
     ...(target === "quota" ? { label: label ?? "Status:" } : {}),
   };
+}
+
+function sortLegacyEntries(entries: RankedGroupedQuotaEntry[]): RankedGroupedQuotaEntry[] {
+  return entries.slice().sort((left, right) => {
+    if (left.rank !== null && right.rank !== null && left.rank !== right.rank) {
+      return left.rank - right.rank;
+    }
+    if (left.rank !== null && right.rank === null) return -1;
+    if (left.rank === null && right.rank !== null) return 1;
+    return left.originalIndex - right.originalIndex;
+  });
+}
+
+function sortMixedEntries(entries: RankedGroupedQuotaEntry[]): RankedGroupedQuotaEntry[] {
+  if (!entries.some(({ entry }) => entry.semantic)) return sortLegacyEntries(entries);
+
+  const sorted = entries.slice();
+  let index = 0;
+  while (index < sorted.length) {
+    if (!sorted[index]!.entry.semantic) {
+      index += 1;
+      continue;
+    }
+
+    const start = index;
+    while (index < sorted.length && sorted[index]!.entry.semantic) index += 1;
+    const run = sorted.slice(start, index).sort((left, right) => {
+      const semanticOrder = compareAccountingSemanticEntries(left.entry, right.entry);
+      return semanticOrder || left.originalIndex - right.originalIndex;
+    });
+    sorted.splice(start, run.length, ...run);
+  }
+  return sorted;
 }
 
 export function groupQuotaEntries(
@@ -117,7 +161,7 @@ export function groupQuotaEntries(
     const rankedEntry: RankedGroupedQuotaEntry = {
       entry: normalizedEntry,
       originalIndex,
-      rank: getDurationRank(normalizedEntry),
+      rank: normalizedEntry.semantic ? null : getDurationRank(normalizedEntry),
     };
     const existing = groupedEntries.get(normalizedEntry.group);
     if (existing) {
@@ -131,18 +175,7 @@ export function groupQuotaEntries(
 
   return groupOrder.map((group) => {
     const rankedEntries = groupedEntries.get(group) ?? [];
-    const entries = rankedEntries
-      .slice()
-      .sort((left, right) => {
-        if (left.rank !== null && right.rank !== null && left.rank !== right.rank) {
-          return left.rank - right.rank;
-        }
-        if (left.rank !== null && right.rank === null) return -1;
-        if (left.rank === null && right.rank !== null) return 1;
-        return left.originalIndex - right.originalIndex;
-      })
-      .map(({ entry }) => entry);
-
+    const entries = sortMixedEntries(rankedEntries).map(({ entry }) => entry);
     return { group, entries };
   });
 }

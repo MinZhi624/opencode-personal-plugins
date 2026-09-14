@@ -315,10 +315,13 @@ export function updateQuotaTelemetrySnapshot(params: {
 
       const attributes: Attributes = {
         "quota.provider": provider,
-        "quota.window":
-          classifyQuotaWindowText(entry.label ?? "") ??
-          classifyQuotaWindowText(entry.name) ??
-          "unknown",
+        "quota.window": entry.semantic
+          ? entry.semantic.metric.kind === "window"
+            ? entry.semantic.metric.window
+            : "unknown"
+          : (classifyQuotaWindowText(entry.label ?? "") ??
+            classifyQuotaWindowText(entry.name) ??
+            "unknown"),
         "quota.result_type": entry.accounting.resultType,
       };
       const observation: QuotaTelemetryObservation = {

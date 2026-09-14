@@ -7,9 +7,15 @@ export const REQUEST_TIMEOUT_MS = 5000;
 /** Default configuration values */
 export const DEFAULT_CONFIG = {
     enabled: true,
+    enableToast: false,
+    resetNotifications: {
+        enabled: false,
+        windows: ["weekly"],
+    },
     tuiCommandDisplay: "inline",
     formatStyle: DEFAULT_QUOTA_FORMAT_STYLE,
     percentDisplayMode: "remaining",
+    accountingDetail: "summary",
     minIntervalMs: 300000, // 5 minutes
     requestTimeoutMs: REQUEST_TIMEOUT_MS,
     debug: false,
@@ -26,6 +32,10 @@ export const DEFAULT_CONFIG = {
         source: "auto",
         autoRefresh: 7,
     },
+    showOnIdle: true,
+    showOnQuestion: true,
+    showOnCompact: true,
+    showOnBothFail: true,
     toastDurationMs: 9000,
     onlyCurrentModel: false,
     showSessionTokens: true,
@@ -45,15 +55,6 @@ export const DEFAULT_CONFIG = {
     },
     startupHint: {
         enabled: true,
-    },
-    promptBar: {
-        enabled: false,
-    },
-    alerts: {
-        enabled: true,
-        percentRemainingThreshold: 0,
-        repeatAfterMinutes: null,
-        balanceThresholds: {},
     },
     maintainerAnnouncements: {
         enabled: true,

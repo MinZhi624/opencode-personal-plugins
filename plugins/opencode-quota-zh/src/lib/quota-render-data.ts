@@ -1,23 +1,22 @@
 import { getAnthropicNoDataMessage } from "../providers/anthropic.js";
 import { getProviders } from "../providers/registry.js";
 import type { LoadConfigMeta } from "./config.js";
-import { isCursorProviderId } from "./cursor-pricing.js";
 import type {
   QuotaProvider,
   QuotaProviderContext,
-  QuotaProviderPresentation,
   QuotaProviderResult,
   QuotaToastEntry,
   QuotaToastError,
   SessionTokensData,
 } from "./entries.js";
-
-import { isPercentEntry } from "./entries.js";
-import { formatGroupedHeader } from "./grouped-header-format.js";
-import { getQuotaProviderDisplayLabel, normalizeQuotaProviderId } from "./provider-metadata.js";
-import { classifyQuotaWindowText, type QuotaWindowKind } from "./quota-entry-display.js";
+import { cloneQuotaToastEntry } from "./entries.js";
+import {
+  getQuotaProviderDisplayLabel,
+  getQuotaProviderIdsForRuntimeId,
+  getQuotaProviderShape,
+} from "./provider-metadata.js";
+import { projectQuotaProviderResults } from "./quota-accounting-projection.js";
 import type { QuotaFormatStyle } from "./quota-format-style.js";
-import { getQuotaFormatStyleDefinition } from "./quota-format-style.js";
 import { createQuotaProviderRuntimeContext } from "./quota-runtime-context.js";
 import { fetchQuotaProviderResult } from "./quota-state.js";
 import type { SessionTokenError } from "./quota-status.js";
@@ -101,6 +100,8 @@ export type CollectQuotaRenderDataResult = {
   selection: QuotaRenderSelection | null;
   availability: QuotaAvailability[];
   active: QuotaProvider[];
+  /** Unprojected provider results for stateful observers such as reset detection. */
+  providerResults: QuotaStatusLiveProbe[];
   attemptedAny: boolean;
   hasExplicitProviderIssues: boolean;
   data: QuotaRenderData | null;
@@ -108,12 +109,6 @@ export type CollectQuotaRenderDataResult = {
   /** Pre-computed singleWindow-projected data. Only present when includeAllWindowsData=true and root style is allWindows. */
   singleWindowData?: QuotaRenderData | null;
   sessionTokenError?: SessionTokenError;
-  /**
-   * Raw per-provider fetch results aligned with `active`, when provider
-   * results were fetched. Consumers such as the unified quota snapshot
-   * builder read per-provider observation quality from here.
-   */
-  results?: QuotaProviderResult[];
 };
 
 export type QuotaStatusLiveProbe = {
@@ -128,19 +123,19 @@ export function matchesQuotaProviderCurrentSelection(params: {
   enabledProviders?: string[] | "auto";
   quotaProviders?: QuotaToastConfig["quotaProviders"];
 }): boolean {
-  if (params.currentModel) {
-    return params.provider.matchesCurrentModel
-      ? params.provider.matchesCurrentModel(params.currentModel, {
+  const matchesCurrentModel = (model: string): boolean =>
+    params.provider.matchesCurrentModel
+      ? params.provider.matchesCurrentModel(model, {
           enabledProviders: params.enabledProviders ?? "auto",
           ...(params.quotaProviders ? { quotaProviders: params.quotaProviders } : {}),
           ...(params.currentProviderID ? { currentProviderID: params.currentProviderID } : {}),
         })
       : true;
-  }
-
-  if (!params.currentProviderID) return false;
 
   if (params.provider.id === "quota-providers") {
+    if (params.currentModel) return matchesCurrentModel(params.currentModel);
+    if (!params.currentProviderID) return false;
+
     return Boolean(
       params.quotaProviders?.some(
         (source) => source.providerId === params.currentProviderID && source.modelIds === undefined,
@@ -148,11 +143,29 @@ export function matchesQuotaProviderCurrentSelection(params: {
     );
   }
 
-  const normalizedCurrentProviderID = normalizeQuotaProviderId(params.currentProviderID);
-  if (params.provider.id === normalizedCurrentProviderID) {
-    return true;
+  if (params.currentProviderID) {
+    const explicitId = params.currentProviderID.trim().toLowerCase();
+    const catalogShape = getQuotaProviderShape(explicitId);
+    if (catalogShape?.id === explicitId) return params.provider.id === catalogShape.id;
+
+    const runtimeCandidates = getQuotaProviderIdsForRuntimeId(explicitId);
+    if (runtimeCandidates.length === 1) return params.provider.id === runtimeCandidates[0];
+    if (runtimeCandidates.length > 1) {
+      if (!runtimeCandidates.some((candidate) => candidate === params.provider.id)) {
+        return false;
+      }
+      if (!params.currentModel || !params.provider.matchesCurrentModel) return false;
+
+      const qualifiedModel = params.currentModel.toLowerCase().startsWith(`${explicitId}/`)
+        ? params.currentModel
+        : `${explicitId}/${params.currentModel}`;
+      return matchesCurrentModel(qualifiedModel);
+    }
+
+    return false;
   }
-  return params.provider.id === "cursor" && isCursorProviderId(params.currentProviderID);
+
+  return params.currentModel ? matchesCurrentModel(params.currentModel) : false;
 }
 
 function hasCurrentQuotaSelection(params: {
@@ -257,6 +270,7 @@ function makeProviderFetchFailure(provider: QuotaProvider): QuotaProviderResult 
       {
         label: getQuotaProviderDisplayLabel(provider.id),
         message: "Failed to read quota data",
+        retryable: true,
       },
     ],
   };
@@ -340,7 +354,7 @@ export async function collectQuotaStatusLiveProbes(params: {
     providerId: provider.id,
     result: {
       ...results[index]!,
-      entries: results[index]!.entries.map((entry) => ({ ...entry })),
+      entries: results[index]!.entries.map(cloneQuotaToastEntry),
       errors: results[index]!.errors.map((error) => ({ ...error })),
       ...(results[index]!.statusDetails
         ? { statusDetails: results[index]!.statusDetails!.map((detail) => ({ ...detail })) }
@@ -353,185 +367,6 @@ export async function collectQuotaStatusLiveProbes(params: {
         : {}),
     },
   }));
-}
-
-function stripSingleWindowEntryMeta(entry: QuotaToastEntry, showRight: boolean): QuotaToastEntry {
-  const { group: _group, label: _label, metricLabel: _metricLabel, ...withoutGroupLabel } = entry;
-  if (showRight) {
-    return { ...withoutGroupLabel };
-  }
-
-  const { right: _right, ...withoutRight } = withoutGroupLabel;
-  return { ...withoutRight };
-}
-
-const SINGLE_WINDOW_PROJECTION_LABELS: Readonly<Record<QuotaWindowKind, string>> = {
-  rpm: "RPM",
-  five_hour: "5h",
-  hour: "Hourly",
-  week: "Weekly",
-  day: "Daily",
-  month: "Monthly",
-  year: "Yearly",
-  mcp: "MCP",
-  code_review: "Code Review",
-};
-
-export function normalizeSingleWindowWindowLabel(value?: string): string | null {
-  const kind = classifyQuotaWindowText(value ?? "");
-  return kind ? SINGLE_WINDOW_PROJECTION_LABELS[kind] : null;
-}
-
-function buildSingleWindowName(params: {
-  entry: QuotaToastEntry;
-  singleWindowDisplayName?: string;
-}): string {
-  const providerText =
-    params.entry.group?.trim() ||
-    params.singleWindowDisplayName?.trim() ||
-    params.entry.name.trim() ||
-    "";
-  const provider = formatGroupedHeader(providerText);
-  const windowLabel =
-    normalizeSingleWindowWindowLabel(params.entry.label) ??
-    normalizeSingleWindowWindowLabel(params.entry.name);
-
-  return windowLabel ? `${provider} ${windowLabel}` : provider;
-}
-
-function renameSingleWindowEntry(entry: QuotaToastEntry, name: string): QuotaToastEntry {
-  return { ...entry, name };
-}
-
-function suppressRedundantQuotaFamily(
-  entry: QuotaToastEntry,
-  redundantQuotaFamily?: string,
-): QuotaToastEntry {
-  if (!redundantQuotaFamily) return entry;
-
-  const familySuffix = `: ${redundantQuotaFamily}`;
-  const name = entry.name.endsWith(familySuffix)
-    ? entry.name.slice(0, -familySuffix.length)
-    : entry.name;
-  return {
-    ...entry,
-    name,
-    label: undefined,
-    metricLabel: "Quota",
-  };
-}
-
-type LegacyQuotaProviderPresentation = QuotaProviderPresentation & {
-  classicDisplayName?: string;
-  classicShowRight?: boolean;
-};
-
-function normalizeSingleWindowPresentation(
-  presentation: QuotaProviderResult["presentation"],
-): QuotaProviderPresentation | undefined {
-  if (!presentation) {
-    return undefined;
-  }
-
-  const legacyPresentation = presentation as LegacyQuotaProviderPresentation;
-  const singleWindowDisplayName =
-    typeof legacyPresentation.singleWindowDisplayName === "string"
-      ? legacyPresentation.singleWindowDisplayName
-      : typeof legacyPresentation.classicDisplayName === "string"
-        ? legacyPresentation.classicDisplayName
-        : undefined;
-  const singleWindowShowRight =
-    typeof legacyPresentation.singleWindowShowRight === "boolean"
-      ? legacyPresentation.singleWindowShowRight
-      : typeof legacyPresentation.classicShowRight === "boolean"
-        ? legacyPresentation.classicShowRight
-        : false;
-  const classicStrategy =
-    legacyPresentation.classicStrategy === "preserve"
-      ? legacyPresentation.classicStrategy
-      : undefined;
-  const redundantQuotaFamily =
-    typeof legacyPresentation.redundantQuotaFamily === "string"
-      ? legacyPresentation.redundantQuotaFamily.trim()
-      : "";
-
-  return {
-    ...(singleWindowDisplayName ? { singleWindowDisplayName } : {}),
-    ...(singleWindowShowRight ? { singleWindowShowRight } : {}),
-    ...(redundantQuotaFamily ? { redundantQuotaFamily } : {}),
-    ...(classicStrategy ? { classicStrategy } : {}),
-  };
-}
-
-function selectSingleWindowEntry(entries: QuotaToastEntry[]): QuotaToastEntry | undefined {
-  let selectedPercentEntry: Extract<QuotaToastEntry, { percentRemaining: number }> | undefined;
-
-  for (const entry of entries) {
-    if (!isPercentEntry(entry)) {
-      continue;
-    }
-
-    if (!selectedPercentEntry || entry.percentRemaining < selectedPercentEntry.percentRemaining) {
-      selectedPercentEntry = entry;
-    }
-  }
-
-  return selectedPercentEntry ?? entries[0];
-}
-
-function selectSingleWindowEntries(entries: QuotaToastEntry[]): QuotaToastEntry[] {
-  if (!entries.some((entry) => entry.accounting.sourceId !== undefined)) {
-    const selected = selectSingleWindowEntry(entries);
-    return selected ? [selected] : [];
-  }
-
-  const entriesBySource = new Map<string | undefined, QuotaToastEntry[]>();
-  for (const entry of entries) {
-    const sourceEntries = entriesBySource.get(entry.accounting.sourceId) ?? [];
-    sourceEntries.push(entry);
-    entriesBySource.set(entry.accounting.sourceId, sourceEntries);
-  }
-
-  return [...entriesBySource.values()].flatMap((sourceEntries) => {
-    const selected = selectSingleWindowEntry(sourceEntries);
-    return selected ? [selected] : [];
-  });
-}
-
-function projectProviderResultToStyle(
-  result: QuotaProviderResult,
-  style: QuotaFormatStyle,
-): QuotaToastEntry[] {
-  const presentation = normalizeSingleWindowPresentation(result.presentation);
-  const entries = result.entries.map((entry) =>
-    suppressRedundantQuotaFamily({ ...entry }, presentation?.redundantQuotaFamily),
-  );
-  const definition = getQuotaFormatStyleDefinition(style);
-  if (definition.projection === "allWindows") {
-    return entries;
-  }
-
-  if (presentation?.classicStrategy === "preserve") {
-    return entries.map((entry) => {
-      const nameEntry = presentation.redundantQuotaFamily ? entry : { ...entry, group: undefined };
-      return renameSingleWindowEntry(
-        stripSingleWindowEntryMeta(entry, presentation?.singleWindowShowRight ?? false),
-        buildSingleWindowName({
-          entry: nameEntry,
-          singleWindowDisplayName: presentation.singleWindowDisplayName ?? entry.name,
-        }),
-      );
-    });
-  }
-  return selectSingleWindowEntries(entries).map((selectedEntry) =>
-    renameSingleWindowEntry(
-      stripSingleWindowEntryMeta(selectedEntry, presentation?.singleWindowShowRight ?? false),
-      buildSingleWindowName({
-        entry: selectedEntry,
-        singleWindowDisplayName: presentation?.singleWindowDisplayName,
-      }),
-    ),
-  );
 }
 
 function getExplicitNoDataMessage(provider: QuotaProvider): string {
@@ -587,6 +422,7 @@ function buildExplicitProviderIssues(params: {
           ? `current model: ${params.selection.currentModel}`
           : "filtered";
       errors.push({
+        kind: "intentional-filter",
         label: getQuotaProviderDisplayLabel(provider.id),
         message: `Skipped (${detail})`,
       });
@@ -602,13 +438,6 @@ function buildExplicitProviderIssues(params: {
   }
 
   return errors;
-}
-
-function projectProviderResultsToStyle(
-  results: QuotaProviderResult[],
-  style: QuotaFormatStyle,
-): QuotaToastEntry[] {
-  return results.flatMap((result) => projectProviderResultToStyle(result, style));
 }
 
 function packageQuotaRenderData(params: {
@@ -646,10 +475,10 @@ export async function collectQuotaRenderData(params: {
       selection: null,
       availability: [],
       active: [],
+      providerResults: [],
       attemptedAny: false,
       hasExplicitProviderIssues: false,
       data: null,
-      results: [],
     };
   }
 
@@ -662,10 +491,10 @@ export async function collectQuotaRenderData(params: {
       selection,
       availability: [],
       active: [],
+      providerResults: [],
       attemptedAny: false,
       hasExplicitProviderIssues: false,
       data: null,
-      results: [],
     };
   }
 
@@ -695,10 +524,10 @@ export async function collectQuotaRenderData(params: {
       selection,
       availability,
       active,
+      providerResults: [],
       attemptedAny: false,
       hasExplicitProviderIssues: explicitProviderIssues.length > 0,
       data: packageQuotaRenderData({ entries: [], errors: explicitProviderIssues }),
-      results: [],
     };
   }
 
@@ -710,7 +539,16 @@ export async function collectQuotaRenderData(params: {
   });
 
   const style = params.formatStyle ?? params.config.formatStyle;
-  const entries = projectProviderResultsToStyle(results, style);
+  const projectionOptions = {
+    quotaProjection: params.config.quotaProjection,
+    nowMs: Date.now(),
+  } as const;
+  const entries = projectQuotaProviderResults(
+    results,
+    style,
+    params.config.accountingDetail,
+    projectionOptions,
+  );
   const errors = results.flatMap((result) => result.errors);
   const attemptedAny = results.some((result) => result.attempted);
 
@@ -760,7 +598,14 @@ export async function collectQuotaRenderData(params: {
   let singleWindowData: QuotaRenderData | null | undefined;
   if (params.includeAllWindowsData) {
     const allWindowsEntries =
-      style === "allWindows" ? entries : projectProviderResultsToStyle(results, "allWindows");
+      style === "allWindows"
+        ? entries
+        : projectQuotaProviderResults(
+            results,
+            "allWindows",
+            params.config.accountingDetail,
+            projectionOptions,
+          );
     allWindowsData = packageQuotaRenderData({
       entries: allWindowsEntries,
       errors: [...errors],
@@ -769,7 +614,12 @@ export async function collectQuotaRenderData(params: {
 
     if (style === "allWindows") {
       singleWindowData = packageQuotaRenderData({
-        entries: projectProviderResultsToStyle(results, "singleWindow"),
+        entries: projectQuotaProviderResults(
+          results,
+          "singleWindow",
+          params.config.accountingDetail,
+          projectionOptions,
+        ),
         errors: [...errors],
         sessionTokens,
       });
@@ -780,12 +630,15 @@ export async function collectQuotaRenderData(params: {
     selection,
     availability,
     active,
+    providerResults: active.map((provider, index) => ({
+      providerId: provider.id,
+      result: results[index]!,
+    })),
     attemptedAny,
     hasExplicitProviderIssues,
     data,
     allWindowsData,
     singleWindowData,
     sessionTokenError,
-    results,
   };
 }

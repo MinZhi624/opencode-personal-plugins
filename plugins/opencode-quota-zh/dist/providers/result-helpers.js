@@ -11,8 +11,8 @@ export function attemptedResult(entries, errors = [], presentation) {
         ...(presentation ? { presentation } : {}),
     };
 }
-export function attemptedErrorResult(label, message) {
-    return attemptedResult([], [{ label, message }]);
+export function attemptedErrorResult(label, message, options = {}) {
+    return attemptedResult([], [{ label, message, ...(options.retryable === true ? { retryable: true } : {}) }]);
 }
 export function statusDetailsFromRecord(values) {
     return Object.entries(values).flatMap(([key, value]) => value === undefined ? [] : [{ key, value }]);
@@ -86,7 +86,7 @@ export function mapNullableProviderResult(result, params) {
         return notAttemptedResult();
     }
     if (!result.success) {
-        return attemptedErrorResult(params.errorLabel, result.error);
+        return attemptedErrorResult(params.errorLabel, result.error, { retryable: result.retryable });
     }
     return params.onSuccess(result);
 }
@@ -102,6 +102,7 @@ export function groupedPercentWindowEntries(params) {
             label,
             percentRemaining: window.percentRemaining,
             resetTimeIso: window.resetTimeIso,
+            ...(window.fixedWindow ? { fixedWindow: { ...window.fixedWindow } } : {}),
         });
     }
     if (entries.length === 0 && params.fallbackWhenEmpty !== false) {

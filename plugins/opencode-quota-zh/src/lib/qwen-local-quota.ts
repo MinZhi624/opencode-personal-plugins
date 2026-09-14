@@ -1,6 +1,7 @@
 import { join } from "path";
 
 import { writeJsonAtomic } from "./atomic-json.js";
+import type { FixedWindowProjectionEvidence } from "./entries.js";
 import { clampPercent } from "./format-utils.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 import type { OpenCodeMessage } from "./opencode-storage.js";
@@ -56,6 +57,7 @@ export interface QwenComputedQuota {
     limit: number;
     percentRemaining: number;
     resetTimeIso: string;
+    fixedWindow?: FixedWindowProjectionEvidence;
   };
   rpm: {
     used: number;
@@ -81,6 +83,11 @@ export interface AlibabaCodingPlanComputedQuota {
 
 function utcDayKey(tsMs: number): string {
   return new Date(tsMs).toISOString().slice(0, 10);
+}
+
+function utcDayStart(tsMs: number): number {
+  const now = new Date(tsMs);
+  return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
 }
 
 function nextUtcMidnightIso(tsMs: number): string {
@@ -194,12 +201,12 @@ function computeRollingWindow(params: {
 
 export function getQwenLocalQuotaPath(): string {
   const { stateDir } = getOpencodeRuntimeDirs();
-  return join(stateDir, "opencode-quota", "qwen-local-quota.json");
+  return join(stateDir, "opencode-quota-zh", "qwen-local-quota.json");
 }
 
 export function getAlibabaCodingPlanQuotaPath(): string {
   const { stateDir } = getOpencodeRuntimeDirs();
-  return join(stateDir, "opencode-quota", "alibaba-coding-plan-local-quota.json");
+  return join(stateDir, "opencode-quota-zh", "alibaba-coding-plan-local-quota.json");
 }
 
 interface MaintainedLocalQuotaDependencies {
@@ -330,13 +337,26 @@ export function computeQwenQuota(params: {
   const dayUsed = Math.max(0, Math.trunc(state.dayCount));
   const rpmUsed = state.recent.length;
   const oldestRecent = oldestTimestamp(state.recent);
+  const dayStartedAtMs = utcDayStart(nowMs);
+  const dayEndsAtIso = nextUtcMidnightIso(nowMs);
+  const fixedWindow =
+    dayStartedAtMs < state.updatedAt && state.updatedAt < Date.parse(dayEndsAtIso)
+      ? ({
+          kind: "fixed_window",
+          startedAtIso: new Date(dayStartedAtMs).toISOString(),
+          observedAtIso: new Date(state.updatedAt).toISOString(),
+          endsAtIso: dayEndsAtIso,
+          fullReset: true,
+        } as const)
+      : undefined;
 
   return {
     day: {
       used: dayUsed,
       limit: dayLimit,
       percentRemaining: toPercentRemaining(dayUsed, dayLimit),
-      resetTimeIso: nextUtcMidnightIso(nowMs),
+      resetTimeIso: dayEndsAtIso,
+      ...(fixedWindow ? { fixedWindow } : {}),
     },
     rpm: {
       used: rpmUsed,

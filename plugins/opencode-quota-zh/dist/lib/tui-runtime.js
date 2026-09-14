@@ -1,15 +1,23 @@
+import { formatAccountingBoolean, formatAccountingQuantity, getAccountingEntryLabel, } from "./accounting-format.js";
 import { resolveRuntimeContextRoots } from "./config-file-utils.js";
-import { isPercentEntry } from "./entries.js";
+import { sanitizeSingleLineDisplayText } from "./display-sanitize.js";
+import { isBooleanEntry, isPercentEntry, isQuantityEntry, isValueEntry, } from "./entries.js";
+import { formatDisplayedPercentLabel } from "./format-utils.js";
+import { formatGroupedHeader } from "./grouped-header-format.js";
+import { BUNDLED_MAINTAINER_ANNOUNCEMENTS, formatMaintainerAnnouncementHomeCountLine, getMaintainerAnnouncementsSummary, getMaintainerAnnouncementTargetProviderIds, } from "./maintainer-announcements.js";
+import { getQuotaProviderShape, normalizeQuotaProviderId } from "./provider-metadata.js";
+import { projectQuotaProviderResults } from "./quota-accounting-projection.js";
 import { classifyQuotaWindowText } from "./quota-entry-display.js";
+import { compareQuotaRunwayUrgency } from "./quota-exhaustion-projection.js";
 import { buildQuotaExport, createExportProviderContext, resolveExportPath, writeQuotaExport, } from "./quota-export.js";
 import { resolveQuotaFormatStyle } from "./quota-format-style.js";
-import { collectQuotaRenderData } from "./quota-render-data.js";
-import { createQuotaRuntimeRequestContext, resolveQuotaRuntimeContext, } from "./quota-runtime-context.js";
+import { collectConcreteEnabledProviderIds, collectQuotaRenderData } from "./quota-render-data.js";
+import { createQuotaProviderRuntimeContext, createQuotaRuntimeRequestContext, resolveQuotaRuntimeContext, } from "./quota-runtime-context.js";
 import { buildCompactQuotaStatusLine } from "./tui-compact-format.js";
 import { hasNativeProviderQuotaClient } from "./tui-native-provider-quota.js";
-import { buildUnifiedQuotaSnapshot, EMPTY_QUOTA_PROJECTION_STATE, formatStartupHintText, projectQuotaSnapshot, } from "./quota-snapshot.js";
 import { buildSidebarQuotaPanelLines, TUI_SIDEBAR_MAX_WIDTH } from "./tui-sidebar-format.js";
 const COMPACT_UNAVAILABLE_TEXT = "Quota unavailable";
+const PROMPT_BAR_MAX_WIDTH = 50;
 const tuiQuotaClients = new WeakMap();
 export function getTuiRuntimeRootHints(api) {
     return {
@@ -146,9 +154,6 @@ export async function getTuiSessionModelMeta(api, sessionID) {
     }
     return getMessageSessionModelMeta(api, safeSessionID);
 }
-// Local fork adaptation (Ticket 05): exported so the Chinese sidebar component
-// (src/quota-zh-sidebar.tsx) can validate and reuse the same initial runtime
-// seed captured during surface registration.
 export function getMatchingInitialRuntimeSeed(api, seed) {
     if (!seed)
         return undefined;
@@ -192,6 +197,10 @@ function buildCompactStatusFromData(params) {
         ? buildCompactQuotaStatusLine({
             data,
             percentDisplayMode: params.runtime.config.percentDisplayMode,
+            accountingDetail: params.runtime.config.accountingDetail,
+            ...(params.runtime.config.resetTimeSpaced !== undefined
+                ? { resetTimeSpaced: params.runtime.config.resetTimeSpaced }
+                : {}),
             maxWidth: params.maxWidth ?? params.runtime.config.tuiCompactStatus.maxWidth,
         })
         : "";
@@ -200,6 +209,11 @@ function buildCompactStatusFromData(params) {
         text: text.trim() ? text : COMPACT_UNAVAILABLE_TEXT,
     };
 }
+const OPENCODE_GO_ACCOUNTING_WINDOWS = {
+    rolling: "five_hour",
+    weekly: "week",
+    monthly: "month",
+};
 function buildSidebarPanelFromData(params) {
     if (params.result.selection?.waitingForCurrentSelection) {
         return {
@@ -208,12 +222,22 @@ function buildSidebarPanelFromData(params) {
         };
     }
     const hasExpandedDetail = params.formatStyle === "allWindows" && Boolean(params.result.allWindowsData);
-    const compactData = params.result.singleWindowData ?? params.result.data;
-    const primaryData = params.formatStyle === "allWindows" && params.result.allWindowsData
-        ? compactData
-        : params.formatStyle === "singleWindow" && params.result.singleWindowData !== undefined
-            ? params.result.singleWindowData
-            : params.result.data;
+    const baseCompactData = params.result.singleWindowData ?? params.result.data;
+    const preferredWindowKey = params.runtime.config.tuiSidebarPanel.opencodeGoPreferredWindow;
+    const providerResults = params.result.providerResults ?? [];
+    const openCodeGoResultIndex = providerResults.findIndex(({ providerId }) => providerId === "opencode-go");
+    const compactData = baseCompactData && preferredWindowKey && openCodeGoResultIndex >= 0
+        ? {
+            ...baseCompactData,
+            entries: projectQuotaProviderResults(providerResults.map(({ result }) => result), "singleWindow", params.runtime.config.accountingDetail, {
+                preferredWindowsByResultIndex: new Map([
+                    [openCodeGoResultIndex, OPENCODE_GO_ACCOUNTING_WINDOWS[preferredWindowKey]],
+                ]),
+                quotaProjection: params.runtime.config.quotaProjection,
+            }),
+        }
+        : baseCompactData;
+    const primaryData = compactData;
     const primaryFormatStyle = params.formatStyle === "allWindows" && params.result.allWindowsData
         ? "singleWindow"
         : params.formatStyle;
@@ -223,6 +247,10 @@ function buildSidebarPanelFromData(params) {
                 buildCompactQuotaStatusLine({
                     data: primaryData,
                     percentDisplayMode: params.runtime.config.percentDisplayMode,
+                    accountingDetail: params.runtime.config.accountingDetail,
+                    ...(params.runtime.config.resetTimeSpaced !== undefined
+                        ? { resetTimeSpaced: params.runtime.config.resetTimeSpaced }
+                        : {}),
                     maxWidth: TUI_SIDEBAR_MAX_WIDTH,
                 }),
             ].filter((line) => Boolean(line))
@@ -246,15 +274,81 @@ function buildSidebarPanelFromData(params) {
         lines,
         ...(providerCount > 0 ? { providerCount } : {}),
         ...(linesExpanded ? { linesExpanded } : {}),
+        ...(params.runtime.config.percentLabelStyle === "bare"
+            ? { headerPercentMode: params.runtime.config.percentDisplayMode }
+            : {}),
     };
 }
-function pickPromptBarEntry(data) {
+function fitPromptBarSemanticSegment(prefix, value) {
+    const segment = sanitizeSingleLineDisplayText(`${prefix} ${value}`);
+    if (segment.length <= PROMPT_BAR_MAX_WIDTH)
+        return segment;
+    if (value.length > PROMPT_BAR_MAX_WIDTH)
+        return null;
+    const prefixWidth = PROMPT_BAR_MAX_WIDTH - value.length - 1;
+    if (prefixWidth <= 0)
+        return value;
+    const visiblePrefix = prefix.length <= prefixWidth
+        ? prefix
+        : prefixWidth === 1
+            ? "…"
+            : `${prefix.slice(0, prefixWidth - 1).trimEnd()}…`;
+    return sanitizeSingleLineDisplayText(`${visiblePrefix} ${value}`);
+}
+function buildSemanticPromptBarEntry(entry, percentDisplayMode) {
+    if (!entry.semantic || entry.semantic.prominence !== "primary")
+        return undefined;
+    const value = isPercentEntry(entry)
+        ? Number.isFinite(entry.percentRemaining)
+            ? (formatDisplayedPercentLabel(entry.percentRemaining, percentDisplayMode).split(" ")[0] ??
+                "0%")
+            : null
+        : isQuantityEntry(entry)
+            ? formatAccountingQuantity(entry.quantity)
+            : isBooleanEntry(entry)
+                ? formatAccountingBoolean(entry.value, entry.semantic)
+                : isValueEntry(entry)
+                    ? entry.value
+                    : null;
+    if (!value)
+        return undefined;
+    const provider = entry.group?.trim()
+        ? formatGroupedHeader(entry.group).replace(/^\[([^\]]+)\]/u, "$1")
+        : entry.name.trim();
+    const label = getAccountingEntryLabel(entry);
+    const prefix = sanitizeSingleLineDisplayText(provider && provider !== label ? `${provider}: ${label}` : label);
+    const semanticSegment = fitPromptBarSemanticSegment(prefix, value);
+    if (!semanticSegment)
+        return undefined;
+    return {
+        semanticSegment,
+        ...(isPercentEntry(entry) ? { percentRemaining: entry.percentRemaining } : {}),
+        ...(entry.resetTimeIso ? { resetTimeIso: entry.resetTimeIso } : {}),
+        ...(isPercentEntry(entry) && entry.runway ? { runway: entry.runway } : {}),
+    };
+}
+function pickPromptBarEntry(data, percentDisplayMode) {
     if (!data || !Array.isArray(data.entries)) {
         return undefined;
     }
+    const projected = data.entries
+        .map((entry, index) => ({
+        entry,
+        index,
+        promptEntry: buildSemanticPromptBarEntry(entry, percentDisplayMode) ?? entry,
+    }))
+        .filter(({ entry }) => isPercentEntry(entry) && Number.isFinite(entry.percentRemaining) && Boolean(entry.runway))
+        .sort((left, right) => compareQuotaRunwayUrgency(isPercentEntry(left.entry) ? left.entry.runway : undefined, isPercentEntry(right.entry) ? right.entry.runway : undefined) || left.index - right.index);
+    if (projected[0])
+        return projected[0].promptEntry;
+    for (const entry of data.entries) {
+        const semantic = buildSemanticPromptBarEntry(entry, percentDisplayMode);
+        if (semantic)
+            return semantic;
+    }
     let fallback;
     for (const entry of data.entries) {
-        if (!isPercentEntry(entry) || !Number.isFinite(entry.percentRemaining)) {
+        if (entry.semantic || !isPercentEntry(entry) || !Number.isFinite(entry.percentRemaining)) {
             continue;
         }
         const kind = classifyQuotaWindowText(entry.label ?? "") ?? classifyQuotaWindowText(entry.name);
@@ -275,12 +369,15 @@ function buildPromptBarFromData(params) {
     if (params.result.selection?.waitingForCurrentSelection) {
         return { status: "loading" };
     }
-    const entry = pickPromptBarEntry(params.result.allWindowsData ?? params.result.data);
+    const entry = pickPromptBarEntry(params.result.allWindowsData ?? params.result.data, params.runtime.config.percentDisplayMode);
     return {
         status: "ready",
         ...(entry ? { entry } : {}),
         percentDisplayMode: params.runtime.config.percentDisplayMode,
         resetTimeDecimals: params.runtime.config.resetTimeDecimals,
+        ...(params.runtime.config.resetTimeSpaced !== undefined
+            ? { resetTimeSpaced: params.runtime.config.resetTimeSpaced }
+            : {}),
     };
 }
 async function collectTuiQuotaRenderData(params) {
@@ -318,6 +415,7 @@ export async function resolveTuiSurfaceRegistration(api, options) {
         runtime.config.maintainerAnnouncements.enabled &&
         runtime.config.maintainerAnnouncements.home;
     const exportHomeBottom = runtime.config.enabled && runtime.config.export.enabled;
+    const startupHintEnabled = runtime.config.enabled && runtime.config.startupHint.enabled;
     const compactHomeBottom = compactEnabled && compact.homeBottom;
     const registration = {
         commandDisplay: runtime.config.tuiCommandDisplay,
@@ -334,13 +432,11 @@ export async function resolveTuiSurfaceRegistration(api, options) {
         promptBar: {
             enabled: runtime.config.enabled && runtime.config.tuiPromptBar.enabled,
         },
-        startupHint: {
-            enabled: runtime.config.enabled && runtime.config.startupHint.enabled,
-        },
         announcements: {
             homeBottom: announcementHomeBottom,
         },
-        homeBottom: compactHomeBottom || announcementHomeBottom || exportHomeBottom,
+        startupHint: { enabled: startupHintEnabled },
+        homeBottom: startupHintEnabled || compactHomeBottom || announcementHomeBottom || exportHomeBottom,
     };
     options?.captureInitialRuntime?.({
         roots: runtime.roots,
@@ -400,17 +496,42 @@ export async function loadTuiHomeBottomStatus(params) {
         configMeta: initialRuntimeSeed?.configMeta,
         providers: initialRuntimeSeed?.providers,
     });
-    // Automatic maintainer-announcement Home surfaces are suppressed (Todo 1);
-    // announcement evaluation, /quota_status diagnostics and the
-    // maintainerAnnouncements config stay intact for Ticket 13.
+    const announcementEnabled = runtime.config.enabled &&
+        runtime.config.maintainerAnnouncements.enabled &&
+        runtime.config.maintainerAnnouncements.home;
     const compactSuppressedByNativeProviderQuota = runtime.config.tuiCompactStatus.suppressWhenNativeProviderQuota &&
         hasNativeProviderQuotaClient(params.api.client);
     const compactEnabled = runtime.config.enabled &&
         runtime.config.tuiCompactStatus.enabled &&
         runtime.config.tuiCompactStatus.homeBottom &&
         !compactSuppressedByNativeProviderQuota;
-    if (!compactEnabled) {
+    if (!announcementEnabled && !compactEnabled) {
         return { status: "disabled", compact: { status: "disabled" } };
+    }
+    let announcementText;
+    if (announcementEnabled) {
+        const announcements = params.announcements ?? BUNDLED_MAINTAINER_ANNOUNCEMENTS;
+        const targetProviderIds = new Set(getMaintainerAnnouncementTargetProviderIds({ announcements }));
+        const announcementProviders = runtime.providers.filter((provider) => {
+            const shape = getQuotaProviderShape(normalizeQuotaProviderId(provider.id));
+            return shape ? targetProviderIds.has(shape.id) : false;
+        });
+        const providerIds = await collectConcreteEnabledProviderIds({
+            providers: announcementProviders,
+            ctx: createQuotaProviderRuntimeContext(runtime),
+            enabledProviders: runtime.config.enabledProviders,
+        });
+        const summary = getMaintainerAnnouncementsSummary({
+            nowMs: params.nowMs,
+            enabledProviders: providerIds,
+            announcements,
+        });
+        announcementText = formatMaintainerAnnouncementHomeCountLine(summary.activeCount) || undefined;
+    }
+    if (!compactEnabled) {
+        return announcementText
+            ? { status: "ready", announcementText, compact: { status: "disabled" } }
+            : { status: "disabled", compact: { status: "disabled" } };
     }
     const homeRuntime = {
         ...runtime,
@@ -431,71 +552,7 @@ export async function loadTuiHomeBottomStatus(params) {
         enabled: true,
         formatStyle: compactFormatStyle,
     });
-    return { status: "ready", compact };
-}
-/**
- * Loads the startup hint for the OpenCode home page (Ticket 07).
- *
- * Reuses the shared quota render pipeline (no extra Provider requests beyond
- * the normal home refresh) and feeds the pure unified-snapshot projection seam
- * with an injected clock. Returns a ready single-line Chinese hint, or
- * "disabled" when the surface is off, no provider is monitored, or the
- * snapshot projects to "none".
- */
-export async function loadTuiStartupHint(params) {
-    const quotaClient = createTuiQuotaClient(params.api);
-    const initialRuntimeSeed = getMatchingInitialRuntimeSeed(params.api, params.initialRuntimeSeed);
-    const runtime = await resolveQuotaRuntimeContext({
-        client: quotaClient,
-        roots: getTuiRuntimeRootHints(params.api),
-        config: initialRuntimeSeed?.config,
-        configMeta: initialRuntimeSeed?.configMeta,
-        providers: initialRuntimeSeed?.providers,
-    });
-    if (!runtime.config.enabled || !runtime.config.startupHint.enabled) {
-        return { status: "disabled" };
-    }
-    const homeRuntime = {
-        ...runtime,
-        config: {
-            ...runtime.config,
-            onlyCurrentModel: false,
-            showSessionTokens: false,
-        },
-        session: {},
-    };
-    const { result } = await collectTuiQuotaRenderData({
-        runtime: homeRuntime,
-        request: createQuotaRuntimeRequestContext(homeRuntime),
-    });
-    const snapshot = buildUnifiedQuotaSnapshot({
-        monitoredProviderIds: result.selection?.providers.map((provider) => provider.id) ?? [],
-        availability: result.availability.map((item) => ({
-            providerId: item.provider.id,
-            ok: item.ok,
-            ...(item.error ? { error: true } : {}),
-        })),
-        // collectQuotaRenderData aligns `results` with `active`; absent results
-        // mean no fresh observation for that provider.
-        results: result.results
-            ? result.active.map((provider, index) => ({
-                providerId: provider.id,
-                result: result.results[index] ?? { attempted: false, entries: [], errors: [] },
-            }))
-            : [],
-    });
-    const now = params.nowMs !== undefined ? new Date(params.nowMs) : new Date();
-    const projection = projectQuotaSnapshot({
-        config: runtime.config,
-        snapshot,
-        now,
-        state: EMPTY_QUOTA_PROJECTION_STATE,
-    });
-    const text = formatStartupHintText(projection.startupHint, now);
-    if (!text) {
-        return { status: "disabled" };
-    }
-    return { status: "ready", text };
+    return { status: "ready", announcementText, compact };
 }
 export async function loadTuiHomeCompactStatus(params) {
     const quotaClient = createTuiQuotaClient(params.api);

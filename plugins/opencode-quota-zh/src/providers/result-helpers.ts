@@ -3,6 +3,7 @@ import { readFile } from "fs/promises";
 import { sanitizeDisplayText } from "../lib/display-sanitize.js";
 import type {
   AccountingMetadata,
+  FixedWindowProjectionEvidence,
   QuotaProviderPresentation,
   QuotaProviderResult,
   QuotaProviderStatusDetail,
@@ -27,8 +28,15 @@ export function attemptedResult(
   };
 }
 
-export function attemptedErrorResult(label: string, message: string): QuotaProviderResult {
-  return attemptedResult([], [{ label, message }]);
+export function attemptedErrorResult(
+  label: string,
+  message: string,
+  options: { retryable?: boolean } = {},
+): QuotaProviderResult {
+  return attemptedResult(
+    [],
+    [{ label, message, ...(options.retryable === true ? { retryable: true } : {}) }],
+  );
 }
 
 export function statusDetailsFromRecord(
@@ -140,11 +148,13 @@ export async function inspectGeneratedCounterFile(
   }
 }
 
-export function mapNullableProviderResult<TSuccess extends { success: true }>(
-  result: TSuccess | { success: false; error: string } | null,
+export function mapNullableProviderResult<
+  TResult extends { success: true } | { success: false; error: string; retryable?: boolean } | null,
+>(
+  result: TResult,
   params: {
     errorLabel: string;
-    onSuccess: (result: TSuccess) => QuotaProviderResult;
+    onSuccess: (result: Extract<TResult, { success: true }>) => QuotaProviderResult;
   },
 ): QuotaProviderResult {
   if (!result) {
@@ -152,10 +162,10 @@ export function mapNullableProviderResult<TSuccess extends { success: true }>(
   }
 
   if (!result.success) {
-    return attemptedErrorResult(params.errorLabel, result.error);
+    return attemptedErrorResult(params.errorLabel, result.error, { retryable: result.retryable });
   }
 
-  return params.onSuccess(result);
+  return params.onSuccess(result as Extract<TResult, { success: true }>);
 }
 
 export function groupedPercentWindowEntries(params: {
@@ -165,6 +175,7 @@ export function groupedPercentWindowEntries(params: {
     window?: {
       percentRemaining: number;
       resetTimeIso?: string;
+      fixedWindow?: FixedWindowProjectionEvidence;
     };
     suffix: string;
     label: string;
@@ -183,6 +194,7 @@ export function groupedPercentWindowEntries(params: {
       label,
       percentRemaining: window.percentRemaining,
       resetTimeIso: window.resetTimeIso,
+      ...(window.fixedWindow ? { fixedWindow: { ...window.fixedWindow } } : {}),
     });
   }
 

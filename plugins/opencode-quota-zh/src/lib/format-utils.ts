@@ -7,7 +7,7 @@
  * - quota-command-format.ts (/quota command)
  */
 
-import type { PercentDisplayMode } from "./types.js";
+import type { PercentDisplayMode, PercentLabelStyle } from "./types.js";
 
 /**
  * Clamp a number to an integer within [min, max].
@@ -41,6 +41,35 @@ export function padLeft(str: string, width: number): string {
   return " ".repeat(width - str.length) + str;
 }
 
+export function wrapDisplayText(text: string, maxWidth: number): string[] {
+  if (maxWidth <= 0) return [];
+  const words = text.trim().split(/\s+/u).filter(Boolean);
+  const lines: string[] = [];
+  let line = "";
+
+  for (const word of words) {
+    if (word.length > maxWidth) {
+      if (line) {
+        lines.push(line);
+        line = "";
+      }
+      for (let offset = 0; offset < word.length; offset += maxWidth) {
+        lines.push(word.slice(offset, offset + maxWidth));
+      }
+      continue;
+    }
+    const next = line ? `${line} ${word}` : word;
+    if (next.length <= maxWidth) {
+      line = next;
+    } else {
+      lines.push(line);
+      line = word;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
 /**
  * Render a progress bar of filled/empty blocks.
  */
@@ -67,12 +96,22 @@ export function resolveDisplayedPercent(
 export function formatDisplayedPercentLabel(
   percentRemaining: number,
   mode: PercentDisplayMode = "remaining",
+  style: PercentLabelStyle = "full",
 ): string {
   const displayedPercent = resolveDisplayedPercent(percentRemaining, mode);
-  return `${displayedPercent}% ${mode === "used" ? "已用" : "剩余"}`;
+  const percent = `${displayedPercent}%`;
+  return style === "bare" ? percent : `${percent} ${mode === "used" ? "used" : "left"}`;
 }
 
 export const DISPLAYED_PERCENT_LABEL_WIDTH = "100% used".length;
+
+export function displayedPercentLabelWidth(style: PercentLabelStyle = "full"): number {
+  return style === "bare" ? "100%".length : DISPLAYED_PERCENT_LABEL_WIDTH;
+}
+
+export function formatQuotaModeHeading(mode: PercentDisplayMode = "remaining"): string {
+  return `Quota [${mode === "used" ? "Used" : "Remaining"}]`;
+}
 
 /**
  * Format a token count with K/M suffix for compactness.
@@ -142,17 +181,17 @@ export interface FormatResetCountdownOptions {
    */
   missing?: string;
   /**
-   * When true, rounds down to the largest active unit.
-   * - 13d 5h -> 13d
-   * - 2h 14m -> 2h
-   * - 14m -> 14m
+   * Opt into the legacy compact display instead of the default exact-to-minute
+   * countdown.
    */
   compactRounded?: boolean;
   /**
    * When set with compactRounded, render the largest active unit with this
-   * many decimal places instead of the default integer-day / half-hour steps.
+   * many decimal places.
    */
   decimals?: number;
+  /** Join exact compound countdown units with spaces. */
+  spaced?: boolean;
 }
 
 const MS_PER_DAY = 86_400_000;
@@ -161,17 +200,18 @@ const MS_PER_HOUR = 3_600_000;
 /**
  * Format a reset countdown for toast display.
  *
- * Returns human-readable Chinese time such as "2天5小时" or "3小时45分钟".
- * When reset time is in the past or invalid, returns "已重置".
+ * Returns a precise-to-minute value like "2d5h14m", "3h45m", or "14m".
+ * When reset time is in the past or invalid, returns "reset".
  */
 export function formatResetCountdown(iso?: string, opts?: FormatResetCountdownOptions): string {
   if (!iso) return opts?.missing ?? "";
   const resetDate = new Date(iso);
   const now = new Date();
   const diffMs = resetDate.getTime() - now.getTime();
-  if (!Number.isFinite(diffMs) || diffMs <= 0) return "已重置";
+  if (!Number.isFinite(diffMs) || diffMs <= 0) return "reset";
 
-  const diffMinutes = Math.floor(diffMs / 60000);
+  // Round up partial minutes so the countdown never understates the time left.
+  const diffMinutes = Math.ceil(diffMs / 60_000);
   const days = Math.floor(diffMinutes / 1440);
   const hours = Math.floor((diffMinutes % 1440) / 60);
   const minutes = diffMinutes % 60;
@@ -179,21 +219,23 @@ export function formatResetCountdown(iso?: string, opts?: FormatResetCountdownOp
   if (opts?.compactRounded) {
     const decimals = opts.decimals;
     if (isResetTimeDecimals(decimals)) {
-      if (days > 0) return `${(diffMs / MS_PER_DAY).toFixed(decimals)}天`;
+      if (days > 0) return `${(diffMs / MS_PER_DAY).toFixed(decimals)}d`;
       const formattedHours = (diffMs / MS_PER_HOUR).toFixed(decimals);
-      if (Number(formattedHours) > 0) return `${formattedHours}小时`;
-      return `${Math.max(1, Math.ceil(diffMs / 60_000))}分钟`;
+      if (Number(formattedHours) > 0) return `${formattedHours}h`;
+      return `${Math.max(1, Math.ceil(diffMs / 60_000))}m`;
     }
 
-    if (days > 0) return `${days}天`;
+    if (days > 0) return `${days}d`;
     const halfHours = Math.ceil(diffMinutes / 30);
     const h = Math.floor(halfHours / 2);
-    if (h > 0) return halfHours % 2 === 1 ? `${h}.5小时` : `${h}小时`;
-    return "0.5小时";
+    if (h > 0) return halfHours % 2 === 1 ? `${h}.5h` : `${h}h`;
+    return `0.5h`;
   }
 
-  if (days > 0) return `${days}天${hours}小时`;
-  return `${hours}小时${minutes}分钟`;
+  const separator = opts?.spaced ? " " : "";
+  if (days > 0) return [`${days}d`, `${hours}h`, `${minutes}m`].join(separator);
+  if (hours > 0) return [`${hours}h`, `${minutes}m`].join(separator);
+  return `${minutes}m`;
 }
 
 export const MAX_RESET_TIME_DECIMALS = 4;

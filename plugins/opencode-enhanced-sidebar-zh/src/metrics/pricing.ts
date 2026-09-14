@@ -104,7 +104,7 @@ const SOURCE_URL = "https://models.dev/api.json"
 const COST_KEYS = ["input", "output", "cache_read", "cache_write", "reasoning"] as const
 // Share quota-zh's runtime snapshot so every cost surface uses the same
 // provider/model catalog and refresh timestamp.
-const RUNTIME_NAMESPACE = "opencode-quota"
+const RUNTIME_NAMESPACE = "opencode-quota-zh"
 const RUNTIME_SNAPSHOT_FILENAME = "modelsdev-pricing.runtime.min.json"
 const RUNTIME_REFRESH_STATE_FILENAME = "modelsdev-pricing.refresh-state.json"
 const DEFAULT_REFRESH_MIN_ATTEMPT_INTERVAL_MS = 6 * 60 * 60 * 1000

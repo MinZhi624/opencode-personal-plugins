@@ -13,7 +13,7 @@ function formatAgyAccountLabel(bucket, accountLabels) {
         return (accountLabels.get(bucket.accountEmail) ??
             formatGoogleAccountLabel(bucket.accountEmail, "domainHint"));
     }
-    return bucket.accountKey ? `Account ${bucket.accountKey.slice(0, 8)}` : "Unknown";
+    return `Account ${bucket.accountIndex + 1}`;
 }
 function familyRank(family) {
     if (family === "Gemini Models")
@@ -123,7 +123,7 @@ export const googleAgyProvider = {
                     acquisitionMethod: "remote_api",
                     ownership: "maintained",
                     authority: "provider_reported",
-                    sourceId: bucket.accountKey ?? bucket.accountEmail ?? `account-${bucket.accountIndex}`,
+                    sourceId: `account-${bucket.accountIndex + 1}`,
                 },
                 name: `${bucket.family} (${accountLabel})`,
                 group: `AGY (${accountLabel}): ${formatAgyFamilyLabel(bucket.family)}`,

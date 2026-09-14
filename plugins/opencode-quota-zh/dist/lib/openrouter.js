@@ -5,6 +5,7 @@
  * OpenRouter sources interpret the API response identically.
  */
 import { fetchRemoteQuotaProvider, resolveQuotaProviderApiKey, } from "./quota-providers-remote.js";
+import { deriveResolvedAuthIdentity } from "./resolved-auth-identity.js";
 const OPENROUTER_KEY_SOURCE = {
     id: "openrouter",
     providerId: "openrouter",
@@ -19,6 +20,15 @@ export async function resolveOpenRouterApiKey() {
 }
 export async function hasOpenRouterApiKeyConfigured() {
     return Boolean((await resolveOpenRouterApiKey()).key);
+}
+export async function resolveOpenRouterAuthIdentity() {
+    const resolved = await resolveOpenRouterApiKey();
+    if (!resolved.key)
+        return null;
+    return deriveResolvedAuthIdentity({
+        providerId: "openrouter",
+        principal: { kind: "credential", value: resolved.key },
+    });
 }
 export async function queryOpenRouterQuota(options = {}) {
     const resolved = await resolveOpenRouterApiKey();

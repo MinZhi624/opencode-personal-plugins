@@ -4,11 +4,13 @@
  * Renders quota entries grouped by provider/account with compact bars.
  * Designed to feel like a status dashboard while still respecting OpenCode toast width.
  */
-import { isValueEntry } from "./entries.js";
-import { bar, DISPLAYED_PERCENT_LABEL_WIDTH, formatDisplayedPercentLabel, formatResetCountdown, isResetTimeDecimals, padLeft, padRight, resolveDisplayedPercent, } from "./format-utils.js";
+import { interpretAccountingRow } from "./accounting-format.js";
+import { isPercentEntry } from "./entries.js";
+import { bar, displayedPercentLabelWidth, formatDisplayedPercentLabel, formatResetCountdown, isResetTimeDecimals, padLeft, padRight, resolveDisplayedPercent, wrapDisplayText, } from "./format-utils.js";
 import { normalizeGroupedQuotaEntries } from "./grouped-entry-normalization.js";
 import { formatGroupedHeader } from "./grouped-header-format.js";
 import { classifyQuotaWindowText } from "./quota-entry-display.js";
+import { formatQuotaRunway } from "./quota-exhaustion-projection.js";
 import { renderSessionTokensLines } from "./session-tokens-format.js";
 function normalizeLabelText(value) {
     return value?.trim().replace(/:+$/u, "").trim() ?? "";
@@ -28,7 +30,9 @@ function extractWindowLabel(text) {
     const kind = classifyQuotaWindowText(text);
     return kind ? GROUPED_WINDOW_LABELS[kind] : null;
 }
-function resolveGroupedRowLabel(entry) {
+function resolveGroupedRowLabel(entry, semanticLabel) {
+    if (entry.semantic)
+        return semanticLabel;
     const rawLabel = normalizeLabelText(entry.label);
     const fromLabel = extractWindowLabel(rawLabel);
     if (fromLabel)
@@ -52,10 +56,11 @@ export function formatQuotaRowsGrouped(params) {
     const isTiny = maxWidth <= layout.tinyAt;
     const isNarrow = !isTiny && maxWidth <= layout.narrowAt;
     const separator = "  ";
-    const percentCol = Math.max(DISPLAYED_PERCENT_LABEL_WIDTH, ...(params.entries ?? [])
-        .filter((entry) => !isValueEntry(entry))
-        .map((entry) => formatDisplayedPercentLabel(entry.percentRemaining, params.percentDisplayMode).length));
-    const barWidth = Math.max(10, maxWidth - separator.length - percentCol);
+    const percentCol = Math.max(displayedPercentLabelWidth(params.percentLabelStyle), ...(params.entries ?? [])
+        .filter(isPercentEntry)
+        .map((entry) => formatDisplayedPercentLabel(entry.percentRemaining, params.percentDisplayMode, params.percentLabelStyle).length));
+    const percentValueCol = percentCol;
+    const barWidth = Math.max(10, maxWidth - separator.length - percentValueCol);
     const timeCol = isTiny ? 6 : isNarrow ? 7 : 7;
     const lines = [];
     // Group entries in stable order.
@@ -75,21 +80,64 @@ export function formatQuotaRowsGrouped(params) {
         const list = groups.get(g) ?? [];
         if (gi > 0)
             lines.push("");
-        lines.push(formatGroupedHeader(g).slice(0, maxWidth));
+        const groupHeader = formatGroupedHeader(g);
+        lines.push(...(params.wrapLabels
+            ? wrapDisplayText(groupHeader, maxWidth)
+            : [groupHeader.slice(0, maxWidth)]));
         for (const entry of list) {
+            const interpretation = interpretAccountingRow(entry, {
+                booleanWording: "semantic",
+                ...(!isTiny
+                    ? {
+                        basis: (params.accountingDetail ?? "summary") === "detailed"
+                            ? { kind: "detailed" }
+                            : {
+                                kind: "summary",
+                                mode: params.percentDisplayMode ?? "remaining",
+                            },
+                    }
+                    : {}),
+            });
             const right = entry.right ? entry.right.trim() : "";
-            if (isValueEntry(entry)) {
-                const label = entry.label?.trim() || entry.name;
-                const timeStr = formatResetCountdown(entry.resetTimeIso, {
-                    compactRounded: true,
-                    decimals: params.resetTimeDecimals,
-                });
-                const value = entry.value.trim();
+            if (interpretation.display.kind === "value") {
+                const isAtomicValue = interpretation.display.entryKind !== "value";
+                const label = entry.semantic ? interpretation.label : entry.label?.trim() || entry.name;
+                const timeStr = entry.resetTimeIso
+                    ? formatResetCountdown(entry.resetTimeIso, isResetTimeDecimals(params.resetTimeDecimals)
+                        ? { compactRounded: true, decimals: params.resetTimeDecimals }
+                        : { spaced: params.resetTimeSpaced })
+                    : "";
+                const value = interpretation.display.entryKind === "value"
+                    ? interpretation.display.text.trim()
+                    : interpretation.display.text;
+                const leftText = right ? `${label} ${right}` : label;
+                const labelAndValue = [leftText, value].filter(Boolean).join(separator);
+                if (timeStr &&
+                    labelAndValue.length <= maxWidth &&
+                    labelAndValue.length + separator.length + timeStr.length > maxWidth) {
+                    lines.push(labelAndValue);
+                    lines.push(padLeft(timeStr, maxWidth));
+                    continue;
+                }
+                if (isAtomicValue) {
+                    const suffix = [value, timeStr].filter(Boolean).join(separator);
+                    if (suffix.length > maxWidth) {
+                        if (value.length <= maxWidth)
+                            lines.push(padLeft(value, maxWidth));
+                        continue;
+                    }
+                    const availableLabelWidth = maxWidth - (suffix ? separator.length + suffix.length : 0);
+                    if (availableLabelWidth <= 0) {
+                        lines.push(padLeft(suffix, maxWidth));
+                        continue;
+                    }
+                    const leftText = label.slice(0, availableLabelWidth).trimEnd();
+                    lines.push(`${padRight(leftText, availableLabelWidth)}${suffix ? `${separator}${suffix}` : ""}`);
+                    continue;
+                }
                 if (isTiny) {
                     // Tiny: "label  time  value"
-                    const timeWidth = isResetTimeDecimals(params.resetTimeDecimals)
-                        ? Math.max(timeCol, timeStr.length)
-                        : timeCol;
+                    const timeWidth = Math.max(timeCol, timeStr.length);
                     const valueCol = Math.min(value.length, Math.max(6, percentCol + 2));
                     const tinyNameCol = Math.max(1, maxWidth - separator.length - timeWidth - separator.length - valueCol);
                     const leftText = right ? `${label} ${right}` : label;
@@ -105,7 +153,6 @@ export function formatQuotaRowsGrouped(params) {
                 const timeWidth = Math.max(timeStr.length, timeCol);
                 const valueWidth = Math.max(value.length, 6);
                 const leftMax = Math.max(1, barWidth - separator.length - valueWidth - separator.length - timeWidth);
-                const leftText = right ? `${label} ${right}` : label;
                 lines.push((padRight(leftText, leftMax) +
                     separator +
                     padLeft(value, valueWidth) +
@@ -113,40 +160,94 @@ export function formatQuotaRowsGrouped(params) {
                     padLeft(timeStr, timeWidth)).slice(0, maxWidth));
                 continue;
             }
-            const label = resolveGroupedRowLabel(entry);
+            const label = resolveGroupedRowLabel(entry, interpretation.label);
+            // A "value row" has no explicit label and carries a `right` summary to be
+            // shown instead of a name. When present, the `right` is justified to the
+            // edges of line 1 (left + right) and no reset countdown is shown.
+            const isValueRow = !entry.label?.trim() && !entry.metricLabel?.trim() && !!entry.right?.trim();
+            const displayedPercent = resolveDisplayedPercent(interpretation.display.percentRemaining, params.percentDisplayMode);
+            const percentLabel = formatDisplayedPercentLabel(interpretation.display.percentRemaining, params.percentDisplayMode, params.percentLabelStyle);
             // Percent entries
             // Show reset countdown whenever quota is not fully available.
             // (i.e., any usage at all, or depleted)
-            const timeStr = entry.percentRemaining < 100
-                ? formatResetCountdown(entry.resetTimeIso, {
-                    compactRounded: true,
-                    decimals: params.resetTimeDecimals,
-                })
+            const timeStr = interpretation.display.percentRemaining < 100
+                ? formatResetCountdown(entry.resetTimeIso, isResetTimeDecimals(params.resetTimeDecimals)
+                    ? { compactRounded: true, decimals: params.resetTimeDecimals }
+                    : { spaced: params.resetTimeSpaced })
                 : "";
-            const displayedPercent = resolveDisplayedPercent(entry.percentRemaining, params.percentDisplayMode);
-            const percentLabel = formatDisplayedPercentLabel(entry.percentRemaining, params.percentDisplayMode);
+            const runway = isPercentEntry(entry) ? formatQuotaRunway(entry.runway) : "";
+            const addRunwayLine = () => {
+                if (runway)
+                    lines.push(`Runs out  ${runway}`.slice(0, maxWidth));
+            };
             if (isTiny) {
-                // Tiny: "label  time  XX%" (ignore bar)
-                const timeWidth = isResetTimeDecimals(params.resetTimeDecimals)
-                    ? Math.max(timeCol, timeStr.length)
-                    : timeCol;
-                const tinyNameCol = Math.max(1, maxWidth - separator.length - timeWidth - separator.length - percentCol);
+                // Tiny: single line with name/time/percent (or just the right summary)
+                const timeWidth = Math.max(timeCol, timeStr.length);
+                const visibleBarSuffix = percentLabel.slice(0, percentValueCol);
+                if (isValueRow) {
+                    const tinyNameCol = Math.max(1, maxWidth - separator.length - timeWidth - separator.length - percentValueCol);
+                    const line = [
+                        padRight(entry.right.trim(), tinyNameCol),
+                        padLeft(timeStr, timeWidth),
+                        padLeft(visibleBarSuffix, percentValueCol),
+                    ].join(separator);
+                    lines.push(line.slice(0, maxWidth));
+                    addRunwayLine();
+                    continue;
+                }
+                const tinyNameCol = Math.max(1, maxWidth - separator.length - timeWidth - separator.length - percentValueCol);
                 const line = [
                     padRight(label, tinyNameCol),
                     padLeft(timeStr, timeWidth),
-                    padLeft(percentLabel, percentCol),
+                    padLeft(visibleBarSuffix, percentValueCol),
                 ].join(separator);
                 lines.push(line.slice(0, maxWidth));
+                addRunwayLine();
                 continue;
             }
-            // Line 1: label + optional right + time at end
-            const timeWidth = Math.max(timeStr.length, timeCol);
-            const leftMax = Math.max(1, maxWidth - separator.length - timeWidth);
-            lines.push((padRight(label, leftMax) + separator + padLeft(timeStr, timeWidth)).slice(0, maxWidth));
+            if (isValueRow) {
+                // Line 1: right summary. Two segments -> justified to the edges;
+                // a single segment -> right-aligned. No name, no reset.
+                const text = entry.right.trim();
+                const parts = text.split(/\s{2,}/u).filter(Boolean);
+                if (parts.length >= 2) {
+                    const left = parts[0] ?? "";
+                    const rightText = parts.slice(1).join("  ");
+                    const sep = "  ";
+                    const leftWidth = Math.max(1, maxWidth - sep.length - rightText.length);
+                    lines.push((padRight(left, leftWidth) + sep + rightText).slice(0, maxWidth));
+                }
+                else {
+                    lines.push(padLeft(text, maxWidth));
+                }
+            }
+            else {
+                // Line 1: label + time at end
+                const timeWidth = Math.max(timeStr.length, timeCol);
+                const leftMax = Math.max(1, maxWidth - separator.length - timeWidth);
+                lines.push((padRight(label, leftMax) + separator + padLeft(timeStr, timeWidth)).slice(0, maxWidth));
+            }
             // Line 2: bar + percent
             const barCell = bar(displayedPercent, barWidth);
-            const percentCell = padLeft(percentLabel, percentCol);
-            lines.push([barCell, percentCell].join(separator));
+            const suffixCell = padLeft(percentLabel.slice(0, percentValueCol), percentValueCol);
+            lines.push([barCell, suffixCell].join(separator));
+            addRunwayLine();
+            if (interpretation.basis) {
+                const candidates = interpretation.basis.kind === "detailed"
+                    ? interpretation.basis.facts.map((fact) => fact.text)
+                    : interpretation.basis.text
+                        ? [interpretation.basis.text]
+                        : [];
+                let detailLine = "";
+                for (const candidate of candidates) {
+                    const next = detailLine ? `${detailLine} | ${candidate}` : candidate;
+                    if (next.length > maxWidth)
+                        break;
+                    detailLine = next;
+                }
+                if (detailLine)
+                    lines.push(detailLine);
+            }
         }
     }
     for (const err of params.errors ?? []) {

@@ -38,6 +38,18 @@ const OPENCODE_ZEN_BUDGET_ACCOUNTING: AccountingMetadata = {
   ownership: "maintained",
   authority: "locally_derived",
 };
+const OPENCODE_ZEN_STATUS_ACCOUNTING: AccountingMetadata = {
+  resultType: "status",
+  acquisitionMethod: "dashboard_scrape",
+  ownership: "maintained",
+  authority: "provider_reported",
+};
+const USD_UNIT = { kind: "currency", code: "USD" } as const;
+
+function zenUsdDecimal(value: number): string {
+  const fixed = value.toFixed(8);
+  return fixed.replace(/0+$/u, "").replace(/\.$/u, "");
+}
 
 export const opencodeZenProvider: QuotaProvider = {
   id: "opencode",
@@ -111,45 +123,92 @@ export const opencodeZenProvider: QuotaProvider = {
         ? null
         : result.data.monthlyUsage / OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR;
 
-    const entry: QuotaToastEntry =
+    const hasMonthlyBudget =
       effectiveMonthlyLimit !== null &&
       Number.isFinite(effectiveMonthlyLimit) &&
       effectiveMonthlyLimit > 0 &&
       monthlyUsageUsd !== null &&
       Number.isFinite(monthlyUsageUsd) &&
-      monthlyUsageUsd >= 0
-        ? {
-            accounting: OPENCODE_ZEN_BUDGET_ACCOUNTING,
-            name: "",
-            group: OPENCODE_ZEN_GROUP,
-            percentRemaining: Math.min(
-              100,
-              Math.max(
-                0,
-                ((effectiveMonthlyLimit - monthlyUsageUsd) / effectiveMonthlyLimit) * 100,
-              ),
-            ),
-          }
-        : {
-            accounting: OPENCODE_ZEN_BALANCE_ACCOUNTING,
-            kind: "value",
-            name: "",
-            group: OPENCODE_ZEN_GROUP,
-            value: `$${balanceUsd.toFixed(2)}`,
-          };
+      monthlyUsageUsd >= 0;
+    const entries: QuotaToastEntry[] = [];
 
-    return withStatusDetails(attemptedResult([entry]), [
+    if (hasMonthlyBudget) {
+      const monthlyRemainingUsd = Math.max(0, effectiveMonthlyLimit - monthlyUsageUsd);
+      entries.push({
+        accounting: OPENCODE_ZEN_BUDGET_ACCOUNTING,
+        name: "zen-monthly-budget",
+        group: OPENCODE_ZEN_GROUP,
+        percentRemaining: Math.min(100, (monthlyRemainingUsd / effectiveMonthlyLimit) * 100),
+        semantic: {
+          metric: { kind: "window", window: "month" },
+          prominence: "primary",
+        },
+        basis: {
+          used: {
+            quantity: { decimal: zenUsdDecimal(monthlyUsageUsd), unit: USD_UNIT },
+            authority: "provider_reported",
+          },
+          limit: {
+            quantity: { decimal: zenUsdDecimal(effectiveMonthlyLimit), unit: USD_UNIT },
+            authority:
+              configuredMonthlyLimit === undefined ? "provider_reported" : "user_configured",
+          },
+          remaining: {
+            quantity: { decimal: zenUsdDecimal(monthlyRemainingUsd), unit: USD_UNIT },
+            authority: "locally_derived",
+          },
+        },
+      });
+    }
+
+    entries.push({
+      accounting: OPENCODE_ZEN_BALANCE_ACCOUNTING,
+      kind: "quantity",
+      name: "zen-current-balance",
+      group: OPENCODE_ZEN_GROUP,
+      semantic: {
+        metric: { kind: "component", component: "current_balance" },
+        prominence: hasMonthlyBudget ? "supplementary" : "primary",
+      },
+      quantity: { decimal: zenUsdDecimal(balanceUsd), unit: USD_UNIT },
+    });
+    entries.push({
+      accounting: OPENCODE_ZEN_STATUS_ACCOUNTING,
+      kind: "boolean",
+      name: "zen-auto-reload",
+      group: OPENCODE_ZEN_GROUP,
+      semantic: {
+        metric: { kind: "component", component: "auto_reload" },
+        prominence: "supplementary",
+      },
+      value: result.data.reload,
+    });
+
+    return withStatusDetails(attemptedResult(entries), [
       ...statusDetails,
-      { key: "balance_usd", value: `$${balanceUsd.toFixed(2)}` },
+      { key: "balance_usd", value: `USD ${zenUsdDecimal(balanceUsd)}` },
       {
         key: "monthly_limit_usd",
         value:
-          result.data.monthlyLimit === null ? "(none)" : `$${result.data.monthlyLimit.toFixed(2)}`,
+          result.data.monthlyLimit === null
+            ? "(none)"
+            : `USD ${zenUsdDecimal(result.data.monthlyLimit)}`,
       },
       {
         key: "last_payment_usd",
         value:
-          result.data.lastPayment === null ? "(none)" : `$${result.data.lastPayment.toFixed(2)}`,
+          result.data.lastPayment === null
+            ? "(none)"
+            : `USD ${zenUsdDecimal(result.data.lastPayment)}`,
+      },
+      { key: "auto_reload", value: result.data.reload ? "true" : "false" },
+      {
+        key: "auto_reload_amount_raw",
+        value: result.data.reloadAmount === null ? "(none)" : String(result.data.reloadAmount),
+      },
+      {
+        key: "auto_reload_trigger_raw",
+        value: result.data.reloadTrigger === null ? "(none)" : String(result.data.reloadTrigger),
       },
     ]);
   },

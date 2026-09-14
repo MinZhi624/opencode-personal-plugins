@@ -1,7 +1,6 @@
 /**
  * OpenAI (Plus/Pro) provider wrapper.
  */
-import { sanitizeDisplayText } from "../lib/display-sanitize.js";
 import { DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS, hasOpenAIOAuthCached, queryOpenAIQuota, resolveOpenAIOAuth, } from "../lib/openai.js";
 import { readAuthFileCached } from "../lib/opencode-auth.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
@@ -58,8 +57,6 @@ export const openaiProvider = {
                     ? "expired"
                     : "valid",
             token_expires_at: expiresAt ? new Date(expiresAt).toISOString() : "(none)",
-            account_email: configured && auth.email ? sanitizeDisplayText(auth.email) : "(none)",
-            account_id: configured && auth.accountId ? sanitizeDisplayText(auth.accountId) : "(none)",
         }));
     },
 };

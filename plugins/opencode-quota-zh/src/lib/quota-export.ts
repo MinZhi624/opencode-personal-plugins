@@ -1,15 +1,17 @@
 import { homedir } from "os";
 import { join } from "path";
+import { interpretAccountingRow } from "./accounting-format.js";
 import { writeJsonAtomic } from "./atomic-json.js";
 import { sanitizeSingleLineDisplaySnippet } from "./display-sanitize.js";
 import type {
+  AccountingWindow,
   QuotaProvider,
   QuotaProviderContext,
   QuotaProviderResult,
   QuotaToastEntry,
 } from "./entries.js";
-import { isValueEntry } from "./entries.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
+import { classifyQuotaWindowText } from "./quota-entry-display.js";
 import type {
   QuotaExport,
   QuotaExportEntry,
@@ -19,14 +21,24 @@ import type {
   QuotaExportSource,
 } from "./quota-export-types.js";
 import { MAINTAINED_LOCAL_ESTIMATE_IDS } from "./quota-providers.js";
-import { normalizeSingleWindowWindowLabel } from "./quota-render-data.js";
 import type { QuotaRuntimeContext } from "./quota-runtime-context.js";
 import { createQuotaProviderRuntimeContext } from "./quota-runtime-context.js";
-import { buildUnifiedQuotaSnapshot } from "./quota-snapshot.js";
-import { readCachedProviderResult, type CachedProviderRead } from "./quota-state.js";
+import { readCachedProviderResult } from "./quota-state.js";
 
 /** Max length for an exported provider error message after sanitization. */
 const EXPORT_ERROR_MAX_LENGTH = 240;
+
+const EXPORT_WINDOW_LABELS: Readonly<Record<AccountingWindow, string>> = {
+  rpm: "RPM",
+  hour: "Hourly",
+  five_hour: "5h",
+  day: "Daily",
+  week: "Weekly",
+  month: "Monthly",
+  year: "Yearly",
+  mcp: "MCP",
+  code_review: "Code Review",
+};
 
 /**
  * Builds the provider context used to read cached quota for export.
@@ -97,11 +109,22 @@ function toExportRawDetail(detail: { key: string; value: string }): QuotaExportR
   };
 }
 
+function getExportWindow(entry: QuotaToastEntry): string | undefined {
+  if (entry.semantic) {
+    return entry.semantic.metric.kind === "window"
+      ? EXPORT_WINDOW_LABELS[entry.semantic.metric.window]
+      : undefined;
+  }
+
+  // Legacy entries derive the window only from the explicit row label. The
+  // entry name is human-readable display text and must not be parsed here.
+  const windowKind = classifyQuotaWindowText(entry.label ?? "");
+  return windowKind ? EXPORT_WINDOW_LABELS[windowKind] : undefined;
+}
+
 function toExportEntry(entry: QuotaToastEntry): QuotaExportEntry {
-  // Derive the window only from the explicit row label. The entry name is a
-  // human-readable display string (e.g. "Monthly Premium Requests") and must
-  // not be parsed as a machine-readable window.
-  const window = normalizeSingleWindowWindowLabel(entry.label) ?? undefined;
+  const interpretation = interpretAccountingRow(entry, { booleanWording: "generic" });
+  const window = getExportWindow(entry);
   const resetAt = unixSecondsFromIso(entry.resetTimeIso);
   const observedAt = unixSecondsFromIso(entry.accounting.observedAtIso);
   const base = {
@@ -116,9 +139,14 @@ function toExportEntry(entry: QuotaToastEntry): QuotaExportEntry {
     ...(resetAt !== undefined ? { resetAt } : {}),
   };
 
-  return isValueEntry(entry)
-    ? { ...base, renderType: "value", value: entry.value }
-    : { ...base, renderType: "percent", percentRemaining: entry.percentRemaining };
+  if (interpretation.display.kind === "percent") {
+    return {
+      ...base,
+      renderType: "percent",
+      percentRemaining: interpretation.display.percentRemaining,
+    };
+  }
+  return { ...base, renderType: "value", value: interpretation.display.text };
 }
 
 function buildQuotaProviderStatuses(params: {
@@ -142,16 +170,11 @@ function buildQuotaProviderStatuses(params: {
     });
 }
 
-/** A provider paired with its cached read result (discriminated by `read.hit`). */
-type ProviderCachedRead = {
-  provider: QuotaProvider;
-  read: CachedProviderRead;
-};
-
 /**
  * Builds a `QuotaExport` document by reading cached provider results.
  *
- * All providers are read in parallel from the per-provider disk cache.
+ * Providers are read in parallel from either identity-bound durable cache or
+ * the same-runtime-owner latest snapshot retained for uncached/live-local providers.
  * No live network fetches are performed.
  */
 export async function buildQuotaExport(params: {
@@ -160,7 +183,7 @@ export async function buildQuotaExport(params: {
   ttlMs: number;
   fromCache: boolean;
 }): Promise<QuotaExport> {
-  const reads: ProviderCachedRead[] = await Promise.all(
+  const reads = await Promise.all(
     params.providers.map((provider) =>
       readCachedProviderResult({
         provider,
@@ -236,21 +259,6 @@ export async function buildQuotaExport(params: {
   const cacheAgeSeconds =
     fetchedAtValues.length > 0 ? Math.floor(Date.now() / 1000) - Math.min(...fetchedAtValues) : 0;
 
-  // Data integrity through the Ticket 07 unified snapshot semantics: one
-  // observation per exported provider; a cache hit with entries is the only
-  // "fresh" quality, so the exported document reports complete/partial/unknown
-  // exactly like the passive surfaces.
-  const snapshot = buildUnifiedQuotaSnapshot({
-    monitoredProviderIds: params.providers.map((provider) => provider.id),
-    availability: reads.map(({ provider, read }) => ({
-      providerId: provider.id,
-      ok: read.hit,
-    })),
-    results: reads.flatMap(({ provider, read }) =>
-      read.hit ? [{ providerId: provider.id, result: read.result }] : [],
-    ),
-  });
-
   const exportedAt = Math.floor(Date.now() / 1000);
 
   return {
@@ -258,7 +266,6 @@ export async function buildQuotaExport(params: {
     exportedAt,
     fromCache: params.fromCache,
     cacheAgeSeconds,
-    integrity: snapshot.integrity,
     providers,
   };
 }

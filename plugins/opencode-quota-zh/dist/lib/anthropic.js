@@ -3,26 +3,30 @@
  *
  * Uses the local Claude CLI/runtime to detect install/auth state first. When
  * Claude auth is confirmed but local quota windows are missing, it falls back
- * to Claude OAuth credentials (macOS Keychain first, then the local credentials
- * file) and Anthropic's OAuth usage endpoint.
+ * to Anthropic's OAuth usage endpoint using the first usable OAuth access
+ * token: OpenCode's own auth.json, then Claude OAuth credentials (macOS
+ * Keychain first, then the local credentials file).
  */
 import { execFile } from "child_process";
 import { createHash } from "crypto";
 import { readFile } from "fs/promises";
 import { homedir } from "os";
 import { join } from "path";
+import { resolveAnthropicOAuthCached } from "./anthropic-auth.js";
 import { sanitizeDisplaySnippet, sanitizeDisplayText } from "./display-sanitize.js";
 import { fetchWithTimeout } from "./http.js";
+import { composeResolvedAuthIdentities, deriveResolvedAuthIdentity, } from "./resolved-auth-identity.js";
 const DEFAULT_CLAUDE_BINARY = "claude";
 const CLAUDE_COMMAND_TIMEOUT_MS = 3_000;
 const ANTHROPIC_DIAGNOSTICS_TTL_MS = 5_000;
 const ANTHROPIC_OAUTH_BACKOFF_BASE_MS = 30_000;
 const ANTHROPIC_OAUTH_COOLDOWN_MAX_MS = 15 * 60_000;
+const ANTHROPIC_OAUTH_COOLDOWN_MAX_ENTRIES = 16;
 const ANTHROPIC_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const ANTHROPIC_BETA_HEADER = "oauth-2025-04-20";
 const CLAUDE_CODE_CREDENTIALS_SERVICE = "Claude Code-credentials";
 const CLAUDE_NO_LOCAL_QUOTA_MESSAGE = "Claude CLI auth detected, but local quota windows were not exposed.";
-const ANTHROPIC_NO_QUOTA_MESSAGE = "Claude CLI auth detected, but quota was unavailable from both the local CLI and Claude OAuth fallback.";
+const ANTHROPIC_NO_QUOTA_MESSAGE = "Claude CLI auth detected, but quota was unavailable from the local CLI and OAuth credential sources.";
 const diagnosticsCache = new Map();
 const localDiagnosticsCache = new Map();
 const anthropicOAuthCooldowns = new Map();
@@ -134,6 +138,17 @@ function parseQuotaWindow(window) {
         resetTimeIso: getWindowResetTimeIso(record),
     };
 }
+function parseExtraUsageQuota(extraUsage) {
+    const record = asRecord(extraUsage);
+    if (!record || record["is_enabled"] !== true) {
+        return undefined;
+    }
+    const used = record["utilization"];
+    if (typeof used !== "number" || !Number.isFinite(used) || used < 0 || used > 100) {
+        return undefined;
+    }
+    return { percentRemaining: Math.round(100 - used) };
+}
 function getUsageRoots(data) {
     const root = asRecord(data);
     if (!root) {
@@ -159,17 +174,65 @@ function getUsageRoots(data) {
     }
     return roots;
 }
-function parseUsageResponse(data) {
+function parseFableWeeklyWindow(limits) {
+    if (!Array.isArray(limits)) {
+        return undefined;
+    }
+    for (const value of limits) {
+        const limit = asRecord(value);
+        if (!limit || limit["kind"] !== "weekly_scoped") {
+            continue;
+        }
+        const scope = asRecord(limit["scope"]);
+        const model = asRecord(scope?.["model"]);
+        const displayName = model?.["display_name"];
+        if (displayName !== "Fable") {
+            continue;
+        }
+        const window = parseQuotaWindow({
+            utilization: limit["percent"],
+            resets_at: limit["resets_at"],
+        });
+        if (window) {
+            return window;
+        }
+    }
+    return undefined;
+}
+function parseUsageResponse(data, options = {}) {
     for (const root of getUsageRoots(data)) {
         const fiveHour = parseQuotaWindow(root["five_hour"] ?? root["fiveHour"]);
         const sevenDay = parseQuotaWindow(root["seven_day"] ?? root["sevenDay"]);
         if (!fiveHour || !sevenDay) {
             continue;
         }
+        const extraUsage = options.includeExtraUsage
+            ? parseExtraUsageQuota(root["extra_usage"])
+            : undefined;
         return {
             success: true,
             five_hour: fiveHour,
             seven_day: sevenDay,
+            ...(extraUsage ? { extra_usage: extraUsage } : {}),
+        };
+    }
+    return null;
+}
+function parseOAuthUsageResponse(data) {
+    for (const root of getUsageRoots(data)) {
+        const fiveHour = parseQuotaWindow(root["five_hour"] ?? root["fiveHour"]);
+        const sevenDay = parseQuotaWindow(root["seven_day"] ?? root["sevenDay"]);
+        if (!fiveHour || !sevenDay) {
+            continue;
+        }
+        const extraUsage = parseExtraUsageQuota(root["extra_usage"]);
+        const fableWeekly = parseFableWeeklyWindow(root["limits"]);
+        return {
+            success: true,
+            five_hour: fiveHour,
+            seven_day: sevenDay,
+            ...(extraUsage ? { extra_usage: extraUsage } : {}),
+            ...(fableWeekly ? { fable_weekly: fableWeekly } : {}),
         };
     }
     return null;
@@ -334,12 +397,12 @@ async function readClaudeCredentialsAccessTokenFromFile() {
         };
     }
 }
-async function readClaudeCredentialsAccessToken() {
+async function readClaudeOAuthAccessToken() {
     const locationsChecked = [];
     const unavailableDetails = [];
     const keychainCredentials = await readClaudeCredentialsAccessTokenFromMacOSKeychain();
     if (keychainCredentials?.state === "configured") {
-        return keychainCredentials;
+        return { ...keychainCredentials, source: "claude-credentials" };
     }
     if (keychainCredentials?.state === "unavailable") {
         unavailableDetails.push(keychainCredentials.detail);
@@ -349,7 +412,7 @@ async function readClaudeCredentialsAccessToken() {
     }
     const fileCredentials = await readClaudeCredentialsAccessTokenFromFile();
     if (fileCredentials.state === "configured") {
-        return fileCredentials;
+        return { ...fileCredentials, source: "claude-credentials" };
     }
     if (fileCredentials.state === "unavailable") {
         unavailableDetails.push(fileCredentials.detail);
@@ -361,6 +424,19 @@ async function readClaudeCredentialsAccessToken() {
         state: "unavailable",
         detail: unavailableDetails[0] ?? getClaudeCredentialsNotFoundDetail(locationsChecked),
     };
+}
+async function readAnthropicOAuthAccessToken(options) {
+    const opencodeCredentials = await resolveAnthropicOAuthCached();
+    if (opencodeCredentials.state === "configured") {
+        return {
+            state: "configured",
+            accessToken: opencodeCredentials.accessToken,
+            source: "opencode-auth",
+        };
+    }
+    return options.includeClaudeCredentials
+        ? await readClaudeOAuthAccessToken()
+        : { state: "unavailable" };
 }
 function fingerprintAccessToken(accessToken) {
     return createHash("sha256").update(accessToken).digest("hex");
@@ -388,10 +464,15 @@ function getAnthropicOAuthCooldownMessage(remainingMs) {
     return `Anthropic OAuth usage probe paused after HTTP 429; retry in ${Math.ceil(boundedRemainingMs / 1_000)}s.`;
 }
 function retainAnthropicOAuthCooldownForToken(tokenFingerprint) {
-    for (const fingerprint of anthropicOAuthCooldowns.keys()) {
-        if (fingerprint !== tokenFingerprint) {
+    const targetSize = anthropicOAuthCooldowns.has(tokenFingerprint)
+        ? ANTHROPIC_OAUTH_COOLDOWN_MAX_ENTRIES
+        : ANTHROPIC_OAUTH_COOLDOWN_MAX_ENTRIES - 1;
+    const oldestFirst = [...anthropicOAuthCooldowns.entries()].sort(([, left], [, right]) => left.blockedUntilMs - right.blockedUntilMs);
+    for (const [fingerprint] of oldestFirst) {
+        if (anthropicOAuthCooldowns.size <= targetSize)
+            break;
+        if (fingerprint !== tokenFingerprint)
             anthropicOAuthCooldowns.delete(fingerprint);
-        }
     }
 }
 function redactAccessTokenFromSanitizedDetail(detail, accessToken) {
@@ -446,12 +527,13 @@ async function performAnthropicOAuthUsageRequest(accessToken, tokenFingerprint, 
                 }
                 anthropicOAuthCooldowns.delete(tokenFingerprint);
                 if (!response.ok) {
+                    const authenticationFailure = response.status === 401 || response.status === 403;
                     let detail = "";
                     try {
                         detail = sanitizeAnthropicApiDetail(await response.text(), accessToken);
                     }
                     catch (error) {
-                        if (timeoutSignal.aborted)
+                        if (timeoutSignal.aborted && !authenticationFailure)
                             throw error;
                         detail = "";
                     }
@@ -460,6 +542,7 @@ async function performAnthropicOAuthUsageRequest(accessToken, tokenFingerprint, 
                         detail: detail
                             ? `Anthropic API error ${response.status}: ${detail}`
                             : `Anthropic API returned ${response.status}`,
+                        ...(authenticationFailure ? { failureKind: "authentication" } : {}),
                     };
                 }
                 let data;
@@ -474,7 +557,7 @@ async function performAnthropicOAuthUsageRequest(accessToken, tokenFingerprint, 
                         detail: "Failed to parse Anthropic quota response",
                     };
                 }
-                const quota = parseUsageResponse(data);
+                const quota = parseOAuthUsageResponse(data);
                 if (!quota) {
                     return {
                         state: "unavailable",
@@ -832,11 +915,16 @@ export async function getAnthropicDiagnostics(options = {}) {
     }
     const inFlight = (async () => {
         const localDiagnostics = await getCachedAnthropicLocalDiagnostics({ binaryPath });
-        if (localDiagnostics.authStatus !== "authenticated" || localDiagnostics.localQuota) {
+        if (localDiagnostics.localQuota) {
             return mapLocalDiagnosticsToAnthropicDiagnostics(localDiagnostics);
         }
-        const credentials = await readClaudeCredentialsAccessToken();
+        let credentials = await readAnthropicOAuthAccessToken({
+            includeClaudeCredentials: localDiagnostics.authStatus === "authenticated",
+        });
         if (credentials.state !== "configured") {
+            if (localDiagnostics.authStatus !== "authenticated") {
+                return mapLocalDiagnosticsToAnthropicDiagnostics(localDiagnostics);
+            }
             const diagnostics = {
                 installed: localDiagnostics.installed,
                 version: localDiagnostics.version,
@@ -848,7 +936,17 @@ export async function getAnthropicDiagnostics(options = {}) {
             };
             return diagnostics;
         }
-        const fallbackQuota = await queryAnthropicQuotaFromOAuthAccessToken(credentials.accessToken, options.requestTimeoutMs);
+        let fallbackQuota = await queryAnthropicQuotaFromOAuthAccessToken(credentials.accessToken, options.requestTimeoutMs);
+        if (fallbackQuota.state === "unavailable" &&
+            fallbackQuota.failureKind === "authentication" &&
+            credentials.source === "opencode-auth" &&
+            localDiagnostics.authStatus === "authenticated") {
+            const claudeCredentials = await readClaudeOAuthAccessToken();
+            if (claudeCredentials.state === "configured") {
+                credentials = claudeCredentials;
+                fallbackQuota = await queryAnthropicQuotaFromOAuthAccessToken(claudeCredentials.accessToken, options.requestTimeoutMs);
+            }
+        }
         if (fallbackQuota.state !== "success") {
             const diagnostics = {
                 installed: localDiagnostics.installed,
@@ -856,6 +954,7 @@ export async function getAnthropicDiagnostics(options = {}) {
                 authStatus: localDiagnostics.authStatus,
                 quotaSupported: false,
                 quotaSource: "none",
+                oauthCredentialSource: credentials.source,
                 checkedCommands: localDiagnostics.checkedCommands,
                 message: buildAnthropicNoQuotaDiagnosticsMessage(fallbackQuota.detail),
             };
@@ -866,7 +965,10 @@ export async function getAnthropicDiagnostics(options = {}) {
             version: localDiagnostics.version,
             authStatus: localDiagnostics.authStatus,
             quotaSupported: true,
-            quotaSource: "claude-credentials-oauth-api",
+            quotaSource: credentials.source === "opencode-auth"
+                ? "opencode-auth-oauth-api"
+                : "claude-credentials-oauth-api",
+            oauthCredentialSource: credentials.source,
             checkedCommands: localDiagnostics.checkedCommands,
             quota: fallbackQuota.quota,
         };
@@ -898,6 +1000,15 @@ export async function getAnthropicDiagnostics(options = {}) {
 }
 export async function hasAnthropicCredentialsConfigured(options = {}) {
     try {
+        const opencodeCredentials = await resolveAnthropicOAuthCached();
+        if (opencodeCredentials.state === "configured") {
+            return true;
+        }
+    }
+    catch {
+        // Fall back to the existing local Claude CLI probe.
+    }
+    try {
         const diagnostics = await getCachedAnthropicLocalDiagnostics(options);
         return diagnostics.installed && diagnostics.authStatus === "authenticated";
     }
@@ -905,13 +1016,52 @@ export async function hasAnthropicCredentialsConfigured(options = {}) {
         return false;
     }
 }
+export async function resolveAnthropicAuthIdentity(options = {}) {
+    let localDiagnostics;
+    try {
+        localDiagnostics = await getCachedAnthropicLocalDiagnostics(options);
+    }
+    catch {
+        return null;
+    }
+    // Claude CLI quota does not expose an account identity. Keep that winning
+    // path process-local rather than risking reuse after a CLI account switch.
+    if (localDiagnostics.localQuota)
+        return null;
+    const opencodeCredentials = await resolveAnthropicOAuthCached();
+    const opencodeIdentity = opencodeCredentials.state === "configured"
+        ? await deriveResolvedAuthIdentity({
+            providerId: "anthropic:opencode-auth",
+            principal: { kind: "credential", value: opencodeCredentials.accessToken },
+        })
+        : null;
+    if (localDiagnostics.authStatus !== "authenticated") {
+        return opencodeIdentity;
+    }
+    const claudeCredentials = await readClaudeOAuthAccessToken();
+    const claudeIdentity = claudeCredentials.state === "configured"
+        ? await deriveResolvedAuthIdentity({
+            providerId: "anthropic:claude-credentials",
+            principal: { kind: "credential", value: claudeCredentials.accessToken },
+        })
+        : null;
+    if (opencodeIdentity && claudeIdentity) {
+        return composeResolvedAuthIdentities({
+            providerId: "anthropic",
+            identities: [opencodeIdentity, claudeIdentity],
+        });
+    }
+    return opencodeIdentity ?? claudeIdentity;
+}
 export async function queryAnthropicQuota(options = {}) {
     try {
         const diagnostics = await getAnthropicDiagnostics(options);
         if (diagnostics.quotaSupported) {
             return diagnostics.quota ?? null;
         }
-        if (diagnostics.authStatus === "authenticated" && diagnostics.message) {
+        if ((diagnostics.authStatus === "authenticated" ||
+            diagnostics.oauthCredentialSource !== undefined) &&
+            diagnostics.message) {
             return {
                 success: false,
                 error: diagnostics.message,
@@ -926,4 +1076,4 @@ export async function queryAnthropicQuota(options = {}) {
         };
     }
 }
-export { parseUsageResponse };
+export { parseOAuthUsageResponse, parseUsageResponse };

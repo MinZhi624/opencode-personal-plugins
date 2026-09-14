@@ -28,6 +28,10 @@ const MAX_ALIBABA_MONTHLY_LIMIT = Math.max(...Object.values(ALIBABA_CODING_PLAN_
 function utcDayKey(tsMs) {
     return new Date(tsMs).toISOString().slice(0, 10);
 }
+function utcDayStart(tsMs) {
+    const now = new Date(tsMs);
+    return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+}
 function nextUtcMidnightIso(tsMs) {
     const now = new Date(tsMs);
     const nextMidnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0);
@@ -110,11 +114,11 @@ function computeRollingWindow(params) {
 }
 export function getQwenLocalQuotaPath() {
     const { stateDir } = getOpencodeRuntimeDirs();
-    return join(stateDir, "opencode-quota", "qwen-local-quota.json");
+    return join(stateDir, "opencode-quota-zh", "qwen-local-quota.json");
 }
 export function getAlibabaCodingPlanQuotaPath() {
     const { stateDir } = getOpencodeRuntimeDirs();
-    return join(stateDir, "opencode-quota", "alibaba-coding-plan-local-quota.json");
+    return join(stateDir, "opencode-quota-zh", "alibaba-coding-plan-local-quota.json");
 }
 function completedTimestamp(message) {
     const value = message.time?.completed;
@@ -195,12 +199,24 @@ export function computeQwenQuota(params) {
     const dayUsed = Math.max(0, Math.trunc(state.dayCount));
     const rpmUsed = state.recent.length;
     const oldestRecent = oldestTimestamp(state.recent);
+    const dayStartedAtMs = utcDayStart(nowMs);
+    const dayEndsAtIso = nextUtcMidnightIso(nowMs);
+    const fixedWindow = dayStartedAtMs < state.updatedAt && state.updatedAt < Date.parse(dayEndsAtIso)
+        ? {
+            kind: "fixed_window",
+            startedAtIso: new Date(dayStartedAtMs).toISOString(),
+            observedAtIso: new Date(state.updatedAt).toISOString(),
+            endsAtIso: dayEndsAtIso,
+            fullReset: true,
+        }
+        : undefined;
     return {
         day: {
             used: dayUsed,
             limit: dayLimit,
             percentRemaining: toPercentRemaining(dayUsed, dayLimit),
-            resetTimeIso: nextUtcMidnightIso(nowMs),
+            resetTimeIso: dayEndsAtIso,
+            ...(fixedWindow ? { fixedWindow } : {}),
         },
         rpm: {
             used: rpmUsed,

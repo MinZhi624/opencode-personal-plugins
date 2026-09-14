@@ -1,8 +1,8 @@
 import { stat } from "fs/promises";
 import { getProviders } from "../providers/registry.js";
+import { interpretAccountingRow } from "./accounting-format.js";
 import { QUOTA_TOAST_SETTING_SOURCE_KEYS, } from "./config.js";
 import { sanitizeQuotaProviderResult, sanitizeSingleLineDisplaySnippet, sanitizeSingleLineDisplayText, } from "./display-sanitize.js";
-import { isValueEntry } from "./entries.js";
 import { getPricingRefreshPolicy, getPricingSnapshotHealth, getPricingSnapshotMeta, getPricingSnapshotSource, getProviderModelCount, getRuntimePricingRefreshStatePath, getRuntimePricingSnapshotPath, listProviders, readPricingRefreshState, hasProvider as snapshotHasProvider, } from "./modelsdev-pricing.js";
 import { getAuthPath, getAuthPaths } from "./opencode-auth.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
@@ -29,6 +29,19 @@ const STATUS_SAMPLE_LIMIT = 5;
 const STATUS_LIVE_ENTRY_LIMIT = 2;
 const STATUS_LIVE_ERROR_LIMIT = 2;
 const STATUS_LIVE_ROW_MAX_LENGTH = 120;
+const OPENCODE_GO_STATUS_DETAIL_KEYS = new Set([
+    "auth_state",
+    "auth_source",
+    "auth_checked_paths",
+    "auth_paths",
+    "auth_error",
+    "selected_windows",
+    "rolling_usage",
+    "weekly_usage",
+    "monthly_usage",
+    "live_fetch_error",
+    "opencode_go_state",
+]);
 function joinOrNone(values) {
     return values.length > 0 ? values.join(" | ") : "(none)";
 }
@@ -129,12 +142,15 @@ function createCompactLiveProbeOnlySection(params) {
 function createProviderStatusSection(params) {
     const rows = [];
     if (params.includeDetails !== false) {
-        appendProviderStatusDetailRows(rows, params.providerId, params.probes);
+        appendProviderStatusDetailRows(rows, params.providerId, params.probes, params.detailKeys);
     }
     appendProviderCompactLiveProbeRows(rows, params.providerId, params.probes, params.availability);
     return createKvSection(params.id, params.title, rows);
 }
-function getCompactLiveProbeDescriptor(providerId, entry) {
+function getCompactLiveProbeDescriptor(providerId, entry, semanticLabel) {
+    if (entry.semantic) {
+        return sanitizeSingleLineDisplayText(semanticLabel);
+    }
     const candidates = [entry.label, entry.name, entry.group];
     for (const candidate of candidates) {
         if (typeof candidate !== "string")
@@ -148,20 +164,24 @@ function getCompactLiveProbeDescriptor(providerId, entry) {
     return undefined;
 }
 function formatCompactLiveProbeEntry(providerId, entry) {
+    const interpretation = interpretAccountingRow(entry, { booleanWording: "semantic" });
     const parts = [];
-    const descriptor = getCompactLiveProbeDescriptor(providerId, entry);
+    const descriptor = getCompactLiveProbeDescriptor(providerId, entry, interpretation.label);
     if (descriptor) {
         parts.push(descriptor);
     }
-    if (isValueEntry(entry)) {
-        parts.push(`value=${sanitizeSingleLineDisplayText(entry.value)}`);
+    if (interpretation.display.kind === "value") {
+        const value = interpretation.display.entryKind === "value"
+            ? sanitizeSingleLineDisplayText(interpretation.display.text)
+            : interpretation.display.text;
+        parts.push(`value=${value}`);
     }
     else {
         if (entry.right) {
             parts.push(sanitizeSingleLineDisplayText(entry.right));
         }
-        const percentRemaining = Number.isFinite(entry.percentRemaining)
-            ? Math.max(0, Math.min(100, Math.round(entry.percentRemaining)))
+        const percentRemaining = Number.isFinite(interpretation.display.percentRemaining)
+            ? Math.max(0, Math.min(100, Math.round(interpretation.display.percentRemaining)))
             : 0;
         parts.push(`percent_remaining=${percentRemaining}`);
     }
@@ -394,7 +414,7 @@ function supportedProviderPricingRow(params) {
         return {
             id,
             pricing: "no",
-            notes: "subscription percentage quota via dashboard scraping (not token-priced)",
+            notes: "subscription percentage quota from the OpenCode Go usage API (not token-priced)",
         };
     }
     if (id === "xiaomi") {
@@ -530,21 +550,6 @@ export async function buildQuotaStatusReport(params) {
             `- expired: ${summary.expiredCount}`,
         ]));
     }
-    if (params.quotaAlerts) {
-        const alerts = params.quotaAlerts;
-        const activeCount = alerts.episodes.filter((episode) => episode.resolvedAtIso === undefined).length;
-        const lines = [
-            `- enabled: ${alerts.enabled ? "true" : "false"}`,
-            `- percentRemainingThreshold: ${alerts.percentRemainingThreshold}`,
-            `- repeatAfterMinutes: ${alerts.repeatAfterMinutes ?? "(none)"}`,
-            `- episodes: ${alerts.episodes.length} (active=${activeCount})`,
-            `- statePath: ${alerts.statePath}`,
-        ];
-        for (const episode of alerts.episodes.filter((item) => item.resolvedAtIso === undefined)) {
-            lines.push(`  - active: ${sanitizeSingleLineDisplayText(episode.providerLabel)} ${sanitizeSingleLineDisplayText(episode.episodeId)} severity=${episode.severity} notifyCount=${episode.notifyCount}`);
-        }
-        sections.push(createLinesSection("quota_alerts", "quota_alerts:", lines));
-    }
     // === paths ===
     const pathsRows = [];
     const runtime = getOpencodeRuntimeDirs();
@@ -624,7 +629,12 @@ export async function buildQuotaStatusReport(params) {
             providerId: "minimax-china-coding-plan",
         },
         { id: "kimi", title: "kimi:", providerId: "kimi-for-coding" },
-        { id: "opencode_go", title: "opencode_go:", providerId: "opencode-go" },
+        {
+            id: "opencode_go",
+            title: "opencode_go:",
+            providerId: "opencode-go",
+            detailKeys: OPENCODE_GO_STATUS_DETAIL_KEYS,
+        },
         { id: "opencode_zen", title: "opencode_zen:", providerId: "opencode" },
         { id: "xiaomi", title: "xiaomi:", providerId: "xiaomi" },
         { id: "zai", title: "zai:", providerId: "zai" },
@@ -862,7 +872,7 @@ export async function buildQuotaStatusReport(params) {
     sections.push(createKvSection("unknown_pricing", "unknown_pricing:", unknownRows));
     return renderPlainTextReport({
         heading: {
-            title: `Quota Status (opencode-quota v${v}) (/quota_status)`,
+            title: `额度状态（opencode-quota-zh v${v}）(/quota_status)`,
             generatedAtMs: params.generatedAtMs,
         },
         sections,

@@ -4,61 +4,62 @@
  * Queries: GET https://api.deepseek.com/user/balance
  * Auth: Bearer token in Authorization header.
  */
-import { resolveDeepSeekApiKey, } from "./deepseek-auth.js";
+import { isCanonicalAccountingDecimal } from "./accounting-format.js";
+import { resolveDeepSeekApiKey } from "./deepseek-auth.js";
 import { sanitizeDisplaySnippet, sanitizeDisplayText } from "./display-sanitize.js";
 import { fetchWithTimeout } from "./http.js";
 const DEEPSEEK_BALANCE_URL = "https://api.deepseek.com/user/balance";
 const USER_AGENT = "OpenCode-Quota-Toast/1.0";
-const CURRENCY_SYMBOLS = {
-    CNY: "\u00A5", // ¥
-    USD: "$",
-};
+const MAX_PARSE_ISSUES = 6;
 function isRecord(value) {
     return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 function getNonEmptyString(value) {
     return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
-const DEEPSEEK_DECIMAL_BALANCE_RE = /^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/u;
-function normalizeDeepSeekBalance(value) {
-    const raw = getNonEmptyString(value);
-    if (!raw || raw.length > 64 || !DEEPSEEK_DECIMAL_BALANCE_RE.test(raw)) {
-        return { display: "0.00", amount: null };
-    }
-    const amount = Number(raw);
-    return { display: raw, amount: Number.isFinite(amount) ? amount : null };
-}
-function parseDeepSeekAvailability(value) {
-    if (typeof value === "boolean") {
-        return value ? "available" : "unavailable";
-    }
-    return "unknown";
+function parseDeepSeekBalanceDecimal(value) {
+    return typeof value === "string" && isCanonicalAccountingDecimal(value) ? value : undefined;
 }
 function parseDeepSeekBalance(payload) {
     if (!isRecord(payload)) {
         throw new Error("DeepSeek balance response returned an unexpected response shape");
     }
-    const availability = parseDeepSeekAvailability(payload.is_available);
+    const isAvailable = typeof payload.is_available === "boolean" ? payload.is_available : undefined;
     const balanceInfos = [];
+    const parseIssues = [];
     const rawInfos = payload.balance_infos;
     if (Array.isArray(rawInfos)) {
         for (const info of rawInfos) {
             if (!isRecord(info))
                 continue;
-            const currency = getNonEmptyString(info.currency);
-            if (!currency || !["CNY", "USD"].includes(currency.toUpperCase()))
+            const rawCurrency = getNonEmptyString(info.currency);
+            if (!rawCurrency || !["CNY", "USD"].includes(rawCurrency.toUpperCase()))
                 continue;
-            const totalBalance = normalizeDeepSeekBalance(info.total_balance);
-            balanceInfos.push({
-                currency: currency.toUpperCase(),
-                totalBalance: totalBalance.display,
-                grantedBalance: normalizeDeepSeekBalance(info.granted_balance).display,
-                toppedUpBalance: normalizeDeepSeekBalance(info.topped_up_balance).display,
-                totalBalanceAmount: totalBalance.amount,
-            });
+            const currency = rawCurrency.toUpperCase();
+            const parsed = { currency };
+            const fields = [
+                ["total_balance", "totalBalance"],
+                ["granted_balance", "grantedBalance"],
+                ["topped_up_balance", "toppedUpBalance"],
+            ];
+            for (const [sourceField, targetField] of fields) {
+                const rawValue = info[sourceField];
+                const decimal = parseDeepSeekBalanceDecimal(rawValue);
+                if (decimal !== undefined) {
+                    parsed[targetField] = decimal;
+                }
+                else if (rawValue !== undefined && parseIssues.length < MAX_PARSE_ISSUES) {
+                    parseIssues.push({ currency, field: sourceField });
+                }
+            }
+            if (parsed.totalBalance !== undefined ||
+                parsed.grantedBalance !== undefined ||
+                parsed.toppedUpBalance !== undefined) {
+                balanceInfos.push(parsed);
+            }
         }
     }
-    return { availability, balanceInfos };
+    return { isAvailable, balanceInfos, parseIssues };
 }
 async function fetchDeepSeekBalance(apiKey, requestTimeoutMs) {
     try {
@@ -94,13 +95,6 @@ async function fetchDeepSeekBalance(apiKey, requestTimeoutMs) {
     }
 }
 /**
- * Format a balance value with the appropriate currency symbol.
- */
-export function formatDeepSeekBalanceValue(balance) {
-    const symbol = CURRENCY_SYMBOLS[balance.currency] ?? balance.currency;
-    return `${symbol}${balance.totalBalance}`;
-}
-/**
  * Query DeepSeek balance from the API.
  *
  * @returns A typed result with success/error state, or null if no API key is configured.
@@ -115,8 +109,9 @@ export async function queryDeepSeekBalance(options = {}) {
     }
     return {
         success: true,
-        availability: result.data.availability,
+        isAvailable: result.data.isAvailable,
         balanceInfos: result.data.balanceInfos,
+        parseIssues: result.data.parseIssues,
     };
 }
 export { getDeepSeekKeyDiagnostics, hasDeepSeekApiKey as hasDeepSeekApiKeyConfigured, } from "./deepseek-auth.js";

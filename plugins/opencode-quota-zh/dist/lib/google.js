@@ -17,6 +17,7 @@ import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
 import { getCachedAccessToken, makeAccountCacheKey, setCachedAccessToken, } from "./google-token-cache.js";
 import { fetchWithTimeout } from "./http.js";
 import { mapWithConcurrency } from "./map-with-concurrency.js";
+import { composeResolvedAuthIdentities, deriveResolvedAuthIdentity, } from "./resolved-auth-identity.js";
 import { GOOGLE_MODEL_KEYS } from "./types.js";
 // =============================================================================
 // Constants
@@ -156,6 +157,32 @@ export async function hasAntigravityQuotaRuntimeAvailable() {
         authPresence.validAccountCount > 0 &&
         companionPresence.state === "present");
 }
+export async function resolveGoogleAntigravityAuthIdentity() {
+    const [accounts, credentials] = await Promise.all([
+        readAntigravityAccounts(),
+        resolveAntigravityClientCredentials(),
+    ]);
+    if (!accounts || accounts.length === 0 || credentials.state !== "configured")
+        return null;
+    const accountIdentities = await Promise.all(accounts.map((account) => deriveResolvedAuthIdentity({
+        providerId: "google-antigravity",
+        principal: { kind: "credential", value: account.refreshToken },
+        qualifiers: [getProjectId(account) ?? "missing-project-id"],
+    })));
+    if (accountIdentities.some((identity) => identity === null))
+        return null;
+    const companionIdentity = await deriveResolvedAuthIdentity({
+        providerId: "google-antigravity:companion",
+        principal: { kind: "credential", value: credentials.clientSecret },
+        qualifiers: [credentials.clientId],
+    });
+    if (!companionIdentity)
+        return null;
+    return composeResolvedAuthIdentities({
+        providerId: "google-antigravity",
+        identities: [...accountIdentities, companionIdentity],
+    });
+}
 /**
  * Refresh Google access token
  */
@@ -212,7 +239,6 @@ async function refreshAccessTokenWithCache(params) {
     const key = makeAccountCacheKey({
         refreshToken: params.refreshToken,
         projectId: params.projectId,
-        email: params.email,
     });
     if (!params.force) {
         const cached = await getCachedAccessToken({ key, skewMs });
@@ -232,8 +258,6 @@ async function refreshAccessTokenWithCache(params) {
         entry: {
             accessToken: refreshed.accessToken,
             expiresAt: Date.now() + Math.max(1, refreshed.expiresIn) * 1000,
-            projectId: params.projectId,
-            email: params.email,
         },
     });
     return { accessToken: refreshed.accessToken };
@@ -437,12 +461,13 @@ async function fetchAccountQuotaWithAntigravityRefresh(params) {
                     return { success: false, error: retryToken.error, accountEmail: email };
                 }
                 await setCachedAccessToken({
-                    key: makeAccountCacheKey({ refreshToken: params.account.refreshToken, projectId, email }),
+                    key: makeAccountCacheKey({
+                        refreshToken: params.account.refreshToken,
+                        projectId,
+                    }),
                     entry: {
                         accessToken: retryToken.accessToken,
                         expiresAt: Date.now() + Math.max(1, retryToken.expiresIn) * 1000,
-                        projectId,
-                        email,
                     },
                 });
                 data = await fetchGoogleQuota(retryToken.accessToken, projectId, params.timeoutMs);

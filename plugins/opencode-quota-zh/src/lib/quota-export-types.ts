@@ -4,7 +4,6 @@ import type {
   AccountingOwnership,
   AccountingResultType,
 } from "./entries.js";
-import type { QuotaSnapshotIntegrity } from "./quota-snapshot.js";
 
 /**
  * Export types for external tool consumption.
@@ -100,13 +99,6 @@ export interface QuotaExport {
   fromCache: boolean;
   /** Seconds since the oldest provider cache entry was written. */
   cacheAgeSeconds: number;
-  /**
-   * Data completeness over the exported provider set, computed with the
-   * Ticket 07 unified quota snapshot semantics: "complete" when every
-   * monitored provider has fresh data, "partial" when some do, "unknown"
-   * when none do (including the no-provider case).
-   */
-  integrity: QuotaSnapshotIntegrity;
   /** Keyed by canonical provider id. */
   providers: Record<string, QuotaExportProvider>;
 }
