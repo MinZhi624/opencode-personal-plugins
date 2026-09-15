@@ -1,6 +1,12 @@
 # opencode-enhanced-sidebar-zh
 
 中文 OpenCode 增强侧边栏，融合上下文、TPS、子代理和 API 标价估算。
+运行时提供两个可独立启停的 TUI 插件：
+
+- `opencode-session-overview-zh`：上下文、缓存命中、TPS、本会话 API 标价估算。
+- `opencode-subagent-magazine-zh`：子代理监控、子代理与任务树 API 标价估算。
+
+旧的 `opencode-enhanced-sidebar-zh` 聚合入口仅用于兼容已有配置。
 
 参考来源：[`opencode-subagent-magazine`](https://github.com/Hotakus/opencode-subagent-magazine)、[`opencode-quota`](https://github.com/slkiser/opencode-quota)、[`models.dev`](https://models.dev/)。本项目对这些能力做了 OpenCode 适配、中文化和费用口径统一。
 
@@ -8,6 +14,10 @@
 
 1. 上下文
 2. 子代理
+
+在 OpenCode 的 Plugins 面板中可分别开关额度、会话概览和子代理。迁移旧配置时，
+请用 `src/tui-session-overview.tsx` 和 `src/tui-subagent-magazine.tsx` 替换
+`src/tui.tsx`，不要同时加载聚合入口与拆分入口。
 
 ## 行为说明
 
@@ -47,6 +57,14 @@
 - 完全没有 token 的会话不显示花费；分页失败时保持上次完整结果，不显示
   不完整的金额。
 
+### 子代理操作与 Token 用量
+
+- 子代理条目中的“Token 用量”统计该子代理完整会话内全部 assistant 响应的
+  input、output、reasoning、cache read 和 cache write，与 API 标价估算使用同一份完整数据。
+- “取消任务”会向仍在运行的子会话发送真实取消请求，并依次显示“取消中”和“已取消”；
+  “标记完成”只清理面板中的僵尸状态，不会终止实际任务。
+- 点击子代理会话 ID 会直接复制；系统剪贴板不可用时，弹窗仍会显示完整 ID 供手动复制。
+
 ### 刷新与排障
 
 - 修改插件或配置后必须完全退出并重新启动 OpenCode。
@@ -61,6 +79,8 @@
   `opencode-subagent-magazine` 的历史数据会自动保留；旧版本写入的纯数字
   成本仅作展示迁移，下一次成功计算后会被覆盖。SubAgent Magazine 的
   slash 指令和命令面板设置入口已移除，界面固定使用中文。
+- 子代理取消与剪贴板能力选择性同步自 `opencode-subagent-magazine` v1.5.3；
+  未引入其多语言、边框和设置命令，也未采用其原生费用口径。
 - 子代理监控代码来自 `opencode-subagent-magazine`，其 MIT 许可证见
   `LICENSES/opencode-subagent-magazine.LICENSE`。
 - 成本计算与 models.dev 价格/别名解析逻辑移植自

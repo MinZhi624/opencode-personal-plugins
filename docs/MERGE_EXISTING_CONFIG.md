@@ -75,10 +75,14 @@ Workshop 会保留 OpenCode 内置和已有 agents，新增七个 Workshop agent
   "$schema": "https://opencode.ai/tui.json",
   "plugin": [
     "./opencode-zh-bundle/plugins/opencode-quota-zh/dist/tui.tsx",
-    "./opencode-zh-bundle/plugins/opencode-enhanced-sidebar-zh/src/tui.tsx"
+    "./opencode-zh-bundle/plugins/opencode-enhanced-sidebar-zh/src/tui-session-overview.tsx",
+    "./opencode-zh-bundle/plugins/opencode-enhanced-sidebar-zh/src/tui-subagent-magazine.tsx"
   ]
 }
 ```
+
+旧版 `src/tui.tsx` 是兼容用的聚合入口。迁移到独立开关时，应将这一条替换为上面的
+两个新入口，不要三者同时保留。Plugins 面板随后会分别显示会话概览和子代理插件。
 
 删除 TUI 配置中的旧 `oh-my-openagent` 条目。若 `.jsonc` 和 `.json` 同时存在，OpenCode 优先读取 `.jsonc`；合并后只保留一个有效配置，避免重复插件。
 

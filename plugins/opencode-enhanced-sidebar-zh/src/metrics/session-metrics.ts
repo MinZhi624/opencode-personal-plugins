@@ -28,7 +28,12 @@
  */
 
 import { calculateUsdFromTokenBuckets } from "./token-cost.ts"
-import { emptyTokenBuckets, hasTokenUsage, type TokenBuckets } from "./token-buckets.ts"
+import {
+  addTokenBuckets,
+  emptyTokenBuckets,
+  hasTokenUsage,
+  type TokenBuckets,
+} from "./token-buckets.ts"
 import {
   ensureLoaded,
   lookupCost,
@@ -50,6 +55,8 @@ export type SessionCostResult = {
   hasUsage: boolean
   /** True when at least one token-carrying message could not be priced. */
   partial: boolean
+  /** Complete five-bucket usage for this session's assistant messages. */
+  tokens: TokenBuckets
   messageCount: number
   error?: string
 }
@@ -282,16 +289,18 @@ export async function fetchSessionMessagesPage(
 export function aggregateSessionCost(
   messages: NormalizedMessage[],
   snapshot: PricingSnapshot,
-): { usd: number; hasUsage: boolean; partial: boolean; messageCount: number } {
+): { usd: number; hasUsage: boolean; partial: boolean; tokens: TokenBuckets; messageCount: number } {
   let usd = 0
   let hasUsage = false
   let partial = false
   let messageCount = 0
+  let totalTokens = emptyTokenBuckets()
   const resolutionCache = new Map<string, ReturnType<typeof resolvePricingKey>>()
   for (const msg of messages) {
     if (msg.role !== "assistant") continue
     const tokens = msg.tokens
     if (!hasTokenUsage(tokens)) continue
+    totalTokens = addTokenBuckets(totalTokens, tokens)
     hasUsage = true
     messageCount += 1
     const cacheKey = `${msg.providerID ?? ""}|||${msg.modelID ?? ""}`
@@ -314,7 +323,7 @@ export function aggregateSessionCost(
     }
     usd += calculateUsdFromTokenBuckets(cost, tokens)
   }
-  return { usd, hasUsage, partial, messageCount }
+  return { usd, hasUsage, partial, tokens: totalTokens, messageCount }
 }
 
 // ---------------------------------------------------------------------------
@@ -480,6 +489,7 @@ export class SessionMetricsService {
         complete: error === undefined && !truncated,
         hasUsage: aggregate.hasUsage,
         partial: aggregate.partial,
+        tokens: aggregate.tokens,
         messageCount: aggregate.messageCount,
         ...(error ? { error } : truncated ? { error: "truncated" } : {}),
       }
@@ -491,6 +501,7 @@ export class SessionMetricsService {
         complete: false,
         hasUsage: false,
         partial: false,
+        tokens: emptyTokenBuckets(),
         messageCount: 0,
         error: err instanceof Error ? err.message : String(err),
       })
