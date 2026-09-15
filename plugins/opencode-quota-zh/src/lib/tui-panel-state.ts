@@ -22,9 +22,24 @@ export type CompactStatusState =
   | { status: "ready"; text: string };
 
 export type HomeBottomState =
-  | { status: "loading"; announcementText?: string; compact: CompactStatusState }
-  | { status: "disabled"; announcementText?: string; compact: CompactStatusState }
-  | { status: "ready"; announcementText?: string; compact: CompactStatusState };
+  | {
+      status: "loading";
+      startupHintText?: string;
+      announcementText?: string;
+      compact: CompactStatusState;
+    }
+  | {
+      status: "disabled";
+      startupHintText?: string;
+      announcementText?: string;
+      compact: CompactStatusState;
+    }
+  | {
+      status: "ready";
+      startupHintText?: string;
+      announcementText?: string;
+      compact: CompactStatusState;
+    };
 
 export type PromptBarEntry = {
   /** Preformatted primary semantic label/value segment for rich accounting rows. */
@@ -82,7 +97,15 @@ export function getCompactStatusText(panel: CompactStatusState): string {
 }
 
 export function shouldRenderHomeBottom(panel: HomeBottomState): boolean {
-  return Boolean(getHomeBottomAnnouncementText(panel) || shouldRenderCompactStatus(panel.compact));
+  return Boolean(
+    getHomeBottomStartupHintText(panel) ||
+      getHomeBottomAnnouncementText(panel) ||
+      shouldRenderCompactStatus(panel.compact),
+  );
+}
+
+export function getHomeBottomStartupHintText(panel: HomeBottomState): string {
+  return sanitizeSingleLineDisplayText(panel.startupHintText ?? "");
 }
 
 export function getHomeBottomAnnouncementText(panel: HomeBottomState): string {

@@ -22,7 +22,10 @@ import {
   getMaintainerAnnouncementTargetProviderIds,
   type MaintainerAnnouncement,
 } from "./maintainer-announcements.js";
-import { getQuotaProviderShape, normalizeQuotaProviderId } from "./provider-metadata.js";
+import {
+  getQuotaProviderShape,
+  normalizeQuotaProviderId,
+} from "./provider-metadata.js";
 import { projectQuotaProviderResults } from "./quota-accounting-projection.js";
 import { classifyQuotaWindowText } from "./quota-entry-display.js";
 import { compareQuotaRunwayUrgency } from "./quota-exhaustion-projection.js";
@@ -56,6 +59,7 @@ import type {
 } from "./tui-panel-state.js";
 import { buildSidebarQuotaPanelLines, TUI_SIDEBAR_MAX_WIDTH } from "./tui-sidebar-format.js";
 import type { OpenCodeGoWindowKey, TuiCommandDisplay } from "./types.js";
+import { formatTuiStartupHintText } from "./tui-startup-hint.js";
 
 const COMPACT_UNAVAILABLE_TEXT = "Quota unavailable";
 const PROMPT_BAR_MAX_WIDTH = 50;
@@ -709,6 +713,7 @@ export async function loadTuiHomeBottomStatus(params: {
     runtime.config.enabled &&
     runtime.config.maintainerAnnouncements.enabled &&
     runtime.config.maintainerAnnouncements.home;
+  const startupHintEnabled = runtime.config.enabled && runtime.config.startupHint.enabled;
   const compactSuppressedByNativeProviderQuota =
     runtime.config.tuiCompactStatus.suppressWhenNativeProviderQuota &&
     hasNativeProviderQuotaClient(params.api.client);
@@ -718,7 +723,7 @@ export async function loadTuiHomeBottomStatus(params: {
     runtime.config.tuiCompactStatus.homeBottom &&
     !compactSuppressedByNativeProviderQuota;
 
-  if (!announcementEnabled && !compactEnabled) {
+  if (!announcementEnabled && !startupHintEnabled && !compactEnabled) {
     return { status: "disabled", compact: { status: "disabled" } };
   }
 
@@ -745,7 +750,7 @@ export async function loadTuiHomeBottomStatus(params: {
     announcementText = formatMaintainerAnnouncementHomeCountLine(summary.activeCount) || undefined;
   }
 
-  if (!compactEnabled) {
+  if (!startupHintEnabled && !compactEnabled) {
     return announcementText
       ? { status: "ready", announcementText, compact: { status: "disabled" } }
       : { status: "disabled", compact: { status: "disabled" } };
@@ -766,6 +771,24 @@ export async function loadTuiHomeBottomStatus(params: {
     request: createQuotaRuntimeRequestContext(homeRuntime),
   });
 
+  const startupHintText = startupHintEnabled
+    ? formatTuiStartupHintText({
+        providerResults: result.providerResults,
+        ...(params.nowMs !== undefined ? { nowMs: params.nowMs } : {}),
+      })
+    : undefined;
+
+  if (!compactEnabled) {
+    return announcementText || startupHintText
+      ? {
+          status: "ready",
+          ...(startupHintText ? { startupHintText } : {}),
+          ...(announcementText ? { announcementText } : {}),
+          compact: { status: "disabled" },
+        }
+      : { status: "disabled", compact: { status: "disabled" } };
+  }
+
   const compact = buildCompactStatusFromData({
     runtime: homeRuntime,
     result,
@@ -773,7 +796,12 @@ export async function loadTuiHomeBottomStatus(params: {
     formatStyle: compactFormatStyle,
   });
 
-  return { status: "ready", announcementText, compact };
+  return {
+    status: "ready",
+    ...(startupHintText ? { startupHintText } : {}),
+    ...(announcementText ? { announcementText } : {}),
+    compact,
+  };
 }
 
 export async function loadTuiHomeCompactStatus(params: {

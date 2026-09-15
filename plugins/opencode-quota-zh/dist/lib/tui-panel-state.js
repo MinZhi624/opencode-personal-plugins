@@ -34,7 +34,12 @@ export function getCompactStatusText(panel) {
     return panel.status === "loading" ? COMPACT_LOADING_TEXT : "";
 }
 export function shouldRenderHomeBottom(panel) {
-    return Boolean(getHomeBottomAnnouncementText(panel) || shouldRenderCompactStatus(panel.compact));
+    return Boolean(getHomeBottomStartupHintText(panel) ||
+        getHomeBottomAnnouncementText(panel) ||
+        shouldRenderCompactStatus(panel.compact));
+}
+export function getHomeBottomStartupHintText(panel) {
+    return sanitizeSingleLineDisplayText(panel.startupHintText ?? "");
 }
 export function getHomeBottomAnnouncementText(panel) {
     return sanitizeSingleLineDisplayText(panel.announcementText ?? "");

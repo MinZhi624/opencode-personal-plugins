@@ -8,14 +8,16 @@ import {
   SubAgentPanel,
   createSubAgentSignals,
   type SubAgentCostSummary,
+  type SharedSignals,
 } from "./subagent-magazine.tsx"
 
 export function SubAgentView(props: {
   api: TuiPluginApi
   sessionId: string
   metrics: SessionMetricsService
+  signals?: SharedSignals
 }) {
-  const signals = createSubAgentSignals(props.api)
+  const signals = props.signals ?? createSubAgentSignals(props.api)
   const [costTick, setCostTick] = createSignal(0)
   const [subagentCost, setSubagentCost] = createSignal<SubAgentCostSummary>({
     usd: 0,
@@ -49,6 +51,7 @@ export function SubAgentView(props: {
       maxEntries={signals.maxEntries}
       sortOrder={signals.sortOrder}
       scrollMode={signals.scrollMode}
+      ttlDays={signals.ttlDays}
       sessionId={props.sessionId}
       metrics={props.metrics}
       onCostSummary={setSubagentCost}
