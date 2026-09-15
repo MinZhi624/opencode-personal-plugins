@@ -6,6 +6,8 @@ import type {
   TuiThemeCurrent,
 } from "@opencode-ai/plugin/tui"
 import type { SessionMetricsService } from "./metrics/session-metrics.ts"
+import { totalTokenBuckets } from "./metrics/token-buckets.ts"
+import { copyText } from "./clipboard.ts"
 import {
   applyCostInfo,
   entryCostText,
@@ -27,7 +29,7 @@ import {
 // Types
 // ===================================================================
 
-type SubStatus = "running" | "done" | "error"
+type SubStatus = "running" | "cancel_requested" | "cancelled" | "done" | "error"
 
 interface SubEntry {
   id: string
@@ -55,6 +57,9 @@ interface SubEntry {
   model?: string
   todoTotal?: number
   todoDone?: number
+  cancelRequestedAt?: number
+  abortAccepted?: boolean
+  cancelReason?: "manual"
 }
 
 export interface SubAgentCostSummary {
@@ -82,19 +87,24 @@ const I18N: Record<Lang, Record<string, string>> = {
     "agent.label": "代理",
     "status.label": "状态",
     "time.label": "耗时",
-    "tokens.label": "上下文",
+    "tokens.label": "Token 用量",
     "error.label": "错误",
     "model.label": "模型",
     "todo.label": "进度",
     "session.label": "会话 ID",
     "session.toast.copy": "可手动复制上方 ID",
+    "session.toast.copied": "会话 ID 已复制",
+    "session.toast.copy_failed": "无法访问系统剪贴板，请手动复制上方 ID",
     "open.label": "进入会话",
     "cost.label": "费用",
     "scroll.more": "更多",
     "scroll.top": "回顶",
     "scroll.bottom": "回底",
     "dismiss.label": "标记完成",
+    "cancel.label": "取消任务",
     "status.running": "运行中",
+    "status.cancelling": "取消中",
+    "status.cancelled": "已取消",
     "status.done": "已完成",
     "status.error": "错误",
     "order.desc": "降序（最新在前）",
@@ -114,6 +124,14 @@ const I18N: Record<Lang, Record<string, string>> = {
     "clear.prompt_running": "当前有 {n} 个运行中的子代理，清除后将不可恢复。确定继续？",
     "clear.done": "已清除 {n} 条子代理记录",
     "clear.empty": "当前会话无子代理记录",
+    "cancel.no_session": "子会话 ID 不可用",
+    "cancel.not_child": "目标不是子会话",
+    "cancel.read_error": "无法读取会话信息",
+    "cancel.outside_tree": "目标不在当前监控会话树中",
+    "cancel.already_ended": "会话已结束，无需取消",
+    "cancel.status_error": "无法查询会话状态",
+    "cancel.sent": "已发送取消指令",
+    "cancel.failed": "取消失败",
   },
   en: {
     "panel.title": "SubAgent",
@@ -127,13 +145,18 @@ const I18N: Record<Lang, Record<string, string>> = {
     "todo.label": "todo",
     "session.label": "session ID",
     "session.toast.copy": "Copy the ID above manually",
+    "session.toast.copied": "Session ID copied",
+    "session.toast.copy_failed": "Cannot access the system clipboard; copy the ID above manually",
     "open.label": "Open session",
     "cost.label": "cost",
     "scroll.more": "more",
     "scroll.top": "Top",
     "scroll.bottom": "Bottom",
     "dismiss.label": "dismiss",
+    "cancel.label": "Cancel task",
     "status.running": "running",
+    "status.cancelling": "cancelling",
+    "status.cancelled": "cancelled",
     "status.done": "done",
     "status.error": "error",
     "order.desc": "Desc (newest first)",
@@ -153,6 +176,14 @@ const I18N: Record<Lang, Record<string, string>> = {
     "clear.prompt_running": "{n} sub-agent(s) are still running. Clearing will discard them permanently. Continue?",
     "clear.done": "Cleared {n} sub-agent record(s)",
     "clear.empty": "No sub-agent records in this session",
+    "cancel.no_session": "Child session ID is unavailable",
+    "cancel.not_child": "Target is not a child session",
+    "cancel.read_error": "Cannot read session info",
+    "cancel.outside_tree": "Target is outside the monitored session tree",
+    "cancel.already_ended": "Session already ended, no need to cancel",
+    "cancel.status_error": "Cannot query session status",
+    "cancel.sent": "Cancel instruction sent",
+    "cancel.failed": "Cancellation failed",
   },
 }
 
@@ -247,6 +278,7 @@ export function SubAgentPanel(props: {
   /** Shared session metrics service: source of every sub-agent cost. */
   metrics: SessionMetricsService
   onCostSummary?: (summary: SubAgentCostSummary) => void
+  taskTreeCost?: () => string | null
 }): JSX.Element {
   const t = (key: string) => I18N[props.lang()][key] ?? key
 
@@ -393,7 +425,10 @@ export function SubAgentPanel(props: {
       let needsImmediateFlush = false
       for (const [id, entry] of next) {
         const prevEntry = prev.get(id)
-        if (prevEntry?.status === "running" && (entry.status === "done" || entry.status === "error")) {
+        if (
+          (prevEntry?.status === "running" || prevEntry?.status === "cancel_requested") &&
+          (entry.status === "done" || entry.status === "cancelled" || entry.status === "error")
+        ) {
           needsImmediateFlush = true
           break
         }
@@ -441,6 +476,7 @@ export function SubAgentPanel(props: {
   )
   const [hoveredOpen, setHoveredOpen] = createSignal<string | undefined>(undefined)
   const [hoveredDismiss, setHoveredDismiss] = createSignal<string | undefined>(undefined)
+  const [hoveredCancel, setHoveredCancel] = createSignal<string | undefined>(undefined)
   const [hoveredTop, setHoveredTop] = createSignal(false)
   const [hoveredMoreAbove, setHoveredMoreAbove] = createSignal(false)
   const [hoveredMoreBelow, setHoveredMoreBelow] = createSignal(false)
@@ -459,24 +495,15 @@ export function SubAgentPanel(props: {
   let boxEl: any
   let disposed = false
 
-  /** Total context tokens for a sub-agent session.
-   *  Matches opencode-visual-cache's "总计": last assistant message's input + cache.read. */
+  /** Complete five-bucket Token usage for a sub-agent session.
+   *  Uses the same full-session aggregation as the API list-price estimate. */
   const readSessionTokens = (sid: string): number | undefined => {
     if (!sid) return undefined
     try {
-      const msgs = props.api.state.session.messages(sid)
-      if (msgs) {
-        for (let i = (msgs as any[]).length - 1; i >= 0; i--) {
-          const m = (msgs as any[])[i]
-          if (m.role !== "assistant") continue
-          const t = m.tokens
-          if (!t) continue
-          const cache = t.cache as { read?: number; write?: number } | undefined
-          const ctx = (Number(t.input) || 0) + (cache?.read ?? 0)
-          if (ctx > 0) return ctx
-        }
-      }
-      return undefined
+      const result = props.metrics.get(sid)
+      if (!result?.complete || !result.hasUsage) return undefined
+      const total = totalTokenBuckets(result.tokens)
+      return total > 0 ? total : undefined
     } catch {
       return undefined
     }
@@ -518,7 +545,8 @@ export function SubAgentPanel(props: {
     for (const childSid of trackedSessionIds) {
       metricUnsubscribers.push(props.metrics.subscribe(childSid, () => {
         const costInfo = readSessionCostFromMetrics(childSid)
-        if (!costInfo?.complete) return
+        const sessionTokens = readSessionTokens(childSid)
+        if (!costInfo?.complete && sessionTokens === undefined) return
         setEntryMap((prev) => {
           let changed = false
           const next = new Map(prev)
@@ -526,11 +554,15 @@ export function SubAgentPanel(props: {
             if (entry.sessionId !== childSid) continue
             const applied = applyCostInfo(entry, costInfo)
             if (
+              (sessionTokens !== undefined && sessionTokens !== entry.tokens) ||
               applied.cost !== entry.cost ||
               applied.costPartial !== entry.costPartial ||
               applied.costComplete !== entry.costComplete
             ) {
-              next.set(id, applied)
+              next.set(id, {
+                ...applied,
+                ...(sessionTokens !== undefined ? { tokens: sessionTokens } : {}),
+              })
               changed = true
             }
           }
@@ -588,7 +620,7 @@ export function SubAgentPanel(props: {
       const next = new Map(prev)
       const nowTs = Date.now()
       const e = partial.status
-      const ended = e === "done" || e === "error"
+      const ended = e === "done" || e === "cancelled" || e === "error"
       next.set(partial.id, {
         ...(existing ?? { startedAt: nowTs }),
         ...partial,
@@ -597,6 +629,124 @@ export function SubAgentPanel(props: {
       })
       return next
     })
+  }
+
+  // ── cancel helpers ──
+  const isDescendantOf = (childId: string, rootId: string): boolean => {
+    const visited = new Set<string>()
+    try {
+      let current = props.api.state.session.get(childId) as any
+      while (current?.parentID) {
+        if (visited.has(current.id)) return false
+        visited.add(current.id)
+        if (current.parentID === rootId) return true
+        current = props.api.state.session.get(current.parentID) as any
+      }
+    } catch {}
+    return false
+  }
+
+  const settleOnIdle = (entry: SubEntry): SubStatus =>
+    entry.status === "cancel_requested" && entry.abortAccepted ? "cancelled" : "done"
+
+  const cancelEntry = async (entry: SubEntry) => {
+    const childId = entry.sessionId
+    const toast = (message: string, variant?: "success" | "warning" | "error") => {
+      props.api.ui.toast({
+        title: entry.title || entry.agent,
+        message,
+        ...(variant ? { variant } : {}),
+      })
+    }
+
+    if (!childId) {
+      toast(t("cancel.no_session"), "warning")
+      return
+    }
+
+    try {
+      const child = props.api.state.session.get(childId) as any
+      if (!child?.parentID) {
+        toast(t("cancel.not_child"), "warning")
+        return
+      }
+    } catch {
+      toast(t("cancel.read_error"), "error")
+      return
+    }
+
+    if (!isDescendantOf(childId, props.sessionId)) {
+      toast(t("cancel.outside_tree"), "warning")
+      return
+    }
+
+    try {
+      const state = props.api.state.session.status(childId)
+      if (state?.type !== "busy") {
+        const costApplied = applyCostInfo(entry, readSessionCostFromMetrics(childId))
+        upsertEntry({
+          id: entry.id,
+          title: entry.title,
+          agent: entry.agent,
+          prompt: entry.prompt,
+          status: "done",
+          sessionId: childId,
+          tokens: readSessionTokens(childId) ?? entry.tokens,
+          cost: costApplied.cost,
+          costPartial: costApplied.costPartial,
+          costComplete: costApplied.costComplete,
+        })
+        toast(t("cancel.already_ended"), "warning")
+        return
+      }
+    } catch {
+      toast(t("cancel.status_error"), "error")
+      return
+    }
+
+    upsertEntry({
+      id: entry.id,
+      title: entry.title,
+      agent: entry.agent,
+      prompt: entry.prompt,
+      status: "cancel_requested",
+      sessionId: childId,
+      cancelRequestedAt: Date.now(),
+      abortAccepted: false,
+      cancelReason: "manual",
+    })
+
+    try {
+      await (props.api as any).client.session.abort({ sessionID: childId })
+      const current = entryMap().get(entry.id)
+      if (current?.status === "cancel_requested" || current?.status === "done") {
+        upsertEntry({
+          id: entry.id,
+          title: entry.title,
+          agent: entry.agent,
+          prompt: entry.prompt,
+          status: current.status === "done" ? "cancelled" : "cancel_requested",
+          sessionId: childId,
+          abortAccepted: true,
+        })
+      }
+      toast(t("cancel.sent"), "success")
+    } catch {
+      if (entryMap().get(entry.id)?.status === "cancel_requested") {
+        upsertEntry({
+          id: entry.id,
+          title: entry.title,
+          agent: entry.agent,
+          prompt: entry.prompt,
+          status: "running",
+          sessionId: childId,
+          cancelRequestedAt: undefined,
+          abortAccepted: undefined,
+          cancelReason: undefined,
+        })
+      }
+      toast(t("cancel.failed"), "error")
+    }
   }
 
   // ── event handlers ──
@@ -663,6 +813,11 @@ export function SubAgentPanel(props: {
       const title = desc || truncate(prompt.replace(/\n/g, " ").replace(/\s+/g, " ").trim(), 40)
 
       const id = `tool:${String(part.id ?? crypto.randomUUID())}`
+      const existing = entryMap().get(id)
+      if (existing?.status === "cancel_requested") {
+        if (status === "running") return
+        status = settleOnIdle(existing)
+      }
       // Child session ID lives in state-level metadata (ToolStateCompleted.metadata),
       // injected by the tool executor.  ToolPart.sessionID is the parent session.
       const stMeta = st?.metadata as Record<string, unknown> | undefined
@@ -737,10 +892,13 @@ export function SubAgentPanel(props: {
       targetStatus: SubStatus,
       nowTs: number,
     ): boolean => {
-      // 精确匹配：sessionId 对得上 + 状态为 running
+      // 精确匹配：sessionId 对得上 + 状态仍在运行或取消中
       for (const [, entry] of entriesMap) {
-        if (entry.sessionId === targetSid && entry.status === "running") {
-          entry.status = targetStatus
+        if (
+          entry.sessionId === targetSid &&
+          (entry.status === "running" || entry.status === "cancel_requested")
+        ) {
+          entry.status = targetStatus === "error" ? "error" : settleOnIdle(entry)
           entry.endedAt = nowTs
           entry.tokens = entry.tokens ?? sessionTokens
           applyCostInPlace(entry)
@@ -751,13 +909,13 @@ export function SubAgentPanel(props: {
           return true
         }
       }
-      // 回退：sessionId 未关联但 agent 名匹配 + 状态为 running
+      // 回退：sessionId 未关联但 agent 名匹配 + 状态仍在运行或取消中
       if (sessionAgent) {
         const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9-]/g, "")
         const saNorm = normalize(sessionAgent)
         let best: { entry: SubEntry; gap: number } | null = null
         for (const [, entry] of entriesMap) {
-          if (entry.status !== "running") continue
+          if (entry.status !== "running" && entry.status !== "cancel_requested") continue
           const eaNorm = normalize(entry.agent)
           if (!eaNorm || !saNorm) continue
           if (!eaNorm.includes(saNorm) && !saNorm.includes(eaNorm)) continue
@@ -766,14 +924,14 @@ export function SubAgentPanel(props: {
         }
         if (!best) {
           for (const [, entry] of entriesMap) {
-            if (entry.status !== "running") continue
+            if (entry.status !== "running" && entry.status !== "cancel_requested") continue
             if (entry.sessionId) continue
             const gap = nowTs - (entry.startedAt || 0)
             if (!best || gap > best.gap) best = { entry, gap }
           }
         }
         if (best) {
-          best.entry.status = targetStatus
+          best.entry.status = targetStatus === "error" ? "error" : settleOnIdle(best.entry)
           best.entry.endedAt = nowTs
           best.entry.tokens = best.entry.tokens ?? sessionTokens
           applyCostInPlace(best.entry)
@@ -793,15 +951,20 @@ export function SubAgentPanel(props: {
       const next = new Map(prev)
       for (const [id, entry] of next) {
         if (entry.sessionId !== sid) continue
-        if (entry.status !== "running" && entry.status !== "done") continue
+        if (
+          entry.status !== "running" &&
+          entry.status !== "cancel_requested" &&
+          entry.status !== "done"
+        ) continue
         // Skip parent session idle — subagent entries belong to child sessions only
         if (sid === props.sessionId) continue
         // For "done" entries (sync tasks completed before session.idle), only backfill tokens/cost
-        const alreadySettled = entry.status !== "running"
+        const alreadySettled = entry.status === "done"
+        const finalStatus = status === "error" ? "error" : settleOnIdle(entry)
         const costApplied = applyCostInfo(entry, sessionCostInfo)
         next.set(id, {
           ...entry,
-          ...(alreadySettled ? {} : { status, endedAt: Date.now() }),
+          ...(alreadySettled ? {} : { status: finalStatus, endedAt: Date.now() }),
           tokens: entry.tokens ?? sessionTokens,
           cost: costApplied.cost,
           costPartial: costApplied.costPartial,
@@ -821,7 +984,7 @@ export function SubAgentPanel(props: {
 
         // Phase 1: try matching by agent name（agent 名有交集）
         for (const [id, entry] of next) {
-          if (entry.status !== "running") continue
+          if (entry.status !== "running" && entry.status !== "cancel_requested") continue
           const eaNorm = normalize(entry.agent)
           if (!eaNorm || !saNorm) continue
           if (!eaNorm.includes(saNorm) && !saNorm.includes(eaNorm)) continue
@@ -833,7 +996,7 @@ export function SubAgentPanel(props: {
         // fall back to time proximity for entries that have no sessionId yet
         if (!best) {
           for (const [id, entry] of next) {
-            if (entry.status !== "running") continue
+            if (entry.status !== "running" && entry.status !== "cancel_requested") continue
             if (entry.sessionId) continue
             const gap = nowTs - (entry.startedAt || 0)
             if (!best || gap > best.gap) best = { id, gap }
@@ -844,7 +1007,9 @@ export function SubAgentPanel(props: {
           const entry = next.get(best.id)!
           const costApplied = applyCostInfo(entry, sessionCostInfo)
           next.set(best.id, {
-            ...entry, status, endedAt: nowTs,
+            ...entry,
+            status: status === "error" ? "error" : settleOnIdle(entry),
+            endedAt: nowTs,
             tokens: sessionTokens || entry.tokens,
             cost: costApplied.cost,
             costPartial: costApplied.costPartial,
@@ -952,7 +1117,7 @@ export function SubAgentPanel(props: {
           let changed = false
           const next = new Map(prev)
           for (const [id, entry] of next) {
-            if (entry.status === "running" && entry.sessionId) {
+            if ((entry.status === "running" || entry.status === "cancel_requested") && entry.sessionId) {
               // Only read from child sessions, never the parent
               let isChild = false
               try {
@@ -1088,7 +1253,7 @@ export function SubAgentPanel(props: {
 
                     // "error": only update existing, never create a new entry
                     if (rawStatus === "error") {
-                      if (exists && exists.status === "running") {
+                      if (exists && (exists.status === "running" || exists.status === "cancel_requested")) {
                         next.set(id, { ...exists, status: "error", endedAt: Date.now() })
                       }
                       continue
@@ -1105,10 +1270,10 @@ export function SubAgentPanel(props: {
                     }
 
                     // Already settled → skip
-                    if (exists && exists.status !== "running") continue
+                    if (exists && exists.status !== "running" && exists.status !== "cancel_requested") continue
                     // Running entry with no explicit status improvement from part:
                     // try message-level heuristics first, then time-based fallback.
-                    if (exists && status === "running") {
+                    if (exists && exists.status === "running" && status === "running") {
                       if (!rawStatus) {
                         const msgTokens = (msg as any)?.tokens as Record<string, unknown> | undefined
                         if (msgTokens && (Number(msgTokens.input) > 0 || Number(msgTokens.output) > 0)) {
@@ -1139,13 +1304,16 @@ export function SubAgentPanel(props: {
                       : undefined
                     if (scanSubSid) tokens = readSessionTokens(scanSubSid)
 
-                    const ended = status === "done"  // "error" handled above, never reaches here
+                    const nextStatus = exists?.status === "cancel_requested"
+                      ? (status === "done" ? settleOnIdle(exists) : "cancel_requested")
+                      : status
+                    const ended = nextStatus === "done" || nextStatus === "cancelled"
                     next.set(id, {
                       id, title, agent, prompt,
                       // Preserve existing values (from handleSessionEnd / KV) — scan must not overwrite
                       tokens: exists?.tokens ?? tokens,
                       sessionId: exists?.sessionId ?? scanSubSid,
-                      status,
+                      status: nextStatus,
                       startedAt: exists?.startedAt || Date.now(),
                       endedAt: ended ? (exists?.endedAt || Date.now()) : undefined,
                     })
@@ -1162,7 +1330,10 @@ export function SubAgentPanel(props: {
           let changed = false
           const next = new Map(prev)
           for (const [id, entry] of next) {
-            if (entry.status !== "running" || !entry.sessionId) continue
+            if (
+              (entry.status !== "running" && entry.status !== "cancel_requested") ||
+              !entry.sessionId
+            ) continue
             try {
               const st = props.api.state.session.status(entry.sessionId)
               if (!st || st.type !== "idle") continue
@@ -1170,7 +1341,9 @@ export function SubAgentPanel(props: {
               const costInfo = readSessionCostFromMetrics(entry.sessionId)
               const costApplied = applyCostInfo(entry, costInfo)
               next.set(id, {
-                ...entry, status: "done" as SubStatus, endedAt: Date.now(),
+                ...entry,
+                status: settleOnIdle(entry),
+                endedAt: Date.now(),
                 tokens: tokens ?? entry.tokens,
                 cost: costApplied.cost,
                 costPartial: costApplied.costPartial,
@@ -1282,8 +1455,12 @@ export function SubAgentPanel(props: {
     }))
   })
 
-  const doneCount = createMemo(() => entryList().filter((e) => e.status === "done").length)
-  const runningCount = createMemo(() => entryList().filter((e) => e.status === "running").length)
+  const doneCount = createMemo(() =>
+    entryList().filter((e) => e.status === "done" || e.status === "cancelled").length,
+  )
+  const runningCount = createMemo(() =>
+    entryList().filter((e) => e.status === "running" || e.status === "cancel_requested").length,
+  )
   const errCount = createMemo(() => entryList().filter((e) => e.status === "error").length)
   const anyEntry = () => entryList().length > 0
 
@@ -1394,6 +1571,12 @@ export function SubAgentPanel(props: {
 
       {/* ── panel body ── */}
       <Show when={open()}>
+        <Show when={props.taskTreeCost?.()}>
+          <box flexDirection="row" justifyContent="space-between">
+            <text fg={pal().muted}>花费（任务树合计）</text>
+            <text fg={pal().text}>{props.taskTreeCost?.()}</text>
+          </box>
+        </Show>
         <Show
           when={anyEntry()}
           fallback={
@@ -1445,17 +1628,21 @@ export function SubAgentPanel(props: {
               {(entry) => {
               const isExpanded = () => expanded() === entry.id
               const isRunning = entry.status === "running"
+              const isCancelRequested = entry.status === "cancel_requested"
+              const isCancelled = entry.status === "cancelled"
               const isError = entry.status === "error"
+              const isActiveRunning = isRunning || isCancelRequested
               const elapsed = () => (entry.endedAt ?? now()) - entry.startedAt
 
               const statusDot = () => "\u25cf"
               const statusColor = () => {
-                if (!isRunning) return isError ? pal().error : pal().success
+                if (isCancelled) return pal().muted
+                if (!isActiveRunning) return isError ? pal().error : pal().success
                 return pal().warning
               }
 
               const timeColor = () =>
-                isRunning ? pal().warning : isError ? pal().error : pal().muted
+                isActiveRunning ? pal().warning : isError ? pal().error : pal().muted
 
               // Entry label: collapsed shows title only, expanded shows title only too
               const tokenText = () =>
@@ -1464,7 +1651,7 @@ export function SubAgentPanel(props: {
                   : ""
               const timeText = () =>
                 !isExpanded() && (elapsed() >= 2000 || entry.endedAt !== undefined)
-                  ? fmtDurationShort(elapsed(), isRunning)
+                  ? fmtDurationShort(elapsed(), isActiveRunning)
                   : ""
               const suffixW = () => {
                 let w = 0
@@ -1517,8 +1704,16 @@ export function SubAgentPanel(props: {
                       {"  "}
                       <span style={{ fg: pal().primary }}>{t("status.label")}: </span>
                       <span style={{ fg: pal().muted }}>{" ".repeat(expandedPad(t("status.label")))}</span>
-                      <span style={{ fg: isRunning ? pal().warning : isError ? pal().error : pal().success }}>
-                        {isRunning ? t("status.running") : isError ? t("status.error") : t("status.done")}
+                      <span style={{ fg: isActiveRunning ? pal().warning : isCancelled ? pal().muted : isError ? pal().error : pal().success }}>
+                        {isCancelRequested
+                          ? t("status.cancelling")
+                          : isRunning
+                            ? t("status.running")
+                            : isCancelled
+                              ? t("status.cancelled")
+                              : isError
+                                ? t("status.error")
+                                : t("status.done")}
                       </span>
                     </text>
                     <Show when={elapsed() >= 2000 || entry.endedAt !== undefined}>
@@ -1527,7 +1722,7 @@ export function SubAgentPanel(props: {
                         <span style={{ fg: pal().primary }}>{t("time.label")}: </span>
                         <span style={{ fg: pal().muted }}>{" ".repeat(expandedPad(t("time.label")))}</span>
                         <span style={{ fg: pal().muted }}>
-                          {fmtDurationShort(elapsed(), isRunning)}
+                          {fmtDurationShort(elapsed(), isActiveRunning)}
                         </span>
                       </text>
                     </Show>
@@ -1578,11 +1773,23 @@ export function SubAgentPanel(props: {
                     </Show>
                     <Show when={entry.sessionId}>
                       <text
-                        onMouseUp={() => {
-                          if (entry.sessionId) {
+                        onMouseUp={async () => {
+                          const sessionId = entry.sessionId
+                          if (sessionId) {
+                            const result = await copyText(sessionId)
+                            if (result.copied) {
+                              props.api.ui.toast({
+                                variant: "success",
+                                title: entry.title || entry.agent,
+                                message: t("session.toast.copied"),
+                                duration: 2500,
+                              })
+                              return
+                            }
                             props.api.ui.toast({
+                              variant: "warning",
                               title: entry.title || entry.agent,
-                              message: `${entry.sessionId}\n\n${t("session.toast.copy")}`,
+                              message: `${sessionId}\n\n${t("session.toast.copy_failed")}`,
                               duration: 8000,
                             })
                           }
@@ -1595,19 +1802,21 @@ export function SubAgentPanel(props: {
                         <span style={{ fg: pal().warning }}> ⎘</span>
                       </text>
                     </Show>
-                    {/* 进入会话 + 标记完成：同排左右两端，空间隔离防误触 */}
+                    {/* 进入会话 + 取消任务 + 仅清除显示：同排左右两端 */}
                     <Show when={entry.sessionId || isRunning}>
                       {(() => {
-                        const dismissLabel = () => `- ${t("dismiss.label")}`
                         const openPrefix = () => "  \u2192 "
                         const openFull = () => entry.sessionId ? openPrefix() + t("open.label") : ""
                         const openW = () => entry.sessionId ? visualWidth(openFull()) : 0
-                        const spacerW = () => Math.max(1, panelWidth() - openW() - visualWidth(dismissLabel()) - 2 /* indent */)
+                        const cancelLabel = () => ` ${t("cancel.label")}`
+                        const dismissLabel = () => ` ${t("dismiss.label")}`
+                        const rightW =
+                          (isRunning ? visualWidth(dismissLabel()) : 0) +
+                          (isRunning && entry.sessionId ? visualWidth(cancelLabel()) : 0)
+                        const spacerW = () => Math.max(1, panelWidth() - openW() - rightW - 2)
                         return (
                           <box flexDirection="row">
-                            <Show when={entry.sessionId}
-                              fallback={<text>{"  "}</text>}
-                            >
+                            <Show when={entry.sessionId}>
                               <text
                                 onMouseOver={() => setHoveredOpen(entry.id)}
                                 onMouseOut={() => setHoveredOpen(undefined)}
@@ -1621,19 +1830,26 @@ export function SubAgentPanel(props: {
                                 <span style={{ fg: hoveredOpen() === entry.id ? pal().warning : pal().primary }}>{t("open.label")}</span>
                               </text>
                             </Show>
+                            <text style={{ fg: pal().muted }}>{" ".repeat(spacerW())}</text>
+                            <Show when={isRunning && entry.sessionId}>
+                              <text
+                                onMouseOver={() => setHoveredCancel(entry.id)}
+                                onMouseOut={() => setHoveredCancel(undefined)}
+                                onMouseUp={() => cancelEntry(entry)}
+                              >
+                                <span style={{ fg: hoveredCancel() === entry.id ? pal().warning : pal().error }}>{cancelLabel()}</span>
+                              </text>
+                            </Show>
                             <Show when={isRunning}>
-                              <>
-                                <text style={{ fg: pal().muted }}>{" ".repeat(spacerW())}</text>
-                                <text
-                                  onMouseOver={() => setHoveredDismiss(entry.id)}
-                                  onMouseOut={() => setHoveredDismiss(undefined)}
-                                  onMouseUp={() => {
-                                    upsertEntry({ id: entry.id, title: entry.title, agent: entry.agent, prompt: entry.prompt, status: "done" })
-                                  }}
-                                >
-                                  <span style={{ fg: hoveredDismiss() === entry.id ? pal().warning : pal().muted }}>{dismissLabel()}</span>
-                                </text>
-                              </>
+                              <text
+                                onMouseOver={() => setHoveredDismiss(entry.id)}
+                                onMouseOut={() => setHoveredDismiss(undefined)}
+                                onMouseUp={() => {
+                                  upsertEntry({ id: entry.id, title: entry.title, agent: entry.agent, prompt: entry.prompt, status: "done" })
+                                }}
+                              >
+                                <span style={{ fg: hoveredDismiss() === entry.id ? pal().warning : pal().muted }}>{dismissLabel()}</span>
+                              </text>
                             </Show>
                           </box>
                         )

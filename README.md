@@ -18,7 +18,7 @@
 | 插件 | 加载面 | 用途 | 独立说明 |
 | --- | --- | --- | --- |
 | `opencode-quota-zh` | Server + TUI | Provider 额度、历史 Token 统计、API 标价估算 | [README.zh.md](plugins/opencode-quota-zh/README.zh.md) |
-| `opencode-enhanced-sidebar-zh` | TUI | 上下文、TPS、子代理与任务树费用 | [README.zh.md](plugins/opencode-enhanced-sidebar-zh/README.zh.md) |
+| `opencode-session-overview-zh` / `opencode-subagent-magazine-zh` | TUI | 可独立开关的上下文、TPS、子代理与任务树费用 | [README.zh.md](plugins/opencode-enhanced-sidebar-zh/README.zh.md) |
 | `opencode-matt-workshop` | Server | Drafter、Foreman、Tinker 与 Workflow Skill | [README.md](plugins/opencode-matt-workshop/README.md) |
 | `gpt-reset-credits` | Server | ChatGPT 重置卡查询与确认兑换 | [README.md](plugins/gpt-reset-credits/README.md) |
 

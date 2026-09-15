@@ -1,9 +1,10 @@
 {
   "$schema": "https://opencode.ai/tui.json",
 
-  // TUI-only plugins. Internal slot order places quota before context/subagents.
+  // TUI-only plugins. Each sidebar block can be toggled independently.
   "plugin": [
     "./opencode-zh-bundle/plugins/opencode-quota-zh/dist/tui.tsx",
-    "./opencode-zh-bundle/plugins/opencode-enhanced-sidebar-zh/src/tui.tsx"
+    "./opencode-zh-bundle/plugins/opencode-enhanced-sidebar-zh/src/tui-session-overview.tsx",
+    "./opencode-zh-bundle/plugins/opencode-enhanced-sidebar-zh/src/tui-subagent-magazine.tsx"
   ]
 }
