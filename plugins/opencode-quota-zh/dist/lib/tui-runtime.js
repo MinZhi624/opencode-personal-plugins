@@ -5,7 +5,7 @@ import { isBooleanEntry, isPercentEntry, isQuantityEntry, isValueEntry, } from "
 import { formatDisplayedPercentLabel } from "./format-utils.js";
 import { formatGroupedHeader } from "./grouped-header-format.js";
 import { BUNDLED_MAINTAINER_ANNOUNCEMENTS, formatMaintainerAnnouncementHomeCountLine, getMaintainerAnnouncementsSummary, getMaintainerAnnouncementTargetProviderIds, } from "./maintainer-announcements.js";
-import { getQuotaProviderShape, normalizeQuotaProviderId } from "./provider-metadata.js";
+import { getQuotaProviderShape, normalizeQuotaProviderId, } from "./provider-metadata.js";
 import { projectQuotaProviderResults } from "./quota-accounting-projection.js";
 import { classifyQuotaWindowText } from "./quota-entry-display.js";
 import { compareQuotaRunwayUrgency } from "./quota-exhaustion-projection.js";
@@ -16,6 +16,7 @@ import { createQuotaProviderRuntimeContext, createQuotaRuntimeRequestContext, re
 import { buildCompactQuotaStatusLine } from "./tui-compact-format.js";
 import { hasNativeProviderQuotaClient } from "./tui-native-provider-quota.js";
 import { buildSidebarQuotaPanelLines, TUI_SIDEBAR_MAX_WIDTH } from "./tui-sidebar-format.js";
+import { formatTuiStartupHintText } from "./tui-startup-hint.js";
 const COMPACT_UNAVAILABLE_TEXT = "Quota unavailable";
 const PROMPT_BAR_MAX_WIDTH = 50;
 const tuiQuotaClients = new WeakMap();
@@ -499,13 +500,14 @@ export async function loadTuiHomeBottomStatus(params) {
     const announcementEnabled = runtime.config.enabled &&
         runtime.config.maintainerAnnouncements.enabled &&
         runtime.config.maintainerAnnouncements.home;
+    const startupHintEnabled = runtime.config.enabled && runtime.config.startupHint.enabled;
     const compactSuppressedByNativeProviderQuota = runtime.config.tuiCompactStatus.suppressWhenNativeProviderQuota &&
         hasNativeProviderQuotaClient(params.api.client);
     const compactEnabled = runtime.config.enabled &&
         runtime.config.tuiCompactStatus.enabled &&
         runtime.config.tuiCompactStatus.homeBottom &&
         !compactSuppressedByNativeProviderQuota;
-    if (!announcementEnabled && !compactEnabled) {
+    if (!announcementEnabled && !startupHintEnabled && !compactEnabled) {
         return { status: "disabled", compact: { status: "disabled" } };
     }
     let announcementText;
@@ -528,7 +530,7 @@ export async function loadTuiHomeBottomStatus(params) {
         });
         announcementText = formatMaintainerAnnouncementHomeCountLine(summary.activeCount) || undefined;
     }
-    if (!compactEnabled) {
+    if (!startupHintEnabled && !compactEnabled) {
         return announcementText
             ? { status: "ready", announcementText, compact: { status: "disabled" } }
             : { status: "disabled", compact: { status: "disabled" } };
@@ -546,13 +548,34 @@ export async function loadTuiHomeBottomStatus(params) {
         runtime: homeRuntime,
         request: createQuotaRuntimeRequestContext(homeRuntime),
     });
+    const startupHintText = startupHintEnabled
+        ? formatTuiStartupHintText({
+            providerResults: result.providerResults,
+            ...(params.nowMs !== undefined ? { nowMs: params.nowMs } : {}),
+        })
+        : undefined;
+    if (!compactEnabled) {
+        return announcementText || startupHintText
+            ? {
+                status: "ready",
+                ...(startupHintText ? { startupHintText } : {}),
+                ...(announcementText ? { announcementText } : {}),
+                compact: { status: "disabled" },
+            }
+            : { status: "disabled", compact: { status: "disabled" } };
+    }
     const compact = buildCompactStatusFromData({
         runtime: homeRuntime,
         result,
         enabled: true,
         formatStyle: compactFormatStyle,
     });
-    return { status: "ready", announcementText, compact };
+    return {
+        status: "ready",
+        ...(startupHintText ? { startupHintText } : {}),
+        ...(announcementText ? { announcementText } : {}),
+        compact,
+    };
 }
 export async function loadTuiHomeCompactStatus(params) {
     const quotaClient = createTuiQuotaClient(params.api);

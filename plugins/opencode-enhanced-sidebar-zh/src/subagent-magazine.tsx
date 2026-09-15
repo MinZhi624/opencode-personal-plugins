@@ -69,9 +69,9 @@ export interface SubAgentCostSummary {
   complete: boolean
 }
 
-type Lang = "zh" | "en"
-type SortOrder = "desc" | "asc"
-type ScrollMode = "wheel" | "click"
+export type Lang = "zh" | "en"
+export type SortOrder = "desc" | "asc"
+export type ScrollMode = "wheel" | "click"
 
 /** OpenCode built-in tool names that spawn sub-agents or delegate tasks. */
 const SUBAGENT_TOOLS = new Set(["task", "delegate", "call_omo_agent"])
@@ -274,6 +274,7 @@ export function SubAgentPanel(props: {
   maxEntries: () => number
   sortOrder: () => SortOrder
   scrollMode: () => ScrollMode
+  ttlDays: () => number
   sessionId: string
   /** Shared session metrics service: source of every sub-agent cost. */
   metrics: SessionMetricsService
@@ -284,10 +285,6 @@ export function SubAgentPanel(props: {
 
   // ── session data (single-key, true deletion on cleanup) ──
   const SESSION_DATA_KEY = `${KV_PREFIX}.session_data`
-  const ttlDaysRaw = parseInt(String(props.api.kv.get(`${KV_PREFIX}.ttl_days`, "3")), 10)
-  const ttlDays = Number.isNaN(ttlDaysRaw) ? 3 : ttlDaysRaw
-  const TTL_MS = ttlDays * 24 * 60 * 60 * 1000
-
   interface ChildRecord {
     scroll: number
     expanded: string
@@ -394,10 +391,11 @@ export function SubAgentPanel(props: {
   }
 
   const cleanupOldSessions = () => {
+    const ttlDays = props.ttlDays()
     if (ttlDays <= 0) return  // 无期限，跳过清理
     try {
       const data = loadSessionData()
-      const cutoff = Date.now() - TTL_MS
+      const cutoff = Date.now() - ttlDays * 24 * 60 * 60 * 1000
       let changed = false
       for (const sid of Object.keys(data)) {
         if (data[sid].ts < cutoff) {
@@ -409,7 +407,7 @@ export function SubAgentPanel(props: {
     } catch {}
   }
 
-  cleanupOldSessions()
+  createEffect(cleanupOldSessions)
 
   const [entryMap, setEntryMapRaw] = createSignal(loadEntries(props.sessionId))
 
@@ -1929,23 +1927,67 @@ export function SubAgentPanel(props: {
 export interface SharedSignals {
   lang: () => Lang
   maxEntries: () => number
+  setMaxEntries: (value: number) => void
   sortOrder: () => SortOrder
+  setSortOrder: (value: SortOrder) => void
   scrollMode: () => ScrollMode
+  setScrollMode: (value: ScrollMode) => void
+  ttlDays: () => number
+  setTtlDays: (value: number) => void
 }
 
 export const KV_PREFIX = "subagent_magazine"
 
+export function clearSubAgentSession(api: TuiPluginApi, sessionId: string): number {
+  if (!sessionId) return 0
+  try {
+    const key = `${KV_PREFIX}.session_data`
+    const data = JSON.parse(String(api.kv.get(key, "{}"))) as Record<string, any>
+    const session = api.state.session.get(sessionId) as any
+    const parentId = session?.parentID as string | undefined
+    const record = parentId ? data[parentId]?.children?.[sessionId] : data[sessionId]
+    if (!record) return 0
+
+    const entries = Array.isArray(record.entries) ? record.entries : []
+    const ids = entries.map((entry: { id?: unknown }) => entry.id).filter((id: unknown) => typeof id === "string")
+    record.entries = []
+    record.scroll = 0
+    record.expanded = ""
+    const clearedIds = Array.isArray(record.clearedIds) ? record.clearedIds : []
+    record.clearedIds = [...new Set([...clearedIds, ...ids])]
+    if (!parentId) record.ts = Date.now()
+    api.kv.set(key, JSON.stringify(data))
+    globalEntryCache.delete(sessionId)
+    setClearTick((value) => value + 1)
+    return entries.length
+  } catch {
+    return 0
+  }
+}
+
 export function createSubAgentSignals(api: TuiPluginApi): SharedSignals {
   const [lang] = createSignal<Lang>("zh")
-  const [maxEntries] = createSignal(
+  const [maxEntries, setMaxEntries] = createSignal(
     Math.max(1, Math.min(50, parseInt(String(api.kv.get(`${KV_PREFIX}.max_entries`, "10")), 10) || 10)),
   )
-  const [sortOrder] = createSignal<SortOrder>(
+  const [sortOrder, setSortOrder] = createSignal<SortOrder>(
     String(api.kv.get(`${KV_PREFIX}.order`, "desc")) === "asc" ? "asc" : "desc",
   )
-  const [scrollMode] = createSignal<ScrollMode>(
+  const [scrollMode, setScrollMode] = createSignal<ScrollMode>(
     String(api.kv.get(`${KV_PREFIX}.scroll_mode`, "wheel")) === "click" ? "click" : "wheel",
   )
+  const ttlDaysRaw = parseInt(String(api.kv.get(`${KV_PREFIX}.ttl_days`, "3")), 10)
+  const [ttlDays, setTtlDays] = createSignal(Number.isNaN(ttlDaysRaw) ? 3 : ttlDaysRaw)
 
-  return { lang, maxEntries, sortOrder, scrollMode }
+  return {
+    lang,
+    maxEntries,
+    setMaxEntries,
+    sortOrder,
+    setSortOrder,
+    scrollMode,
+    setScrollMode,
+    ttlDays,
+    setTtlDays,
+  }
 }

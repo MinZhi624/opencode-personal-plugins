@@ -35,6 +35,7 @@ import type {
 import {
   getCompactStatusText,
   getHomeBottomAnnouncementText,
+  getHomeBottomStartupHintText,
   getSidebarPanelLines,
   getSidebarPanelLinesExpanded,
   shouldRenderCompactStatus,
@@ -659,6 +660,7 @@ function HomeBottomView(props: {
   onCleanup(() => resource.release());
 
   const announcement = () => getHomeBottomAnnouncementText(resource.bottom());
+  const startupHint = () => getHomeBottomStartupHintText(resource.bottom());
   const compact = () => resource.bottom().compact;
   const visible = () => shouldRenderHomeBottom(resource.bottom());
 
@@ -666,6 +668,13 @@ function HomeBottomView(props: {
     <box gap={0}>
       <Show when={visible()}>
         <text> </text>
+      </Show>
+      <Show when={visible() && startupHint()}>
+        <box flexDirection="row" justifyContent="center">
+          <text fg={props.api.theme.current.textMuted} wrapMode="none">
+            {startupHint()}
+          </text>
+        </box>
       </Show>
       <Show when={visible() && announcement()}>
         <box flexDirection="row" justifyContent="center">
@@ -974,16 +983,11 @@ function registerStableTuiSlots(api: TuiPluginApi, current: () => TuiRegistratio
         const state = current();
         if (state.status !== "active" || !state.registration.homeBottom) return null;
         return (
-          <box flexDirection="column" gap={0}>
-            <Show when={state.registration.startupHint.enabled}>
-              <text fg={api.theme.current.textMuted}>额度已就绪 · 输入 /quota 查看详情</text>
-            </Show>
-            <HomeBottomView
-              api={api}
-              compactHomeBottomEnabled={state.registration.compact.homeBottom}
-              initialLoads={state.initialLoads}
-            />
-          </box>
+          <HomeBottomView
+            api={api}
+            compactHomeBottomEnabled={state.registration.compact.homeBottom}
+            initialLoads={state.initialLoads}
+          />
         );
       },
     },
