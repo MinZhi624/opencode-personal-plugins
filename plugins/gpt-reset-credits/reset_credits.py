@@ -62,6 +62,9 @@ def token_from_auth(data: Any) -> str | None:
 
 
 def load_token() -> str:
+    v2_token = os.environ.get("OPENCODE_V2_ACCESS_TOKEN")
+    if v2_token:
+        return v2_token
     configured = os.environ.get("CODEX_AUTH_PATH")
     if configured:
         candidates = [Path(configured)]

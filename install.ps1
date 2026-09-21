@@ -45,15 +45,11 @@ $OpenCodeVersionCheck = @'
 const raw = process.argv[1] ?? ""
 const match = raw.match(/(\d+)\.(\d+)\.(\d+)/)
 if (!match) process.exit(2)
-const current = match.slice(1).map(Number)
-const minimum = [1, 18, 12]
-for (let i = 0; i < minimum.length; i++) {
-  if (current[i] > minimum[i]) process.exit(0)
-  if (current[i] < minimum[i]) process.exit(1)
-}
+const current = match.slice(1).map(Number).join(".")
+process.exit(current === "2.0.11" ? 0 : 1)
 '@
 & node -e $OpenCodeVersionCheck $OpenCodeVersion
-if ($LASTEXITCODE -eq 1) { throw "OpenCode $OpenCodeVersion 过旧；需要 1.18.12 或更高版本。" }
+if ($LASTEXITCODE -eq 1) { throw "首个验收版本固定为 OpenCode 2.0.11；当前为 $OpenCodeVersion。" }
 if ($LASTEXITCODE -ne 0) { throw "无法识别 OpenCode 版本：$OpenCodeVersion" }
 
 Write-Host "OpenCode：$OpenCodeVersion"
@@ -138,10 +134,10 @@ Install-Config `
   -Candidates @((Join-Path $ConfigRoot "opencode.jsonc"), (Join-Path $ConfigRoot "opencode.json"))
 
 Install-Config `
-  -Label "TUI 配置" `
-  -Template (Join-Path $BundleDir "config/tui.jsonc") `
-  -Preferred (Join-Path $ConfigRoot "tui.jsonc") `
-  -Candidates @((Join-Path $ConfigRoot "tui.jsonc"), (Join-Path $ConfigRoot "tui.json"))
+  -Label "CLI 配置" `
+  -Template (Join-Path $BundleDir "config/cli.json") `
+  -Preferred (Join-Path $ConfigRoot "cli.json") `
+  -Candidates @((Join-Path $ConfigRoot "cli.json"))
 
 Write-Host ""
 Write-Host "Bundle 已安装到：$BundleDir"
@@ -150,4 +146,4 @@ if ($script:NeedsMerge) {
 } else {
   Write-Host "配置已就绪。"
 }
-Write-Host "请彻底退出并重新启动 OpenCode；配置和插件不会热重载。"
+Write-Host "安装完成后请启动 OpenCode 2.0.11 进行人工验收；受监视的插件和配置支持 v2 重载。"

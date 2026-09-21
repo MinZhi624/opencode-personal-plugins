@@ -1,103 +1,36 @@
-# 合并到已有 OpenCode 配置
+# 合并到已有 OpenCode v2 配置
 
-安装器发现已有 `opencode.json(c)` 或 `tui.json(c)` 时不会覆盖。先备份现有文件，再把条目并入原数组。不要创建第二个同名 `plugin` 键。
+本分支只支持 OpenCode 2.0.11。安装器默认保留已有配置；合并前请自行备份。
 
-## Server 配置
+## 服务端：opencode.json(c)
 
-在当前使用的 `~/.config/opencode/opencode.jsonc`（或 `.json`）中保留已有 notifier、provider、MCP 等设置，并把以下三项放入现有 `plugin` 数组（`experimental` 下除 `quotaToast` 外的其他键可保留；`experimental.quotaToast` 已在 v2 移除，见下方迁移说明）：
+把 config/opencode.jsonc 中的条目合并到现有配置：
 
-```jsonc
-{
-  "$schema": "https://opencode.ai/config.json",
-  "plugin": [
-    "./opencode-zh-bundle/plugins/opencode-quota-zh/dist/index.js",
-    "./opencode-zh-bundle/plugins/gpt-reset-credits/index.ts",
-    "./opencode-zh-bundle/plugins/opencode-matt-workshop/dist/src/index.js"
-  ]
-}
-```
+- 使用复数键 plugins、agents、permissions，不要保留 v1 的 plugin、agent、permission。
+- plugins 数组追加额度、重置卡和 Workshop 三个目录入口；2.0.11 的配置加载器不接受指向入口文件的路径。Workshop 使用 { package, options } 对象式选项。
+- 七个 Workshop agent 的占位定义必须保留，插件会通过 v2 agent transform 填入 system、模型与权限。
+- 权限动作使用 shell 与 subagent，不要使用 v1 的 bash 与 task。
+- 重置卡查询可设为 allow，兑换必须保持 ask。
 
-### 额度插件主配置（opencode-quota-zh/config.jsonc）
+不要建立第二个同名键。Provider、MCP 和其它已有设置继续保留。
 
-v2 起，`opencode-quota-zh` 的主配置统一放在独立侧车文件 `opencode-quota-zh/config.jsonc`（与 `plugin` 数组并列，不需要放进 `opencode.jsonc`）：
+## 终端：cli.json
 
-- 全局：`~/.config/opencode/opencode-quota-zh/config.jsonc`
-- 工作区：项目根的 `opencode-quota-zh/config.jsonc`（相同相对路径，覆盖全局）
-- JSONC 优先；`config.json` 仍被接受，但两者并存时只读取 JSONC，建议删除旧的 `config.json`。
+OpenCode v2 的终端配置只有全局 ~/.config/opencode/cli.json。把模板中的额度包与增强侧栏包
+追加到 plugins；增强侧栏按“会话概览 → 子代理”顺序注册，并可通过 options 分别关闭。schema 必须是
+https://opencode.ai/v2/cli.json。
 
-旧配置入口 `experimental.quotaToast` 与 `opencode-quota/quota-toast.json(c)` 不再作为配置来源，插件会明确报告迁移要求（见 `/quota_status` 与启动日志）。手工迁移时把仍需要的设置复制到新侧车文件：
+2.0.11 应加载插件包目录，由包的 exports["./tui"] 选择 CLI 入口；不要直接配置源码 TSX。
+删除旧 tui.json(c) 中本包的 v1 入口，避免重复面板。
 
-- `enableToast` 与 `showOnIdle`、`showOnQuestion`、`showOnCompact`、`showOnBothFail` 跟随上游恢复；中文版仍默认 `enableToast: false`。
-- 其余键名（`enabledProviders`、`formatStyle`、`tuiCommandDisplay`、`tuiSidebarPanel` 等）不变，直接复制。
-- 启动提示默认开启；例行额度弹窗和重置通知都默认关闭，可按需显式开启：
+## v1 回退
 
-```jsonc
-{
-  "startupHint": {
-    "enabled": true
-  },
-  "enableToast": false,
-  "resetNotifications": {
-    "enabled": false,
-    "windows": ["weekly"]
-  }
-}
-```
+oc-v2 不维护双入口。需要回退时：
 
-独立的 `alerts.*` 与 `/quota_alerts` 已删除，不要迁移。`tuiPromptBar.enabled`、例行 toast 和重置通知都保持显式选择，不由安装器自动开启。
+1. 恢复安装前的 opencode.json(c) 与 tui.json(c) 备份；
+2. 删除或移走 v2 的 cli.json 本包条目；
+3. 切回仓库 master，按 master 的安装说明重新安装；
+4. 不要把 v2 自有持久化记录复制回 v1。
 
-Workshop 会保留 OpenCode 内置和已有 agents，新增七个 Workshop agents，并把 `tinker` 设为默认 Primary Agent。
-
-可选角色覆盖使用 OpenCode 支持的 `[pluginPath, options]`：
-
-```jsonc
-[
-  "./opencode-zh-bundle/plugins/opencode-matt-workshop/dist/src/index.js",
-  {
-    "agents": {
-      "drafter": { "model": "openai/gpt-5.6-sol", "variant": "high" },
-      "maker": { "model": "opencode-go/deepseek-v4-flash", "variant": "max", "steps": 40 }
-    }
-  }
-]
-```
-
-每个角色只支持 `model`、`variant`、`temperature`、`steps`。不配置时继承当前 OpenCode 模型。完整推荐阵容见 `config/opencode.jsonc` 模板与 workshop README；`opencode-go/mimo-v2.5` 无 variant 档，配置时省略 `variant` 字段。
-
-如果旧配置包含 `oh-my-openagent` 或 `oh-my-openagent@latest`，移除该条目；不要删除 notifier、quota、reset-card 或其它无关插件。
-
-## TUI 配置
-
-在当前 `~/.config/opencode/tui.jsonc` 中保留已有设置并加入：
-
-```jsonc
-{
-  "$schema": "https://opencode.ai/tui.json",
-  "plugin": [
-    "./opencode-zh-bundle/plugins/opencode-quota-zh/dist/tui.tsx",
-    "./opencode-zh-bundle/plugins/opencode-enhanced-sidebar-zh/src/tui-session-overview.tsx",
-    "./opencode-zh-bundle/plugins/opencode-enhanced-sidebar-zh/src/tui-subagent-magazine.tsx"
-  ]
-}
-```
-
-旧版 `src/tui.tsx` 是兼容用的聚合入口。迁移到独立开关时，应将这一条替换为上面的
-两个新入口，不要三者同时保留。Plugins 面板随后会分别显示会话概览和子代理插件。
-
-删除 TUI 配置中的旧 `oh-my-openagent` 条目。若 `.jsonc` 和 `.json` 同时存在，OpenCode 优先读取 `.jsonc`；合并后只保留一个有效配置，避免重复插件。
-
-## 删除旧路径
-
-每个入口只保留 bundle 路径的一份。删除指向旧独立目录或旧绝对路径的 quota、sidebar、Workshop、reset-card 重复条目。
-
-## 验证与重启
-
-保存后必须彻底退出并重新启动 OpenCode，再执行：
-
-```bash
-opencode debug config
-opencode debug agent tinker
-opencode debug skill
-```
-
-不要分享未经检查的 `opencode debug config` 输出；其中可能包含私有 provider 配置。
+配置与受监视插件可由 v2 重载；若改动了未受监视的本地依赖或运行产物，重启服务。
+不要公开未经检查的配置诊断输出，其中可能含私有 Provider 信息。

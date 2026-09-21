@@ -2,5 +2,6 @@
   "name": "gpt-reset-credits",
   "version": "1.0.1",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "main": "./index.ts"
 }

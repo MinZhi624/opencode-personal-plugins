@@ -16,8 +16,8 @@
 2. 子代理
 
 在 OpenCode 的 Plugins 面板中可分别开关额度、会话概览和子代理。迁移旧配置时，
-请用 `src/tui-session-overview.tsx` 和 `src/tui-subagent-magazine.tsx` 替换
-`src/tui.tsx`，不要同时加载聚合入口与拆分入口。
+OpenCode v2 请在 `cli.json` 中分别加载 `src/tui-v2-session-overview.tsx` 与
+`src/tui-v2-subagent-magazine.tsx`；两个面板可独立开关。
 
 ## 行为说明
 

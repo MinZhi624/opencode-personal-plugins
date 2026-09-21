@@ -1,142 +1,44 @@
-# 故障排查
+# OpenCode v2 故障排查
 
-## 插件安装后没有变化
+## 版本或配置不兼容
 
-OpenCode 不热重载配置、插件、智能体或 skills。彻底退出所有 OpenCode 进程后重新启动。
+首个验收版本固定为 OpenCode 2.0.11。确认 opencode --version，并检查：
 
-确认配置路径：
+- 服务端配置为 ~/.config/opencode/opencode.json(c)，键名为 plugins。
+- 终端配置为 ~/.config/opencode/cli.json，schema 为 https://opencode.ai/v2/cli.json。
+- 不再使用 tui.json(c)。
 
-```bash
-opencode debug paths
-opencode debug config
-```
+## 找不到包或模块
 
-## `Cannot find package` / `Cannot find module`
+在 bundle 根目录执行 npm ci --omit=dev --ignore-scripts --no-audit --no-fund。
+四个插件共用根目录 node_modules，不要进入插件目录分别安装，也不要运行
+npm audit fix --force。
 
-依赖没有安装，或者安装在错误目录。执行：
+## 侧边栏不显示或重复
 
-```bash
-cd ~/.config/opencode/opencode-zh-bundle
-npm ci --omit=dev --ignore-scripts --no-audit --no-fund
-```
+确认 cli.json 只保留一份三个 v2 入口，并按额度、会话概览、子代理排序。旧 v1
+入口与聚合入口必须删除。配置支持重载；若本地依赖未被监视，重启 OpenCode 服务。
 
-不要在四个插件目录中分别安装依赖；本包设计为共用 bundle 根目录的一份 `node_modules`。
+## API 标价估算缺失
 
-## npm 显示 `glob@9.3.5` deprecated 或 audit 警告
+“未定价”表示某条实际模型缺少 models.dev 价格，不代表免费。分页失败或历史取数不完整
+时，插件不会把部分数据显示为完整总额。OAuth 产生的原生费用为零也不改变 API 标价估算。
 
-这是锁定的 OpenCode/OpenTUI 依赖链带来的传递依赖提示，不表示安装失败。截至本发布快照，`npm audit --omit=dev` 报告 4 个 low severity、没有 high/critical。
+## 子代理费用或状态缺失
 
-不要执行 `npm audit fix --force`：npm 当前给出的强制修复会安装不兼容的旧版 `@opencode-ai/plugin`。等待 OpenCode/OpenTUI 上游升级后重新制作 bundle 更安全。
+任务树只按 OpenCode v2 提供的父子会话关系与 execution/tool 事件归并。若事件没有提供
+子会话 ID，条目仍可显示，但会话跳转、真实取消与子会话费用会隐藏。取消失败不会伪装成
+已取消。
 
-## OpenCode 版本不兼容
+## 重置卡找不到凭证
 
-```bash
-opencode --version
-opencode upgrade
-```
+先用 /connect 连接 OpenAI/ChatGPT。插件优先通过 v2 服务端 integration.connection
+解析当前活动 OAuth 凭证，只把 access token 传给同一次 Python helper 进程；不会把 token
+返回给 TUI。CODEX_AUTH_PATH 与旧 auth.json 仅作兼容回退。
 
-本快照按 1.18.12 打包。TUI 插件 API 变化较快；升级到未来大版本后若侧边栏加载失败，应重新验证或重新构建发布包。
+兑换前会重新查询并比对快照。拒绝权限、快照变化、uncertain 或任何失败都不会自动重试。
 
-## 配置无效，OpenCode 无法启动
+## Windows
 
-优先恢复安装器生成的备份：
-
-```text
-~/.config/opencode/opencode.jsonc.bak.时间戳
-~/.config/opencode/tui.jsonc.bak.时间戳
-```
-
-如果原配置扩展名是 `.json`，备份名相应为 `opencode.json.bak.时间戳` 或 `tui.json.bak.时间戳`。
-
-也可在终端运行 `opencode debug config` 查看错误。常见原因是 JSON 逗号、重复键、把带注释内容保存为 `.json`，或路径拼写错误。
-
-## 侧边栏不显示
-
-1. 确认 `tui.json(c)` 中存在两个 bundle TUI 条目。
-2. 确认没有旧路径的重复条目。
-3. 确认 bundle 内 `plugins/opencode-quota-zh/dist/` 与 `plugins/opencode-enhanced-sidebar-zh/src/` 存在且未被清空。
-4. 彻底重启 OpenCode，而不只是切换会话。
-
-`opencode debug config` 主要验证 Server 配置；TUI 插件要在实际 TUI 启动时加载。
-
-## `/quota_status` 没有目标 Provider 数据
-
-- 先用 `/connect` 或 `opencode providers login` 登录目标 Provider。
-- 某些 Provider 没有官方额度接口，只能显示本地 token 或估算数据。
-- 检查 `/quota_status` 的诊断内容，不要把包含本机路径或账户信息的完整结果直接公开。
-
-## Workshop 智能体或 skills 不见了
-
-```bash
-opencode debug agent tinker
-opencode debug skill
-```
-
-确认以下文件存在：
-
-```text
-~/.config/opencode/opencode-zh-bundle/plugins/opencode-matt-workshop/dist/src/index.js
-~/.config/opencode/opencode-zh-bundle/plugins/opencode-matt-workshop/skills/ask-matt/SKILL.md
-```
-
-Workshop 插件会自动把随附 `skills/` 加入 OpenCode 的 skills 搜索路径，不需要再复制到全局 `skills/`。
-
-## Workshop 提示模型不存在
-
-发布模板没有固定模型。若手工添加了 `agents.*.model`，必须使用 `/models` 中当前账户真实可用的 `provider/model-id`。删除无效覆盖后，该角色会重新继承当前模型。
-
-## 重置卡提示找不到凭证
-
-在 TUI 中执行 `/connect`，选择：
-
-```text
-OpenAI → ChatGPT Plus/Pro
-```
-
-重置卡工具识别：
-
-```text
-~/.codex/auth.json
-${XDG_DATA_HOME:-~/.local/share}/opencode/auth.json
-```
-
-也可设置 `CODEX_AUTH_PATH`。只填写普通 OpenAI API key 通常不包含需要的 OAuth access token。
-
-## 重置卡提示 `helper failed`
-
-检查 Python：
-
-```bash
-python3 --version
-```
-
-要求 Python 3.10+。如果 Python 可执行文件不叫 `python3`：
-
-```bash
-export OPENCODE_PYTHON=/实际路径/python
-opencode
-```
-
-Windows 可持久设置：
-
-```powershell
-[Environment]::SetEnvironmentVariable("OPENCODE_PYTHON", "python", "User")
-```
-
-环境变量值应是单个可执行文件名或路径，不要附加命令参数。
-
-## 重置卡返回 401
-
-OpenAI/Codex OAuth 凭证已过期。重新执行 `/connect` 登录 ChatGPT Plus/Pro。不要复制其他人的 `auth.json`。
-
-## 重置卡数量为 0
-
-这通常不是安装问题。账户可能没有获得重置卡、卡已使用/过期，或当前产品计划不提供该资源。
-
-## 兑换状态是 `uncertain`
-
-不要自动重试。插件已故意设计为在 POST 后回查不一致时停止，以避免重复兑换。稍后只执行查询，核对卡片列表和限流状态。
-
-## Windows 原生环境问题
-
-OpenCode 官方推荐 WSL。若原生 Windows 出现 TSX、终端渲染或 Python 启动问题，优先在 WSL 中安装本包；配置路径会变为 WSL 用户的 `~/.config/opencode/`。
+需要 Node.js 22.6+ 和 Python 3.10+。可用 OPENCODE_PYTHON 指向 Python 可执行文件；
+不要在变量中附加参数。

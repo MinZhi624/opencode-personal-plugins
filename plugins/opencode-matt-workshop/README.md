@@ -165,8 +165,8 @@ flowchart LR
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": [
-    "./opencode-zh-bundle/plugins/opencode-matt-workshop/dist/src/index.js"
+  "plugins": [
+    "./opencode-zh-bundle/plugins/opencode-matt-workshop"
   ]
 }
 ```
@@ -175,10 +175,10 @@ flowchart LR
 
 ```jsonc
 {
-  "plugin": [
-    [
-      "./opencode-zh-bundle/plugins/opencode-matt-workshop/dist/src/index.js",
-      {
+  "plugins": [
+    {
+      "package": "./opencode-zh-bundle/plugins/opencode-matt-workshop",
+      "options": {
         "agents": {
           "drafter": { "model": "openai/gpt-5.6-sol", "variant": "high" },
           "tinker": { "model": "opencode-go/deepseek-v4-flash", "variant": "high" },
@@ -189,7 +189,7 @@ flowchart LR
           "surveyor": { "model": "opencode-go/mimo-v2.5" }
         }
       }
-    ]
+    }
   ]
 }
 ```
@@ -214,8 +214,8 @@ flowchart TD
 
 ### 第一步：安装
 
-1. 把插件加入 `~/.config/opencode/opencode.jsonc` 的 `plugin` 数组（见 [Configuration](#configuration)，可选 tuple options 配模型）。
-2. 完全退出并重新启动 OpenCode（配置只在启动时加载，不会热重载）。
+1. 把插件加入 `~/.config/opencode/opencode.jsonc` 的 `plugins` 数组（见 [Configuration](#configuration)，对象式 options 可配模型），并按 bundle 模板声明七个 agents 占位项。
+2. OpenCode v2 会重载受监视的配置；未受监视的本地依赖变更后重启服务。
 3. 验证：`opencode debug agent tinker` 应显示 Tinker 角色。
 
 ### 第二步：进入 Drafter（想清楚）
@@ -312,7 +312,7 @@ npm run build:matt-workshop
 
 Workshop 不保留自动化测试套件或 CI 门禁：同步后由构建命令重新生成 `dist/`，行为正确性靠重启 OpenCode 后人工检查。
 
-安装或修改配置后必须完全退出并重新启动 OpenCode；配置不会热重载。
+OpenCode v2 会重载受监视的配置与插件；未受监视的本地依赖变更后重启服务。
 
 ## Architecture
 
