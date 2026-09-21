@@ -5,10 +5,9 @@
  * The runtime distribution is generated, never hand-maintained:
  *   1. tsc compiles src/ to plain ESM .js (tsconfig.runtime.json, outDir=dist);
  *   2. src/data/modelsdev-pricing.min.json is copied verbatim;
- *   3. the single supported TUI entry pair (src/tui.tsx and its directly
- *      imported src/quota-zh-sidebar.tsx) is copied byte-for-byte, because
- *      OpenCode loads them as raw TSX (config/tui.jsonc points at
- *      dist/tui.tsx). They are excluded from the tsc pass so no .jsx
+ *   3. the v2 TUI entry (src/tui-v2.tsx) is copied byte-for-byte, because
+ *      OpenCode loads it as raw TSX (config/cli.json points at
+ *      dist/tui-v2.tsx). It is excluded from the tsc pass so no .jsx
  *      duplicates are emitted.
  *
  * Invocation:
@@ -28,7 +27,7 @@ const distDir = join(rootDir, "dist");
 
 // The TUI entry pair is loaded by OpenCode as raw TSX; it is copied from src
 // byte-for-byte instead of being compiled.
-const TUI_ENTRY_FILES = ["tui.tsx", "quota-zh-sidebar.tsx"];
+const TUI_ENTRY_FILES = ["tui-v2.tsx"];
 
 async function walk(directory) {
   const entries = await readdir(directory, { withFileTypes: true });

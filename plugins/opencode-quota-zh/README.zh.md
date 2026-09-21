@@ -47,7 +47,7 @@
 
 ## 本地使用
 
-Server 入口是 `dist/index.js`，TUI 入口是 `dist/tui.tsx`。全局 OpenCode 配置通过这两个入口加载本 Fork。
+Server 入口是 `dist/index.js`，OpenCode v2 CLI 入口是 `dist/tui-v2.tsx`。分别由 `opencode.json(c)` 与 `cli.json` 加载。
 
 主配置位于 `opencode-quota-zh/config.jsonc`。中文版默认 `enableToast: false`、
 `resetNotifications.enabled: false`；独立危险阈值告警及 `/quota_alerts` 不再提供。

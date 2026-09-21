@@ -10,7 +10,7 @@ for arg in "$@"; do
 用法：bash install.sh [--replace-config]
 
 默认：安装/更新 bundle；若已有 OpenCode 配置则保留并提示手工合并。
---replace-config：备份已有 opencode/tui 配置后安装本包模板。
+--replace-config：备份已有 opencode/cli 配置后安装本包模板。
 EOF
       exit 0
       ;;
@@ -62,14 +62,10 @@ if (!match) {
   console.error(`无法识别 OpenCode 版本：${raw || "空"}`)
   process.exit(1)
 }
-const current = match.slice(1).map(Number)
-const minimum = [1, 18, 12]
-for (let i = 0; i < minimum.length; i++) {
-  if (current[i] > minimum[i]) process.exit(0)
-  if (current[i] < minimum[i]) {
-    console.error(`OpenCode ${current.join(".")} 过旧；需要 1.18.12 或更高版本。`)
-    process.exit(1)
-  }
+const current = match.slice(1).map(Number).join(".")
+if (current !== "2.0.11") {
+  console.error(`首个验收版本固定为 OpenCode 2.0.11；当前为 ${current}。`)
+  process.exit(1)
 }
 NODE
 echo "OpenCode：${OPENCODE_VERSION:-未知版本}"
@@ -146,11 +142,10 @@ install_config \
   "$CONFIG_ROOT/opencode.json"
 
 install_config \
-  "TUI 配置" \
-  "$BUNDLE_DIR/config/tui.jsonc" \
-  "$CONFIG_ROOT/tui.jsonc" \
-  "$CONFIG_ROOT/tui.jsonc" \
-  "$CONFIG_ROOT/tui.json"
+  "CLI 配置" \
+  "$BUNDLE_DIR/config/cli.json" \
+  "$CONFIG_ROOT/cli.json" \
+  "$CONFIG_ROOT/cli.json"
 
 echo
 echo "Bundle 已安装到：$BUNDLE_DIR"
@@ -160,4 +155,4 @@ if [ "$NEEDS_MERGE" -eq 1 ]; then
 else
   echo "配置已就绪。"
 fi
-echo "请彻底退出并重新启动 OpenCode；配置和插件不会热重载。"
+echo "安装完成后请启动 OpenCode 2.0.11 进行人工验收；受监视的插件和配置支持 v2 重载。"

@@ -100,7 +100,7 @@ async function fetchDeepSeekBalance(apiKey, requestTimeoutMs) {
  * @returns A typed result with success/error state, or null if no API key is configured.
  */
 export async function queryDeepSeekBalance(options = {}) {
-    const resolved = await resolveDeepSeekApiKey();
+    const resolved = options.apiKey ? { key: options.apiKey } : await resolveDeepSeekApiKey();
     if (!resolved)
         return null;
     const result = await fetchDeepSeekBalance(resolved.key, options.requestTimeoutMs);

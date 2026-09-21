@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="#版本记录"><img alt="版本" src="https://img.shields.io/badge/版本-v1.0.1-blue?style=flat-square" /></a>
-  <a href="https://opencode.ai/docs/"><img alt="OpenCode" src="https://img.shields.io/badge/OpenCode-%E2%89%A51.18.12-blue?style=flat-square" /></a>
+  <a href="https://opencode.ai/v2/docs/"><img alt="OpenCode" src="https://img.shields.io/badge/OpenCode-2.0.11-blue?style=flat-square" /></a>
   <a href="https://nodejs.org/"><img alt="Node.js" src="https://img.shields.io/badge/Node.js-%E2%89%A522.6-339933?style=flat-square" /></a>
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" /></a>
 </p>
@@ -43,7 +43,7 @@
 
 环境要求：
 
-- OpenCode 1.18.12 或更高版本
+- OpenCode 2.0.11（首个验收版本固定）
 - Node.js 22.6 或更高版本、npm
 - Python 3.10 或更高版本（仅 `gpt-reset-credits` 需要）
 
@@ -64,7 +64,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 [`docs/MERGE_EXISTING_CONFIG.md`](docs/MERGE_EXISTING_CONFIG.md)。
 
 > [!IMPORTANT]
-> 安装或更新后必须完全退出并重新启动 OpenCode；配置和插件不会热重载。
+> OpenCode v2 会重载受监视的配置与插件；未受监视的本地依赖变更后请重启服务。
 
 ## 更新
 
@@ -98,13 +98,13 @@ Set-ExecutionPolicy -Scope Process Bypass
 - OpenCode 配置：`~/.config/opencode/`
 - 会话数据库（只读）：`${XDG_DATA_HOME:-~/.local/share}/opencode/opencode.db`
 - 共享价格缓存：`~/.cache/opencode/opencode-quota/`
-- OpenAI/Codex 凭证：`~/.local/share/opencode/auth.json` 或 `~/.codex/auth.json`
+- OpenAI/Codex 凭证：优先由 v2 服务端 `integration.connection` 解析；旧 auth.json 仅兼容回退
 
 本包不包含、不提交 API key、OAuth token、cookie、会话数据库与账户数据；不要分享 auth 文件或未经检查的 `opencode debug config` 输出。
 
 ## 故障排查
 
-1. 确认已完全退出并重新启动 OpenCode。
+1. 确认 OpenCode 版本为 2.0.11，且使用 `cli.json` 而非旧 `tui.json(c)`。
 2. 运行 `/quota_status` 检查 Provider、价格快照来源与未定价模型。
 3. Token 报告为空时，先启动 OpenCode 生成 `opencode.db`，再运行一个有模型用量的会话。
 4. 常见症状与解决方案见 [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md)。
@@ -113,11 +113,12 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 - [OpenAI/ChatGPT 订阅 Token 记账说明](docs/openai-subscription-token-accounting.md)
 - [已有配置合并指南](docs/MERGE_EXISTING_CONFIG.md)
+- [OpenCode 2.0.11 人工验收记录](docs/V2_MANUAL_ACCEPTANCE.md)
 - [第三方来源与许可证](THIRD_PARTY_NOTICES.md)
 
 ## 卸载
 
-从 `opencode.json(c)` 和 `tui.jsonc` 的插件列表删除本包条目，删除：
+从 `opencode.json(c)` 和 `cli.json` 的 `plugins` 列表删除本包条目，删除：
 
 ```text
 ~/.config/opencode/opencode-zh-bundle/

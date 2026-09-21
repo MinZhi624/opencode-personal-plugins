@@ -16,6 +16,8 @@ await Promise.all([
   copy("config"),
   copy("plugins/opencode-quota-zh/dist", "plugins/opencode-quota-zh/dist"),
   copy("plugins/opencode-quota-zh/package.json", "plugins/opencode-quota-zh/package.json"),
+  copy("plugins/opencode-quota-zh/index.ts", "plugins/opencode-quota-zh/index.ts"),
+  copy("plugins/opencode-quota-zh/tui.ts", "plugins/opencode-quota-zh/tui.ts"),
   copy("plugins/opencode-quota-zh/LICENSE", "plugins/opencode-quota-zh/LICENSE"),
   copy("plugins/opencode-quota-zh/README.zh.md", "plugins/opencode-quota-zh/README.zh.md"),
   copy("plugins/opencode-enhanced-sidebar-zh"),
@@ -27,6 +29,7 @@ await copy("plugins/opencode-matt-workshop/dist", "plugins/opencode-matt-worksho
 await copy("plugins/opencode-matt-workshop/skills", "plugins/opencode-matt-workshop/skills")
 await copy("plugins/opencode-matt-workshop/licenses", "plugins/opencode-matt-workshop/licenses")
 await copy("plugins/opencode-matt-workshop/package.json", "plugins/opencode-matt-workshop/package.json")
+await copy("plugins/opencode-matt-workshop/index.ts", "plugins/opencode-matt-workshop/index.ts")
 await copy("plugins/opencode-matt-workshop/README.md", "plugins/opencode-matt-workshop/README.md")
 await copy("plugins/opencode-matt-workshop/skill-manifest.json", "plugins/opencode-matt-workshop/skill-manifest.json")
 
@@ -36,13 +39,13 @@ async function list(directory) {
 }
 const staged = (await list(destination)).map((path) => relative(destination, path).replaceAll("\\", "/"))
 const forbidden = staged.filter((path) => /plugins\/opencode-matt-workshop\/(vendor|src|docs\/adr|docs\/implementation)(\/|$)|(^|\/)\.agents(\/|$)|(^|\/)CONTEXT\.md$|sync-matt-skills|skill-policy|upstream-provenance/.test(path))
-const quotaZhAllowed = /^plugins\/opencode-quota-zh\/(dist\/|package\.json$|LICENSE$|README\.zh\.md$)/
+const quotaZhAllowed = /^plugins\/opencode-quota-zh\/(dist\/|index\.ts$|tui\.ts$|package\.json$|LICENSE$|README\.zh\.md$)/
 for (const path of staged) {
   if (path.startsWith("plugins/opencode-quota-zh/") && !quotaZhAllowed.test(path)) {
     forbidden.push(`non-runtime quota-zh file staged: ${path}`)
   }
 }
-const required = ["plugins/opencode-matt-workshop/dist/src/index.js", "plugins/opencode-matt-workshop/skill-manifest.json", "plugins/opencode-matt-workshop/skills/ask-matt/SKILL.md", "plugins/opencode-matt-workshop/skills/wizard/template.sh", "plugins/opencode-matt-workshop/licenses/MATT-POCOCK-SKILLS-LICENSE", "plugins/opencode-quota-zh/dist/index.js", "plugins/opencode-quota-zh/dist/tui.tsx", "plugins/opencode-quota-zh/package.json"]
+const required = ["config/opencode.jsonc", "config/cli.json", "plugins/opencode-matt-workshop/index.ts", "plugins/opencode-matt-workshop/dist/src/index.js", "plugins/opencode-matt-workshop/skill-manifest.json", "plugins/opencode-matt-workshop/skills/ask-matt/SKILL.md", "plugins/opencode-matt-workshop/skills/wizard/template.sh", "plugins/opencode-matt-workshop/licenses/MATT-POCOCK-SKILLS-LICENSE", "plugins/opencode-quota-zh/index.ts", "plugins/opencode-quota-zh/tui.ts", "plugins/opencode-quota-zh/dist/index.js", "plugins/opencode-quota-zh/dist/tui-v2.tsx", "plugins/opencode-quota-zh/package.json"]
 for (const path of required) if (!staged.includes(path)) forbidden.push(`missing required runtime file: ${path}`)
 if (forbidden.length) throw new Error(`Runtime distribution isolation failed:\n${forbidden.join("\n")}`)
 console.log(`Runtime staging passed (${staged.length} files): ${destination}`)
