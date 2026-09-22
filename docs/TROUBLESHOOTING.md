@@ -2,7 +2,7 @@
 
 ## 版本或配置不兼容
 
-首个验收版本固定为 OpenCode 2.0.11。确认 opencode --version，并检查：
+本包固定支持 OpenCode 2.0.12。确认 opencode --version，并检查：
 
 - 服务端配置为 ~/.config/opencode/opencode.json(c)，键名为 plugins。
 - 终端配置为 ~/.config/opencode/cli.json，schema 为 https://opencode.ai/v2/cli.json。
@@ -23,6 +23,12 @@ npm audit fix --force。
 
 “未定价”表示某条实际模型缺少 models.dev 价格，不代表免费。分页失败或历史取数不完整
 时，插件不会把部分数据显示为完整总额。OAuth 产生的原生费用为零也不改变 API 标价估算。
+
+行内状态的口径：
+
+- 「加载失败」= 首轮取数失败且没有任何已聚合用量，不是“本会话没有用量”；
+- 「（不完整）」= 已显示金额但历史未取全，不能当作完整总额；
+- 完全没有费用行 = 取数成功且会话没有带 Token 的 assistant 消息。
 
 ## 子代理费用或状态缺失
 

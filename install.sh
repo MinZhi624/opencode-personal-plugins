@@ -63,8 +63,8 @@ if (!match) {
   process.exit(1)
 }
 const current = match.slice(1).map(Number).join(".")
-if (current !== "2.0.11") {
-  console.error(`首个验收版本固定为 OpenCode 2.0.11；当前为 ${current}。`)
+if (current !== "2.0.12") {
+  console.error(`本包支持的 OpenCode 版本固定为 2.0.12；当前为 ${current}。`)
   process.exit(1)
 }
 NODE
@@ -155,4 +155,4 @@ if [ "$NEEDS_MERGE" -eq 1 ]; then
 else
   echo "配置已就绪。"
 fi
-echo "安装完成后请启动 OpenCode 2.0.11 进行人工验收；受监视的插件和配置支持 v2 重载。"
+echo "安装完成后请启动 OpenCode 2.0.12 进行人工验收；受监视的插件和配置支持 v2 重载。"

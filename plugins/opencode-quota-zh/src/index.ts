@@ -7,67 +7,64 @@
  */
 
 import { Plugin } from "@opencode/plugin";
-import { queryDeepSeekBalance } from "./lib/deepseek.js";
-import { queryOpenAIQuota } from "./lib/openai.js";
+import { buildQuotaSidebarCards } from "./lib/quota-sidebar-cards.js";
+import { collectQuotaRenderData } from "./lib/quota-render-data.js";
+import {
+  createQuotaRuntimeRequestContext,
+  resolveQuotaRuntimeContext,
+} from "./lib/quota-runtime-context.js";
 import { quotaRpc } from "./quota-rpc.js";
 
-function resetText(resetTimeIso?: string): string {
-  if (!resetTimeIso) return "";
-  const remaining = Date.parse(resetTimeIso) - Date.now();
-  if (!Number.isFinite(remaining) || remaining <= 0) return " · 即将重置";
-  const minutes = Math.ceil(remaining / 60_000);
-  const days = Math.floor(minutes / 1440);
-  const hours = Math.floor((minutes % 1440) / 60);
-  const mins = minutes % 60;
-  return ` · 重置 ${days ? `${days}天` : ""}${hours ? `${hours}小时` : ""}${mins}分`;
+// The upstream core only needs provider enumeration and the active config;
+// both are available from the V2 server context domains.
+function createQuotaCoreClient(context: Plugin.Context) {
+  return {
+    config: {
+      providers: async () => {
+        const response = await context.provider.list();
+        return { data: { providers: response.data.map((provider) => ({ id: provider.id })) } };
+      },
+      get: async () => ({ data: {} }),
+    },
+  };
 }
 
-// Quota queries and rendering are registered by the CLI plugin. This server
-// entry reserves the bundle ID for server-only credentials and alerts.
+// Quota computation runs on the server through the shared upstream core; the
+// TUI receives structured sidebar cards and only renders them.
 export default Plugin.define({
   id: "opencode-quota-zh",
   async setup(context) {
     await context.rpc.register(quotaRpc, {
-      async snapshot() {
-        const lines: string[] = [];
-        let providerCount = 0;
-
-        for (const integrationID of ["openai", "chatgpt", "codex"]) {
-          const connection = await context.integration.connection.active(integrationID);
-          if (!connection) continue;
-          const credential = await context.integration.connection.resolve(connection);
-          if (credential?.type !== "oauth") continue;
-          const result = await queryOpenAIQuota({ credential });
-          if (result?.success) {
-            providerCount++;
-            lines.push(result.label);
-            for (const [label, window] of [
-              ["5h", result.windows.hourly],
-              ["Weekly", result.windows.weekly],
-              ["Monthly", result.windows.monthly],
-              ["Code Review", result.windows.codeReview],
-            ] as const) {
-              if (window) lines.push(`${label}: ${Math.round(window.percentRemaining)}% 剩余${resetText(window.resetTimeIso)}`);
-            }
-          }
-          break;
+      async snapshot(input) {
+        const runtime = await resolveQuotaRuntimeContext({
+          client: createQuotaCoreClient(context),
+          roots: {
+            activeDirectory: context.location.directory,
+            fallbackDirectory: context.location.directory,
+          },
+          sessionID: input.sessionID,
+          resolveSessionMeta: async (sessionID) => {
+            const session = await context.session.get({ sessionID });
+            const model = session?.model;
+            return model ? { modelID: model.id, providerID: model.providerID } : {};
+          },
+          includeSessionMeta: (config) => config.onlyCurrentModel,
+        });
+        if (!runtime.config.enabled || !runtime.config.tuiSidebarPanel.enabled) {
+          return { cards: [] };
         }
-
-        const deepseekConnection = await context.integration.connection.active("deepseek");
-        if (deepseekConnection) {
-          const credential = await context.integration.connection.resolve(deepseekConnection);
-          if (credential?.type === "key") {
-            const result = await queryDeepSeekBalance({ apiKey: credential.key });
-            if (result?.success) {
-              providerCount++;
-              lines.push("DeepSeek");
-              for (const balance of result.balanceInfos) {
-                if (balance.totalBalance !== undefined) lines.push(`余额: ${balance.currency} ${balance.totalBalance}`);
-              }
-            }
-          }
-        }
-        return { lines, providerCount };
+        const result = await collectQuotaRenderData({
+          client: runtime.client,
+          resolveRuntimeProviderIds: runtime.resolveRuntimeProviderIds,
+          config: runtime.config,
+          configMeta: runtime.configMeta,
+          request: createQuotaRuntimeRequestContext(runtime),
+          surfaceExplicitProviderIssues: true,
+          formatStyle: "allWindows",
+          providers: runtime.providers,
+          includeAllWindowsData: true,
+        });
+        return { cards: buildQuotaSidebarCards(result.allWindowsData ?? result.data) };
       },
     });
   },

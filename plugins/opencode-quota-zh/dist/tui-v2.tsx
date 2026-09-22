@@ -3,58 +3,157 @@
 import "@opentui/solid/preload"
 import { Plugin } from "@opencode/plugin/tui"
 import type { Context } from "@opencode/plugin/tui/context"
-import { createSignal, onCleanup, Show } from "solid-js"
+import { createSignal, For, onCleanup, Show } from "solid-js"
 import { sanitizeDisplayText } from "./lib/display-sanitize.js"
 import {
   buildQuotaDialogCommandOutput,
   QUOTA_DIALOG_COMMANDS,
   type QuotaDialogCommandId,
 } from "./lib/quota-dialog-commands.js"
-import { collectQuotaRenderData } from "./lib/quota-render-data.js"
-import {
-  createQuotaRuntimeRequestContext,
-  resolveQuotaRuntimeContext,
-  type QuotaSessionModelContext,
-} from "./lib/quota-runtime-context.js"
-import { buildSidebarQuotaPanelLines } from "./lib/tui-sidebar-format.js"
+import type { QuotaSidebarCard, QuotaSidebarRow } from "./lib/quota-sidebar-cards.js"
+import type { QuotaSessionModelContext } from "./lib/quota-runtime-context.js"
 import { quotaRpc } from "./quota-rpc.js"
 
-type QuotaView = { lines: string[]; providerCount: number }
+type QuotaView = { cards: QuotaSidebarCard[] }
+
+const BAR_CELLS = 20
 
 function sessionModel(context: Context, sessionID: string): QuotaSessionModelContext {
   const model = context.data.session.get(sessionID)?.model
   return model ? { modelID: model.id, providerID: model.providerID } : {}
 }
 
-async function loadQuota(context: Context, sessionID: string): Promise<QuotaView | undefined> {
-  try {
-    return await context.client.rpc(quotaRpc).snapshot({})
-  } catch {
-    // Older/local-only setups can still use the legacy file-backed providers.
-  }
-  const runtime = await resolveQuotaRuntimeContext({
-    client: context.client as never,
-    roots: { fallbackDirectory: context.location?.directory ?? process.cwd() },
-    sessionID,
-    sessionMeta: sessionModel(context, sessionID),
-    includeSessionMeta: (config) => config.onlyCurrentModel,
+// Quota data always comes from the V2 server RPC; a failed query surfaces as
+// the panel error state instead of falling back to a local V1-style path.
+async function loadQuota(context: Context, sessionID: string): Promise<QuotaView> {
+  return await context.client.rpc(quotaRpc).snapshot({ sessionID })
+}
+
+function clampPercent(value: number): number {
+  if (!Number.isFinite(value)) return 0
+  return Math.max(0, Math.min(100, Math.round(value)))
+}
+
+function percentColor(context: Context, percent: number): string {
+  const feedback = context.theme.text.feedback
+  if (percent >= 50) return feedback.success?.base ?? "#00C853"
+  if (percent >= 25) return feedback.warning?.base ?? "#F9A825"
+  return feedback.error?.base ?? "#D32F2F"
+}
+
+function QuotaBar(props: { context: Context; percent: number }) {
+  const filled = Math.max(0, Math.min(BAR_CELLS, Math.round(props.percent / 5)))
+  return (
+    <box flexDirection="row">
+      <text fg={percentColor(props.context, props.percent)}>{"█".repeat(filled)}</text>
+      <text fg={props.context.theme.text.muted}>{"░".repeat(BAR_CELLS - filled)}</text>
+    </box>
+  )
+}
+
+function formatDuration(ms: number): string {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000))
+  const days = Math.floor(totalSeconds / 86400)
+  const hours = Math.floor((totalSeconds % 86400) / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+
+  if (days > 0) return `${days}天${hours}小时`
+  if (hours > 0) return `${hours}小时${minutes}分钟`
+  if (minutes > 0) return `${minutes}分钟`
+  return `${totalSeconds % 60}秒`
+}
+
+function formatReset(resetTimeIso?: string): string {
+  if (!resetTimeIso) return ""
+  const reset = new Date(resetTimeIso)
+  if (Number.isNaN(reset.getTime())) return ""
+  const diff = reset.getTime() - Date.now()
+  if (diff <= 0) return "已重置"
+
+  const absolute = reset.toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
   })
-  if (!runtime.config.enabled || !runtime.config.tuiSidebarPanel.enabled) return
-  const result = await collectQuotaRenderData({
-    client: runtime.client,
-    resolveRuntimeProviderIds: runtime.resolveRuntimeProviderIds,
-    config: runtime.config,
-    configMeta: runtime.configMeta,
-    request: createQuotaRuntimeRequestContext(runtime),
-    surfaceExplicitProviderIssues: true,
-    formatStyle: runtime.config.tuiSidebarPanel.formatStyle ?? runtime.config.formatStyle,
-    providers: runtime.providers,
-  })
-  if (!result.data) return { lines: [], providerCount: result.active.length }
-  return {
-    lines: buildSidebarQuotaPanelLines({ data: result.data, config: runtime.config }),
-    providerCount: result.active.length,
+  return `剩余 ${formatDuration(diff)}（${absolute}）`
+}
+
+function QuotaRow(props: { context: Context; row: QuotaSidebarRow }) {
+  const theme = () => props.context.theme
+  if (props.row.kind === "percent") {
+    const percent = clampPercent(props.row.percentRemaining)
+    const used = 100 - percent
+    return (
+      <box flexDirection="column">
+        <box flexDirection="row" justifyContent="space-between">
+          <text fg={theme().text.base}>{props.row.label}</text>
+          <text fg={theme().text.muted}>{formatReset(props.row.resetTimeIso)}</text>
+        </box>
+        <QuotaBar context={props.context} percent={percent} />
+        <box flexDirection="row" justifyContent="flex-end">
+          <text fg={theme().text.muted}>
+            {props.row.right ? `${props.row.right} · ` : ""}
+            {used}% 已用 /{" "}
+          </text>
+          <text fg={percentColor(props.context, percent)}>{percent}% 剩余</text>
+        </box>
+      </box>
+    )
   }
+  return (
+    <box flexDirection="row" justifyContent="space-between">
+      <text fg={theme().text.muted}>{props.row.label}</text>
+      <text fg={theme().text.base}>{props.row.value || props.row.right || "—"}</text>
+    </box>
+  )
+}
+
+function QuotaCard(props: { context: Context; card: QuotaSidebarCard }) {
+  const theme = () => props.context.theme
+  return (
+    <box flexDirection="column">
+      <text fg={theme().text.base}>
+        <b>{props.card.label}</b>
+      </text>
+      <Show when={props.card.error}>
+        <text fg={theme().text.feedback.error.base}>错误：{props.card.error}</text>
+      </Show>
+      <For each={props.card.rows}>{(row) => <QuotaRow context={props.context} row={row} />}</For>
+    </box>
+  )
+}
+
+function QuotaOverview(props: { context: Context; cards: QuotaSidebarCard[] }) {
+  const theme = () => props.context.theme
+  return (
+    <box flexDirection="column">
+      <text fg={theme().text.muted}>概述</text>
+      <For each={props.cards}>
+        {(card) => {
+          const percents = card.rows
+            .filter((row): row is Extract<QuotaSidebarRow, { kind: "percent" }> => row.kind === "percent")
+            .map((row) => `${clampPercent(row.percentRemaining)}%`)
+          const values = card.rows
+            .filter((row) => row.kind === "value")
+            .map((row) => (row.kind === "value" ? row.value : ""))
+            .filter(Boolean)
+          const summary =
+            percents.length > 0
+              ? `${percents.join(" / ")} 剩余`
+              : values.length > 0
+                ? values.join(" · ")
+                : "—"
+          return (
+            <box flexDirection="row" justifyContent="space-between">
+              <text fg={theme().text.muted}>{card.label}</text>
+              <text fg={theme().text.base}>{card.error ? "错误" : summary}</text>
+            </box>
+          )
+        }}
+      </For>
+    </box>
+  )
 }
 
 export function QuotaPanel(props: { context: Context; sessionID: string }) {
@@ -62,7 +161,7 @@ export function QuotaPanel(props: { context: Context; sessionID: string }) {
     initial: { version: 2, open: true },
   })
   const [state, setState] = createSignal<"loading" | "ready" | "error">("loading")
-  const [quota, setQuota] = createSignal<QuotaView>({ lines: [], providerCount: 0 })
+  const [cards, setCards] = createSignal<QuotaSidebarCard[]>([])
   let disposed = false
   let running = false
   let queued = false
@@ -77,7 +176,7 @@ export function QuotaPanel(props: { context: Context; sessionID: string }) {
     void loadQuota(props.context, props.sessionID)
       .then((result) => {
         if (disposed) return
-        setQuota(result ?? { lines: [], providerCount: 0 })
+        setCards(result.cards)
         setState("ready")
       })
       .catch(() => !disposed && setState("error"))
@@ -108,46 +207,44 @@ export function QuotaPanel(props: { context: Context; sessionID: string }) {
     unsubs.forEach((unsubscribe) => unsubscribe())
   })
 
-  const body = () => quota().lines
+  const theme = () => props.context.theme
   return (
     <box flexDirection="column">
       <box flexDirection="row" gap={1} onMouseDown={() => void updateSettings((draft) => { draft.open = !draft.open })}>
-        <text fg={props.context.theme.text.action.primary.base}>{settings.open ? "▼" : "▶"}</text>
-        <text fg={props.context.theme.text.action.primary.base}><b>额度</b></text>
-        <Show when={!settings.open && quota().providerCount > 0}>
-          <text fg={props.context.theme.text.muted}>（{quota().providerCount} 个提供商）</text>
+        <text fg={theme().text.action.primary.base}>{settings.open ? "▼" : "▶"}</text>
+        <text fg={theme().text.action.primary.base}><b>额度</b></text>
+        <Show when={!settings.open && cards().length > 0}>
+          <text fg={theme().text.muted}>（{cards().length} 个提供商）</text>
         </Show>
       </box>
-      <Show when={settings.open}>
+      <Show when={!settings.open}>
         <Show when={state() === "loading"}>
-          <text fg={props.context.theme.text.muted}>加载中…</text>
+          <text fg={theme().text.muted}>加载中…</text>
         </Show>
         <Show when={state() === "error"}>
-          <text fg={props.context.theme.text.feedback.error.base}>额度查询失败</text>
+          <text fg={theme().text.feedback.error.base}>额度查询失败</text>
         </Show>
-        <Show when={state() === "ready" && body().length === 0}>
-          <text fg={props.context.theme.text.muted}>暂无额度数据</text>
+        <Show when={state() === "ready" && cards().length === 0}>
+          <text fg={theme().text.muted}>暂无额度数据</text>
         </Show>
-        <Show when={state() === "ready" && body().length > 0}>
-          {body().map((line) => {
-            const percent = Number(line.match(/(\d+)%\s*剩余/)?.[1])
-            const quotaLine = line.match(/^([^:]+:)\s*(\d+%\s*剩余)(.*)$/)
-            return <box flexDirection="column">
-              <Show when={quotaLine} fallback={<text fg={props.context.theme.text.base} wrapMode="none">{line || " "}</text>}>
-                <box flexDirection="row" gap={1}>
-                  <text fg={props.context.theme.text.muted}>{quotaLine![1]}</text>
-                  <text fg={props.context.theme.text.feedback.success.base}>{quotaLine![2]}</text>
-                  <text fg={props.context.theme.text.muted}>{quotaLine![3]}</text>
-                </box>
-              </Show>
-              <Show when={Number.isFinite(percent)}>
-                <box flexDirection="row">
-                  <text fg={props.context.theme.text.feedback.success.base}>{"█".repeat(Math.round(percent / 5))}</text>
-                  <text fg={props.context.theme.text.muted}>{"░".repeat(20 - Math.round(percent / 5))}</text>
-                </box>
-              </Show>
-            </box>
-          })}
+        <Show when={state() === "ready" && cards().length > 0}>
+          <QuotaOverview context={props.context} cards={cards()} />
+        </Show>
+      </Show>
+      <Show when={settings.open}>
+        <Show when={state() === "loading"}>
+          <text fg={theme().text.muted}>加载中…</text>
+        </Show>
+        <Show when={state() === "error"}>
+          <text fg={theme().text.feedback.error.base}>额度查询失败</text>
+        </Show>
+        <Show when={state() === "ready" && cards().length === 0}>
+          <text fg={theme().text.muted}>暂无额度数据</text>
+        </Show>
+        <Show when={state() === "ready" && cards().length > 0}>
+          <box flexDirection="column" gap={1}>
+            <For each={cards()}>{(card) => <QuotaCard context={props.context} card={card} />}</For>
+          </box>
         </Show>
       </Show>
     </box>

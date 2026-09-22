@@ -4,7 +4,15 @@ import "@opentui/solid/preload"
 import { Plugin } from "@opencode/plugin/tui"
 import type { Context } from "@opencode/plugin/tui/context"
 import { createMemo, createSignal, onCleanup, Show } from "solid-js"
-import { formatCostUsd } from "./metrics/token-cost.ts"
+import {
+  cacheHitPercent,
+  contextBarCells,
+  contextBarTier,
+  contextUsagePercent,
+  CONTEXT_BAR_CELLS,
+  sumContextTokens,
+} from "./metrics/session-overview-view.ts"
+import { createSessionCostSummary } from "./metrics/session-cost-summary.ts"
 import { formatTps } from "./metrics/step-tps.ts"
 import { createV2Metrics } from "./v2-runtime.ts"
 
@@ -13,9 +21,9 @@ export function SessionOverview(props: { context: Context; sessionID: string; ru
   const [settings, updateSettings] = props.context.storage.store("session-overview-zh-v2", {
     initial: { version: 2, open: true },
   })
-  const timer = setInterval(() => setTick((value) => value + 1), 1000)
+  const timer = setInterval(() => setTick((value) => value + 1), 500)
   const unsubscribe = props.runtime.metrics.subscribe(props.sessionID, () => setTick((value) => value + 1))
-  props.runtime.metrics.refresh(props.sessionID, { delayMs: 0 })
+  const costs = createSessionCostSummary(props.context, props.runtime, props.sessionID, tick)
   onCleanup(() => {
     clearInterval(timer)
     unsubscribe()
@@ -41,16 +49,15 @@ export function SessionOverview(props: { context: Context; sessionID: string; ru
   })
   const contextUsed = createMemo(() => {
     const tokens = last()?.tokens
-    return tokens ? tokens.input + tokens.output + tokens.reasoning + tokens.cache.read + tokens.cache.write : undefined
+    return tokens ? sumContextTokens(tokens) : undefined
   })
-  const percent = createMemo(() => contextLimit() && contextUsed() !== undefined ? Math.round(contextUsed()! / contextLimit()! * 100) : undefined)
+  const percent = createMemo(() => contextUsagePercent(contextUsed(), contextLimit()))
   const cacheHit = createMemo(() => {
     const totals = assistants().reduce(
       (sum, message) => ({ input: sum.input + message.tokens.input, read: sum.read + message.tokens.cache.read, write: sum.write + message.tokens.cache.write }),
       { input: 0, read: 0, write: 0 },
     )
-    const denominator = totals.input + totals.read + totals.write
-    return denominator ? Math.round(totals.read / denominator * 100) : undefined
+    return cacheHitPercent(totals)
   })
   const tps = createMemo(() => {
     void tick()
@@ -59,12 +66,13 @@ export function SessionOverview(props: { context: Context; sessionID: string; ru
     const latest = props.runtime.tps.latest(props.sessionID)
     return latest ? `${formatTps(latest.tps)} t/s` : "—"
   })
-  const cost = createMemo(() => {
-    void tick()
-    const result = props.runtime.metrics.get(props.sessionID)
-    return result?.complete && result.hasUsage ? formatCostUsd(result.usd, result) : undefined
-  })
   const theme = props.context.theme
+  const contextBarColor = createMemo(() => {
+    const tier = contextBarTier(percent())
+    if (tier === "danger") return theme.text.feedback.error.base
+    if (tier === "warning") return theme.text.feedback.warning.base
+    return theme.hue?.interactive?.[300] ?? theme.text.action.primary.base
+  })
   return (
     <box flexDirection="column">
       <box flexDirection="row" gap={1} onMouseDown={() => void updateSettings((draft) => { draft.open = !draft.open })}>
@@ -72,12 +80,14 @@ export function SessionOverview(props: { context: Context; sessionID: string; ru
       </box>
       <Show when={settings.open}>
         <Show when={percent() !== undefined}>
-          <box flexDirection="row" justifyContent="space-between"><text fg={theme.text.muted}>使用率</text><text fg={theme.text.feedback.success.base}>{contextUsed()!.toLocaleString()} / {contextLimit()!.toLocaleString()} · {percent()}%</text></box>
-          <box flexDirection="row"><text fg={theme.text.action.primary.base}>{"█".repeat(Math.min(20, Math.round(percent()! / 5)))}</text><text fg={theme.text.muted}>{"░".repeat(Math.max(0, 20 - Math.round(percent()! / 5)))}</text></box>
+          <box flexDirection="row" justifyContent="space-between"><text fg={theme.text.muted}>使用率</text><text fg={theme.text.base}>{contextUsed()!.toLocaleString()} / {contextLimit()!.toLocaleString()} · {percent()}%</text></box>
+          <box flexDirection="row"><text fg={contextBarColor()}>{"█".repeat(contextBarCells(percent()))}</text><text fg={theme.text.muted}>{"░".repeat(CONTEXT_BAR_CELLS - contextBarCells(percent()))}</text></box>
         </Show>
-        <Show when={cacheHit() !== undefined}><box flexDirection="row" justifyContent="space-between"><text fg={theme.text.muted}>缓存命中</text><text fg={theme.text.feedback.success.base}>{cacheHit()}%</text></box></Show>
-        <box flexDirection="row" justifyContent="space-between"><text fg={theme.text.muted}>TPS</text><text fg={tps().startsWith("~") ? theme.text.feedback.warning.base : theme.text.feedback.success.base}>{tps()}</text></box>
-        <Show when={cost()}><box flexDirection="row" justifyContent="space-between"><text fg={theme.text.muted}>API 标价估算（本会话）</text><text fg={theme.text.action.primary.base}>{cost()}</text></box></Show>
+        <Show when={cacheHit() !== undefined}><box flexDirection="row" justifyContent="space-between"><text fg={theme.text.muted}>缓存命中</text><text fg={theme.text.base}>{cacheHit()}%</text></box></Show>
+        <box flexDirection="row" justifyContent="space-between"><text fg={theme.text.muted}>TPS</text><text fg={tps().startsWith("~") ? theme.text.muted : theme.text.base}>{tps()}</text></box>
+        <Show when={costs.session()}><box flexDirection="row" justifyContent="space-between"><text fg={theme.text.muted}>花费（本会话）</text><text fg={theme.text.base}>{costs.session()}</text></box></Show>
+        <Show when={costs.subagent()}><box flexDirection="row" justifyContent="space-between"><text fg={theme.text.muted}>花费（子代理）</text><text fg={theme.text.action.primary.base}>{costs.subagent()}</text></box></Show>
+        <Show when={costs.tree()}><box flexDirection="row" justifyContent="space-between"><text fg={theme.text.muted}>花费（任务树合计）</text><text fg={theme.text.action.primary.base}>{costs.tree()}</text></box></Show>
       </Show>
     </box>
   )

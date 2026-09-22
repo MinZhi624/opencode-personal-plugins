@@ -1,15 +1,15 @@
 # AGENTS.md
 
-Verified against HEAD `5458333` (2026-09-15) + working tree. Re-verify entry points and config wiring before relying on them after any refactor commit.
+Verified against HEAD `468951f` (2026-09-21) + working tree. Re-verify entry points and config wiring before relying on them after any refactor commit.
 
 ## OVERVIEW
 
-Chinese-localized OpenCode plugin bundle (`opencode-zh-bundle` v2.0.0), 4 independent plugins under `plugins/`, installed to `~/.config/opencode/opencode-zh-bundle/` by `install.sh` / `install.ps1`. Node >= 22.6, `type: module`, one shared root `node_modules`. **OpenCode is pinned to exactly 2.0.11** — the installer refuses any other version.
+Chinese-localized OpenCode plugin bundle (`opencode-zh-bundle` v2.0.0), 4 independent plugins under `plugins/`, installed to `~/.config/opencode/opencode-zh-bundle/` by `install.sh` / `install.ps1`. Node >= 22.6, `type: module`, one shared root `node_modules`. **OpenCode is pinned to exactly 2.0.12** — the installer refuses any other version.
 
 ## WIRING (get this wrong and nothing loads)
 
 - Server plugins are loaded from `~/.config/opencode/opencode.json(c)` key `plugins`; TUI plugins from `~/.config/opencode/cli.json` key `plugins` (schema `https://opencode.ai/v2/cli.json`). **`tui.json(c)` is dead — never re-add it.**
-- Config points at the plugin **directory**, never at an entry file (2.0.11 rejects entry-file paths). The package's `exports["./tui"]` picks the TUI entry.
+- Config points at the plugin **directory**, never at an entry file (2.0.12 rejects entry-file paths). The package's `exports["./tui"]` picks the TUI entry.
 - Templates: `config/opencode.jsonc`, `config/cli.json`. v2 keys are plural (`plugins`/`agents`/`permissions`); permission actions are `shell`/`subagent`, not v1 `bash`/`task`.
 
 | Plugin | Server entry | TUI entry | Build |
