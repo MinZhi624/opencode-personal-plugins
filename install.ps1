@@ -46,10 +46,10 @@ const raw = process.argv[1] ?? ""
 const match = raw.match(/(\d+)\.(\d+)\.(\d+)/)
 if (!match) process.exit(2)
 const current = match.slice(1).map(Number).join(".")
-process.exit(current === "2.0.11" ? 0 : 1)
+process.exit(current === "2.0.12" ? 0 : 1)
 '@
 & node -e $OpenCodeVersionCheck $OpenCodeVersion
-if ($LASTEXITCODE -eq 1) { throw "首个验收版本固定为 OpenCode 2.0.11；当前为 $OpenCodeVersion。" }
+if ($LASTEXITCODE -eq 1) { throw "本包支持的 OpenCode 版本固定为 2.0.12；当前为 $OpenCodeVersion。" }
 if ($LASTEXITCODE -ne 0) { throw "无法识别 OpenCode 版本：$OpenCodeVersion" }
 
 Write-Host "OpenCode：$OpenCodeVersion"
@@ -146,4 +146,4 @@ if ($script:NeedsMerge) {
 } else {
   Write-Host "配置已就绪。"
 }
-Write-Host "安装完成后请启动 OpenCode 2.0.11 进行人工验收；受监视的插件和配置支持 v2 重载。"
+Write-Host "安装完成后请启动 OpenCode 2.0.12 进行人工验收；受监视的插件和配置支持 v2 重载。"

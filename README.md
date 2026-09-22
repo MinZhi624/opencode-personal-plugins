@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="#版本记录"><img alt="版本" src="https://img.shields.io/badge/版本-v1.0.1-blue?style=flat-square" /></a>
-  <a href="https://opencode.ai/v2/docs/"><img alt="OpenCode" src="https://img.shields.io/badge/OpenCode-2.0.11-blue?style=flat-square" /></a>
+  <a href="https://opencode.ai/v2/docs/"><img alt="OpenCode" src="https://img.shields.io/badge/OpenCode-2.0.12-blue?style=flat-square" /></a>
   <a href="https://nodejs.org/"><img alt="Node.js" src="https://img.shields.io/badge/Node.js-%E2%89%A522.6-339933?style=flat-square" /></a>
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" /></a>
 </p>
@@ -43,7 +43,7 @@
 
 环境要求：
 
-- OpenCode 2.0.11（首个验收版本固定）
+- OpenCode 2.0.12（固定支持版本）
 - Node.js 22.6 或更高版本、npm
 - Python 3.10 或更高版本（仅 `gpt-reset-credits` 需要）
 
@@ -104,7 +104,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 ## 故障排查
 
-1. 确认 OpenCode 版本为 2.0.11，且使用 `cli.json` 而非旧 `tui.json(c)`。
+1. 确认 OpenCode 版本为 2.0.12，且使用 `cli.json` 而非旧 `tui.json(c)`。
 2. 运行 `/quota_status` 检查 Provider、价格快照来源与未定价模型。
 3. Token 报告为空时，先启动 OpenCode 生成 `opencode.db`，再运行一个有模型用量的会话。
 4. 常见症状与解决方案见 [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md)。
@@ -113,7 +113,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 - [OpenAI/ChatGPT 订阅 Token 记账说明](docs/openai-subscription-token-accounting.md)
 - [已有配置合并指南](docs/MERGE_EXISTING_CONFIG.md)
-- [OpenCode 2.0.11 人工验收记录](docs/V2_MANUAL_ACCEPTANCE.md)
+- [OpenCode 2.0.12 人工验收记录](docs/V2_MANUAL_ACCEPTANCE.md)
 - [第三方来源与许可证](THIRD_PARTY_NOTICES.md)
 
 ## 卸载

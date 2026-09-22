@@ -6,7 +6,10 @@
       "package": "./opencode-zh-bundle/plugins/opencode-enhanced-sidebar-zh",
       "options": {
         "sessionOverview": true,
-        "subagents": true
+        "subagents": true,
+        "subagentsSortOrder": "desc",
+        "subagentsMaxEntries": 10,
+        "subagentsTtlDays": 3
       }
     }
   ]
