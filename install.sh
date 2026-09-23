@@ -55,19 +55,6 @@ fi
 }
 
 OPENCODE_VERSION="$(opencode --version 2>/dev/null || true)"
-node - "$OPENCODE_VERSION" <<'NODE'
-const raw = process.argv[2] ?? ""
-const match = raw.match(/(\d+)\.(\d+)\.(\d+)/)
-if (!match) {
-  console.error(`无法识别 OpenCode 版本：${raw || "空"}`)
-  process.exit(1)
-}
-const current = match.slice(1).map(Number).join(".")
-if (current !== "2.0.12") {
-  console.error(`本包支持的 OpenCode 版本固定为 2.0.12；当前为 ${current}。`)
-  process.exit(1)
-}
-NODE
 echo "OpenCode：${OPENCODE_VERSION:-未知版本}"
 echo "Node.js：$(node --version)"
 echo "Python：$("$PYTHON_BIN" --version 2>&1)"
@@ -155,4 +142,4 @@ if [ "$NEEDS_MERGE" -eq 1 ]; then
 else
   echo "配置已就绪。"
 fi
-echo "安装完成后请启动 OpenCode 2.0.12 进行人工验收；受监视的插件和配置支持 v2 重载。"
+echo "安装完成后请启动 OpenCode 进行人工验收；受监视的插件和配置支持 v2 重载。"
