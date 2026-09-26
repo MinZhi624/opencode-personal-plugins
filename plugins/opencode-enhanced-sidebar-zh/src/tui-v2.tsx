@@ -3,6 +3,7 @@
 import "@opentui/solid/preload"
 import { Plugin } from "@opencode/plugin/tui"
 import { QuotaPanel } from "../../opencode-quota-zh/dist/tui-v2.tsx"
+import { SkillPanel } from "../../opencode-skill-panel/src/tui-v2.tsx"
 import { SessionOverview } from "./tui-v2-session-overview.tsx"
 import { createSubagentController, registerSubagentCommands, SubAgentPanel } from "./tui-v2-subagent-magazine.tsx"
 import { createV2Metrics } from "./v2-runtime.ts"
@@ -25,6 +26,9 @@ export default Plugin.define({
             : null}
           {context.options.subagents !== false
             ? <SubAgentPanel context={context} sessionID={props.sessionID} runtime={runtime} state={subagents.state} update={subagents.update} />
+            : null}
+          {context.options.skillPanel !== false
+            ? <SkillPanel context={context} sessionID={props.sessionID} maxUsed={context.options.skillPanelMaxUsed} defaultOpen={context.options.skillPanelDefaultOpen} />
             : null}
         </box>
         )
