@@ -1,0 +1,12 @@
+{
+  "name": "opencode-skill-panel",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./tui": {
+      "import": "./tui.ts"
+    }
+  },
+  "license": "MIT"
+}

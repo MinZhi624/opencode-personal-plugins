@@ -9,7 +9,10 @@
         "subagents": true,
         "subagentsSortOrder": "desc",
         "subagentsMaxEntries": 10,
-        "subagentsTtlDays": 3
+        "subagentsTtlDays": 3,
+        "skillPanel": true,
+        "skillPanelMaxUsed": 8,
+        "skillPanelDefaultOpen": true
       }
     }
   ]
