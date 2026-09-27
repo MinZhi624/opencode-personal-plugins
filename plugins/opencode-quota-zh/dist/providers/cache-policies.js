@@ -12,7 +12,7 @@ import { DEFAULT_MIMO_CONFIG_CACHE_MAX_AGE_MS, resolveMimoConfigCached, } from "
 import { DEFAULT_MINIMAX_AUTH_CACHE_MAX_AGE_MS, resolveMiniMaxAuthCached, resolveMiniMaxChinaAuthCached, } from "../lib/minimax-auth.js";
 import { resolveNanoGptApiKey } from "../lib/nanogpt-config.js";
 import { resolveOllamaCloudApiKey } from "../lib/ollama-cloud-config.js";
-import { resolveOpenAIAuthIdentity } from "../lib/openai.js";
+import { resolveOpenAIAuthIdentity, resolveOpenAIHostCredential } from "../lib/openai.js";
 import { DEFAULT_OPENCODE_GO_AUTH_CACHE_MAX_AGE_MS, resolveOpenCodeGoAuthCached, } from "../lib/opencode-go-auth.js";
 import { DEFAULT_OPENCODE_ZEN_CONFIG_CACHE_MAX_AGE_MS, resolveOpenCodeZenConfigCached, } from "../lib/opencode-zen-config.js";
 import { resolveOpenRouterAuthIdentity } from "../lib/openrouter.js";
@@ -83,7 +83,10 @@ export const PROVIDER_CACHE_POLICIES = {
     },
     openai: {
         kind: "resolved-auth",
-        resolveIdentity: () => resolveOpenAIAuthIdentity(),
+        resolveIdentity: async (ctx) => {
+            const hostAuth = await resolveOpenAIHostCredential(ctx.client.integration);
+            return resolveOpenAIAuthIdentity(hostAuth ? { auth: hostAuth } : {});
+        },
     },
     openrouter: {
         kind: "resolved-auth",

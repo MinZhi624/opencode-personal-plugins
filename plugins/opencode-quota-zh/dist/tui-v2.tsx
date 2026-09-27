@@ -11,7 +11,7 @@ import {
   type QuotaDialogCommandId,
 } from "./lib/quota-dialog-commands.js"
 import type { QuotaSidebarCard, QuotaSidebarRow } from "./lib/quota-sidebar-cards.js"
-import type { QuotaSessionModelContext } from "./lib/quota-runtime-context.js"
+import type { QuotaRuntimeClient, QuotaSessionModelContext } from "./lib/quota-runtime-context.js"
 import { quotaRpc } from "./quota-rpc.js"
 
 type QuotaView = { cards: QuotaSidebarCard[] }
@@ -21,6 +21,22 @@ const BAR_CELLS = 20
 function sessionModel(context: Context, sessionID: string): QuotaSessionModelContext {
   const model = context.data.session.get(sessionID)?.model
   return model ? { modelID: model.id, providerID: model.providerID } : {}
+}
+
+// The TUI process cannot resolve V2 integration credentials itself: the client
+// API deliberately never exposes them. Route resolution through the server RPC
+// so command/status output uses the same host-managed credential as the sidebar.
+function quotaRuntimeClient(context: Context): QuotaRuntimeClient {
+  const source = context.client as unknown as QuotaRuntimeClient
+  return {
+    config: source.config,
+    integration: {
+      resolveOAuthCredential: async (integrationID: string) => {
+        const result = await context.client.rpc(quotaRpc).resolveOAuthCredential({ integrationID })
+        return result.credential
+      },
+    },
+  }
 }
 
 // Quota data always comes from the V2 server RPC; a failed query surfaces as
@@ -358,7 +374,7 @@ async function runCommand(
     const result = await buildQuotaDialogCommandOutput({
       command,
       arguments: args,
-      client: context.client as never,
+      client: quotaRuntimeClient(context),
       roots: { fallbackDirectory: context.location?.directory ?? process.cwd() },
       sessionID,
       resolveSessionMeta: (id) => Promise.resolve(sessionModel(context, id)),

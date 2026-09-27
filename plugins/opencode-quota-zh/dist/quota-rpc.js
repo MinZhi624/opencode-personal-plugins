@@ -41,6 +41,20 @@ export const quotaRpc = Rpc.define({
                 suppressPartialErrors: z.boolean(),
             }),
         },
+        resolveOAuthCredential: {
+            input: z.object({
+                integrationID: z.string(),
+            }),
+            output: z.object({
+                credential: z
+                    .object({
+                    access: z.string(),
+                    refresh: z.string().optional(),
+                    expiresAt: z.number().optional(),
+                })
+                    .nullable(),
+            }),
+        },
     },
     events: {},
 });

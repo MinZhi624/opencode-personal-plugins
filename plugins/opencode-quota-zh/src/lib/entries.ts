@@ -357,11 +357,26 @@ export interface QuotaProviderMatchContext {
   currentProviderID?: string;
 }
 
+/** Host-managed OAuth credential (OpenCode V2 integration connection). */
+export interface HostOAuthCredential {
+  access: string;
+  refresh?: string;
+  expiresAt?: number;
+}
+
 export interface QuotaProviderContext {
   client: {
     config: {
       providers: () => Promise<{ data?: { providers: Array<{ id: string }> } }>;
       get: () => Promise<{ data?: { model?: string } }>;
+    };
+    /**
+     * Optional host integration-credential lookup (OpenCode V2). When present it
+     * is authoritative over legacy `auth.json` entries: the host owns token
+     * refresh, so callers must not reject its credential on local expiry alone.
+     */
+    integration?: {
+      resolveOAuthCredential: (integrationID: string) => Promise<HostOAuthCredential | null>;
     };
   };
   resolveRuntimeProviderIds: RuntimeProviderIdResolver;

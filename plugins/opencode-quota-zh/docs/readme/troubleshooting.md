@@ -99,8 +99,8 @@ Run `/quota_status` and check the OpenAI auth source and token status.
 
 | Symptom               | Fix                                                                                        |
 | --------------------- | ------------------------------------------------------------------------------------------ |
-| OpenAI quota missing  | Confirm OpenCode native OpenAI OAuth is present in `auth.json`.                            |
-| Token expired         | Re-run OpenCode's OpenAI auth flow.                                                        |
+| OpenAI quota missing  | Confirm an active OpenAI connection with `/connect` (or a legacy OAuth entry in `auth.json`). |
+| Token expired         | Re-run OpenCode's OpenAI auth flow. Quota prefers the V2 host connection, which owns token refresh; legacy `auth.json` entries are only a fallback and are still rejected locally when expired. |
 | Provider not detected | Confirm your OpenCode config uses the `openai` provider or a compatible OpenAI auth entry. |
 
 </details>

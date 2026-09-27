@@ -7,6 +7,7 @@
  */
 
 import { Plugin } from "@opencode/plugin";
+import type { HostOAuthCredential } from "./lib/entries.js";
 import { buildQuotaSidebarCards } from "./lib/quota-sidebar-cards.js";
 import { collectQuotaRenderData } from "./lib/quota-render-data.js";
 import {
@@ -17,6 +18,25 @@ import { quotaRpc } from "./quota-rpc.js";
 
 // The upstream core only needs provider enumeration and the active config;
 // both are available from the V2 server context domains.
+async function resolveHostOAuthCredential(
+  context: Plugin.Context,
+  integrationID: string,
+): Promise<HostOAuthCredential | null> {
+  try {
+    const connection = await context.integration.connection.active(integrationID);
+    if (!connection) return null;
+    const value = await context.integration.connection.resolve(connection);
+    if (!value || value.type !== "oauth" || !value.access) return null;
+    return {
+      access: value.access,
+      ...(value.refresh ? { refresh: value.refresh } : {}),
+      ...(typeof value.expires === "number" ? { expiresAt: value.expires } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
 function createQuotaCoreClient(context: Plugin.Context) {
   return {
     config: {
@@ -25,6 +45,13 @@ function createQuotaCoreClient(context: Plugin.Context) {
         return { data: { providers: response.data.map((provider) => ({ id: provider.id })) } };
       },
       get: async () => ({ data: {} }),
+    },
+    // OpenCode V2 keeps saved credentials in the host database and owns OAuth
+    // token refresh. Expose the active connection so providers can prefer it
+    // over legacy auth.json entries.
+    integration: {
+      resolveOAuthCredential: (integrationID: string) =>
+        resolveHostOAuthCredential(context, integrationID),
     },
   };
 }
@@ -86,6 +113,20 @@ export default Plugin.define({
         const runtime = await loadRuntime(context);
         return {
           suppressPartialErrors: runtime.config.tuiSidebarPanel.suppressPartialErrors,
+        };
+      },
+      async resolveOAuthCredential(input) {
+        const credential = await resolveHostOAuthCredential(context, input.integrationID);
+        return {
+          credential: credential
+            ? {
+                access: credential.access,
+                ...(credential.refresh ? { refresh: credential.refresh } : {}),
+                ...(credential.expiresAt !== undefined
+                  ? { expiresAt: credential.expiresAt }
+                  : {}),
+              }
+            : null,
         };
       },
     });

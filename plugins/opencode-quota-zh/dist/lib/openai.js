@@ -122,6 +122,36 @@ function derivePlanLabel(planType) {
 const OPENAI_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 export const DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS = 5_000;
 export const OPENAI_AUTH_SOURCE_KEYS = ["openai", "codex", "chatgpt", "opencode"];
+/**
+ * Resolve the active OpenAI OAuth credential from the host (OpenCode V2
+ * integration connection). The host owns token refresh, so the returned
+ * credential is authoritative and must not be rejected on local expiry alone.
+ */
+export async function resolveOpenAIHostCredential(integration) {
+    if (!integration?.resolveOAuthCredential)
+        return null;
+    for (const integrationID of ["openai", "chatgpt", "codex"]) {
+        let credential = null;
+        try {
+            credential = await integration.resolveOAuthCredential(integrationID);
+        }
+        catch {
+            credential = null;
+        }
+        if (!credential?.access)
+            continue;
+        return {
+            state: "configured",
+            sourceKey: "opencode-integration",
+            accessToken: credential.access,
+            refreshToken: credential.refresh,
+            expiresAt: credential.expiresAt,
+            email: getEmailFromJwt(credential.access) ?? undefined,
+            accountId: getAccountIdFromJwt(credential.access) ?? undefined,
+        };
+    }
+    return null;
+}
 function getOpenAIOAuthEntry(auth) {
     for (const sourceKey of OPENAI_AUTH_SOURCE_KEYS) {
         const entry = auth?.[sourceKey];
@@ -158,11 +188,12 @@ export function hasOpenAIOAuth(auth) {
     return resolveOpenAIOAuth(auth).state === "configured";
 }
 export async function resolveOpenAIAuthIdentity(params) {
-    const auth = await readAuthFileCached({
-        maxAgeMs: Math.max(0, params?.maxAgeMs ?? DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS),
-    });
-    const resolved = resolveOpenAIOAuth(auth);
-    if (resolved.state !== "configured")
+    const resolved = params?.auth !== undefined
+        ? params.auth
+        : resolveOpenAIOAuth(await readAuthFileCached({
+            maxAgeMs: Math.max(0, params?.maxAgeMs ?? DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS),
+        }));
+    if (!resolved || resolved.state !== "configured")
         return null;
     if (resolved.accountId) {
         return deriveResolvedAuthIdentity({
@@ -196,7 +227,13 @@ export async function queryOpenAIQuota(options = {}) {
         : resolveOpenAIOAuth(await readAuthFileCached({ maxAgeMs: DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS }));
     if (resolvedAuth.state !== "configured")
         return null;
-    if (resolvedAuth.expiresAt && resolvedAuth.expiresAt < Date.now()) {
+    // Only legacy auth.json credentials are rejected locally on expiry: the
+    // plugin cannot refresh them. A caller-supplied credential comes from the
+    // host (OpenCode V2), which owns token refresh, so its expiry is not
+    // authoritative here and the request is attempted instead.
+    if (!options.credential &&
+        resolvedAuth.expiresAt &&
+        resolvedAuth.expiresAt < Date.now()) {
         return { success: false, error: "Token expired" };
     }
     try {
