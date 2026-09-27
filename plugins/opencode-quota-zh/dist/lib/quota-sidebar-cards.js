@@ -1,8 +1,11 @@
 import { formatAccountingBoolean, formatAccountingQuantity, getAccountingEntryLabel, } from "./accounting-format.js";
-import { sanitizeQuotaRenderData } from "./display-sanitize.js";
+import { sanitizeQuotaRenderData, sanitizeQuotaToastError } from "./display-sanitize.js";
 import { isBooleanEntry, isPercentEntry, isQuantityEntry, isValueEntry, } from "./entries.js";
 /** Rendered instead of 0% when a percentage is missing or not finite. */
 export const QUOTA_SIDEBAR_UNKNOWN_VALUE = "未知";
+function errorKey(error) {
+    return `${error.label}\u0000${error.message}`;
+}
 function localizeBalanceLabel(label) {
     return label.replace(/\bBalance\b:?/gi, "额度");
 }
@@ -67,11 +70,18 @@ function entryRow(entry) {
  * stay value rows and never become progress bars. Intentional-filter
  * diagnostics are skipped so the sidebar only shows real problems.
  */
-export function buildQuotaSidebarCards(data) {
+export function buildQuotaSidebarCards(data, options = {}) {
     if (!data)
         return [];
     const sanitized = sanitizeQuotaRenderData(data);
     const cards = new Map();
+    const partialErrorCounts = new Map();
+    if (options.suppressPartialErrors) {
+        for (const error of options.partialProviderErrors ?? []) {
+            const matchKey = errorKey(sanitizeQuotaToastError(error));
+            partialErrorCounts.set(matchKey, (partialErrorCounts.get(matchKey) ?? 0) + 1);
+        }
+    }
     for (const entry of sanitized.entries) {
         const key = entryGroupKey(entry);
         const card = cards.get(key) ?? { label: localizeBalanceLabel(key), rows: [] };
@@ -81,10 +91,16 @@ export function buildQuotaSidebarCards(data) {
     for (const error of sanitized.errors) {
         if (error.kind === "intentional-filter")
             continue;
-        const key = error.label || "额度";
-        const card = cards.get(key) ?? { label: localizeBalanceLabel(key), rows: [] };
+        const matchKey = errorKey(error);
+        const partialCount = partialErrorCounts.get(matchKey) ?? 0;
+        if (partialCount > 0) {
+            partialErrorCounts.set(matchKey, partialCount - 1);
+            continue;
+        }
+        const cardKey = error.label || "额度";
+        const card = cards.get(cardKey) ?? { label: localizeBalanceLabel(cardKey), rows: [] };
         card.error = card.error ? `${card.error}; ${error.message}` : error.message;
-        cards.set(key, card);
+        cards.set(cardKey, card);
     }
     return [...cards.values()];
 }

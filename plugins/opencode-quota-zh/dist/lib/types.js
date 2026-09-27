@@ -42,6 +42,7 @@ export const DEFAULT_CONFIG = {
     sessionTokenScope: "current",
     tuiSidebarPanel: {
         enabled: true,
+        suppressPartialErrors: true,
     },
     tuiCompactStatus: {
         enabled: false,

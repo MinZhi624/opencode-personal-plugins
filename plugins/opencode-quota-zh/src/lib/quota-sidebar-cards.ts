@@ -3,12 +3,13 @@ import {
   formatAccountingQuantity,
   getAccountingEntryLabel,
 } from "./accounting-format.js";
-import { sanitizeQuotaRenderData } from "./display-sanitize.js";
+import { sanitizeQuotaRenderData, sanitizeQuotaToastError } from "./display-sanitize.js";
 import {
   isBooleanEntry,
   isPercentEntry,
   isQuantityEntry,
   isValueEntry,
+  type QuotaToastError,
   type QuotaToastEntry,
 } from "./entries.js";
 import type { QuotaRenderData } from "./quota-render-data.js";
@@ -49,6 +50,17 @@ export type QuotaSidebarCard = {
 
 /** Rendered instead of 0% when a percentage is missing or not finite. */
 export const QUOTA_SIDEBAR_UNKNOWN_VALUE = "未知";
+
+export interface BuildQuotaSidebarCardsOptions {
+  /** Hide errors from a provider that returned at least one usable entry. */
+  suppressPartialErrors?: boolean;
+  /** Errors returned by providers that also returned usable entries. */
+  partialProviderErrors?: readonly QuotaToastError[];
+}
+
+function errorKey(error: Pick<QuotaToastError, "label" | "message">): string {
+  return `${error.label}\u0000${error.message}`;
+}
 
 function localizeBalanceLabel(label: string): string {
   return label.replace(/\bBalance\b:?/gi, "额度");
@@ -120,10 +132,18 @@ function entryRow(entry: QuotaToastEntry): QuotaSidebarRow {
  */
 export function buildQuotaSidebarCards(
   data: QuotaRenderData | null | undefined,
+  options: BuildQuotaSidebarCardsOptions = {},
 ): QuotaSidebarCard[] {
   if (!data) return [];
   const sanitized = sanitizeQuotaRenderData(data);
   const cards = new Map<string, QuotaSidebarCard>();
+  const partialErrorCounts = new Map<string, number>();
+  if (options.suppressPartialErrors) {
+    for (const error of options.partialProviderErrors ?? []) {
+      const matchKey = errorKey(sanitizeQuotaToastError(error));
+      partialErrorCounts.set(matchKey, (partialErrorCounts.get(matchKey) ?? 0) + 1);
+    }
+  }
 
   for (const entry of sanitized.entries) {
     const key = entryGroupKey(entry);
@@ -134,10 +154,16 @@ export function buildQuotaSidebarCards(
 
   for (const error of sanitized.errors) {
     if (error.kind === "intentional-filter") continue;
-    const key = error.label || "额度";
-    const card = cards.get(key) ?? { label: localizeBalanceLabel(key), rows: [] };
+    const matchKey = errorKey(error);
+    const partialCount = partialErrorCounts.get(matchKey) ?? 0;
+    if (partialCount > 0) {
+      partialErrorCounts.set(matchKey, partialCount - 1);
+      continue;
+    }
+    const cardKey = error.label || "额度";
+    const card = cards.get(cardKey) ?? { label: localizeBalanceLabel(cardKey), rows: [] };
     card.error = card.error ? `${card.error}; ${error.message}` : error.message;
-    cards.set(key, card);
+    cards.set(cardKey, card);
   }
 
   return [...cards.values()];

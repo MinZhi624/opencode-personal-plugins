@@ -29,6 +29,23 @@ function createQuotaCoreClient(context: Plugin.Context) {
   };
 }
 
+async function loadRuntime(context: Plugin.Context, sessionID?: string) {
+  return await resolveQuotaRuntimeContext({
+    client: createQuotaCoreClient(context),
+    roots: {
+      activeDirectory: context.location.directory,
+      fallbackDirectory: context.location.directory,
+    },
+    sessionID,
+    resolveSessionMeta: async (id) => {
+      const session = await context.session.get({ sessionID: id });
+      const model = session?.model;
+      return model ? { modelID: model.id, providerID: model.providerID } : {};
+    },
+    includeSessionMeta: (config) => config.onlyCurrentModel,
+  });
+}
+
 // Quota computation runs on the server through the shared upstream core; the
 // TUI receives structured sidebar cards and only renders them.
 export default Plugin.define({
@@ -36,20 +53,7 @@ export default Plugin.define({
   async setup(context) {
     await context.rpc.register(quotaRpc, {
       async snapshot(input) {
-        const runtime = await resolveQuotaRuntimeContext({
-          client: createQuotaCoreClient(context),
-          roots: {
-            activeDirectory: context.location.directory,
-            fallbackDirectory: context.location.directory,
-          },
-          sessionID: input.sessionID,
-          resolveSessionMeta: async (sessionID) => {
-            const session = await context.session.get({ sessionID });
-            const model = session?.model;
-            return model ? { modelID: model.id, providerID: model.providerID } : {};
-          },
-          includeSessionMeta: (config) => config.onlyCurrentModel,
-        });
+        const runtime = await loadRuntime(context, input.sessionID);
         if (!runtime.config.enabled || !runtime.config.tuiSidebarPanel.enabled) {
           return { cards: [] };
         }
@@ -64,7 +68,25 @@ export default Plugin.define({
           providers: runtime.providers,
           includeAllWindowsData: true,
         });
-        return { cards: buildQuotaSidebarCards(result.allWindowsData ?? result.data) };
+        const suppressPartialErrors =
+          input.suppressPartialErrorsOverride ?? runtime.config.tuiSidebarPanel.suppressPartialErrors;
+        const partialProviderErrors = suppressPartialErrors
+          ? result.providerResults.flatMap(({ result: providerResult }) =>
+              providerResult.entries.length > 0 ? providerResult.errors : [],
+            )
+          : [];
+        return {
+          cards: buildQuotaSidebarCards(result.allWindowsData ?? result.data, {
+            suppressPartialErrors,
+            partialProviderErrors,
+          }),
+        };
+      },
+      async settings() {
+        const runtime = await loadRuntime(context);
+        return {
+          suppressPartialErrors: runtime.config.tuiSidebarPanel.suppressPartialErrors,
+        };
       },
     });
   },

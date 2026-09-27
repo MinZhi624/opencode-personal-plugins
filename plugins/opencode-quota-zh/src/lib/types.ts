@@ -42,6 +42,8 @@ export interface PricingSnapshotConfig {
 
 export interface TuiSidebarPanelConfig {
   enabled: boolean;
+  /** Hide provider errors in the sidebar when that provider still returned usable rows. */
+  suppressPartialErrors: boolean;
   /** Per-surface formatStyle override. Falls back to root formatStyle when absent. */
   formatStyle?: QuotaFormatStyle;
   /** Preferred OpenCode Go window for the collapsed sidebar row. */
@@ -274,6 +276,7 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
   sessionTokenScope: "current",
   tuiSidebarPanel: {
     enabled: true,
+    suppressPartialErrors: true,
   },
   tuiCompactStatus: {
     enabled: false,

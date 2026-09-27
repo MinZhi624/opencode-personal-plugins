@@ -32,9 +32,16 @@ export const quotaRpc = Rpc.define({
     snapshot: {
       input: z.object({
         sessionID: z.string().optional(),
+        suppressPartialErrorsOverride: z.boolean().optional(),
       }),
       output: z.object({
         cards: z.array(quotaSidebarCardSchema),
+      }),
+    },
+    settings: {
+      input: z.object({}),
+      output: z.object({
+        suppressPartialErrors: z.boolean(),
       }),
     },
   },

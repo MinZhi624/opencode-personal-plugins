@@ -57,6 +57,7 @@ export const QUOTA_TOAST_SETTING_SOURCE_KEYS = [
     "showSessionTokens",
     "sessionTokenScope",
     "tuiSidebarPanel.enabled",
+    "tuiSidebarPanel.suppressPartialErrors",
     "tuiSidebarPanel.formatStyle",
     "tuiSidebarPanel.opencodeGoPreferredWindow",
     "tuiCompactStatus.enabled",
@@ -318,6 +319,10 @@ function extractTuiSidebarPanelPatch(value) {
     const patch = {};
     if (hasOwnKey(value, "enabled") && typeof value.enabled === "boolean") {
         patch.enabled = value.enabled;
+    }
+    if (hasOwnKey(value, "suppressPartialErrors") &&
+        typeof value.suppressPartialErrors === "boolean") {
+        patch.suppressPartialErrors = value.suppressPartialErrors;
     }
     const sidebarFormatStyle = getExplicitFormatStyle(value);
     if (sidebarFormatStyle) {
@@ -781,6 +786,10 @@ function applyValidatedQuotaToastPatch(config, patch, sourcePath, settingSources
         if (hasOwnKey(patch.tuiSidebarPanel, "enabled")) {
             config.tuiSidebarPanel.enabled = patch.tuiSidebarPanel.enabled;
             applySettingSource(settingSources, "tuiSidebarPanel.enabled", sourcePath);
+        }
+        if (hasOwnKey(patch.tuiSidebarPanel, "suppressPartialErrors")) {
+            config.tuiSidebarPanel.suppressPartialErrors = patch.tuiSidebarPanel.suppressPartialErrors;
+            applySettingSource(settingSources, "tuiSidebarPanel.suppressPartialErrors", sourcePath);
         }
         if (hasOwnKey(patch.tuiSidebarPanel, "formatStyle")) {
             config.tuiSidebarPanel.formatStyle = patch.tuiSidebarPanel.formatStyle;

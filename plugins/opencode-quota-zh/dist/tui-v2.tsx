@@ -25,8 +25,17 @@ function sessionModel(context: Context, sessionID: string): QuotaSessionModelCon
 
 // Quota data always comes from the V2 server RPC; a failed query surfaces as
 // the panel error state instead of falling back to a local V1-style path.
-async function loadQuota(context: Context, sessionID: string): Promise<QuotaView> {
-  return await context.client.rpc(quotaRpc).snapshot({ sessionID })
+async function loadQuota(
+  context: Context,
+  sessionID: string,
+  suppressPartialErrors?: boolean,
+): Promise<QuotaView> {
+  return await context.client.rpc(quotaRpc).snapshot({
+    sessionID,
+    ...(suppressPartialErrors !== undefined
+      ? { suppressPartialErrorsOverride: suppressPartialErrors }
+      : {}),
+  })
 }
 
 function clampPercent(value: number): number {
@@ -138,16 +147,30 @@ function QuotaOverview(props: { context: Context; cards: QuotaSidebarCard[] }) {
             .filter((row) => row.kind === "value")
             .map((row) => (row.kind === "value" ? row.value : ""))
             .filter(Boolean)
-          const summary =
+           const summary =
             percents.length > 0
               ? `${percents.join(" / ")} 剩余`
               : values.length > 0
                 ? values.join(" · ")
                 : "—"
+          const displaySummary =
+            card.rows.length > 0
+              ? `${summary}${card.error ? " · 部分错误" : ""}`
+              : card.error
+                ? "错误"
+                : summary
           return (
             <box flexDirection="row" justifyContent="space-between">
               <text fg={theme().text.muted}>{card.label}</text>
-              <text fg={theme().text.base}>{card.error ? "错误" : summary}</text>
+              <text
+                fg={
+                  card.error && card.rows.length === 0
+                    ? theme().text.feedback.error.base
+                    : theme().text.base
+                }
+              >
+                {displaySummary}
+              </text>
             </box>
           )
         }}
@@ -158,7 +181,7 @@ function QuotaOverview(props: { context: Context; cards: QuotaSidebarCard[] }) {
 
 export function QuotaPanel(props: { context: Context; sessionID: string }) {
   const [settings, updateSettings] = props.context.storage.store("quota-zh-view-v2", {
-    initial: { version: 2, open: true },
+    initial: { version: 2, open: true, suppressPartialErrors: null as boolean | null },
   })
   const [state, setState] = createSignal<"loading" | "ready" | "error">("loading")
   const [cards, setCards] = createSignal<QuotaSidebarCard[]>([])
@@ -173,7 +196,11 @@ export function QuotaPanel(props: { context: Context; sessionID: string }) {
       return
     }
     running = true
-    void loadQuota(props.context, props.sessionID)
+    void loadQuota(
+      props.context,
+      props.sessionID,
+      typeof settings.suppressPartialErrors === "boolean" ? settings.suppressPartialErrors : undefined,
+    )
       .then((result) => {
         if (disposed) return
         setCards(result.cards)
@@ -188,6 +215,62 @@ export function QuotaPanel(props: { context: Context; sessionID: string }) {
         }
       })
   }
+
+  const openQuotaSettings = async () => {
+    try {
+      const current =
+        typeof settings.suppressPartialErrors === "boolean"
+          ? settings.suppressPartialErrors
+          : (await props.context.client.rpc(quotaRpc).settings({})).suppressPartialErrors
+      const next = await props.context.ui.dialog.select<boolean>({
+        title: "额度设置",
+        placeholder: "选择部分错误的显示方式",
+        current,
+        options: [
+          {
+            title: "静默部分错误",
+            value: true,
+            description: "提供商有可用额度数据时隐藏同一提供商的接口错误",
+          },
+          {
+            title: "显示部分错误",
+            value: false,
+            description: "同时显示可用额度数据和接口错误",
+          },
+        ],
+      })
+      if (next === undefined || next === current) return
+      await updateSettings((draft) => {
+        draft.suppressPartialErrors = next
+      })
+      props.context.ui.toast.show({
+        title: "额度",
+        variant: "success",
+        message: `部分错误静默已${next ? "开启" : "关闭"}`,
+      })
+      refresh()
+    } catch (error) {
+      props.context.ui.toast.show({
+        title: "额度",
+        variant: "error",
+        message: sanitizeDisplayText(error instanceof Error ? error.message : String(error)),
+      })
+    }
+  }
+
+  props.context.keymap.layer(() => ({
+    mode: "global",
+    commands: [
+      {
+        id: "quota-zh.settings",
+        title: "额度设置面板",
+        description: "配置额度面板的部分错误显示方式",
+        group: "额度设置",
+        palette: true,
+        run: openQuotaSettings,
+      },
+    ],
+  }))
 
   refresh()
   const timers = [150, 600, 1500].map((delay) => setTimeout(refresh, delay))

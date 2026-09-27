@@ -28,12 +28,10 @@
 
 | 上游项目 | 仓库 | 本包相关部分 |
 | --- | --- | --- |
-| OpenCode | <https://github.com/anomalyco/opencode> | 全部（插件加载、TUI、Provider、会话数据库） |
 | opencode-quota | <https://github.com/slkiser/opencode-quota> | quota-zh 与增强侧边栏的额度、价格与估算逻辑 |
 | OpenCode SubAgent Magazine | <https://github.com/Hotakus/opencode-subagent-magazine> | 增强侧边栏的子代理监控与 KV 持久化 |
 | opencode-enhanced-sidebar | <https://github.com/nt-cubic/opencode-enhanced-sidebar> | `opencode-enhanced-sidebar-zh` 的界面来源 |
 | opencode-plugins（`opencode-quota-extended`） | <https://github.com/arandevcode/opencode-plugins> | `opencode-quota-zh` 的额度卡片与 CLI 部分 |
-| opencode-plugins（`opencode-thinking`） | <https://github.com/arandevcode/opencode-plugins> | 未移植（无对应实现） |
 | Matt Pocock Skills | <https://github.com/mattpocock/skills> | Workshop 的 Workflow Skill 来源 |
 | models.dev | <https://models.dev/> | API 标价估算的公开价格目录 |
 
@@ -43,7 +41,7 @@
 
 环境要求：
 
-- OpenCode 2.0.12（固定支持版本）
+- OpenCode 2.0.12 或更高版本
 - Node.js 22.6 或更高版本、npm
 - Python 3.10 或更高版本（仅 `gpt-reset-credits` 需要）
 
@@ -79,6 +77,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 | --- | --- |
 | `/quota` | 查看当前 Provider 额度 |
 | `/quota_status` | 诊断认证、价格快照与未定价模型 |
+| `Ctrl+P` → `额度设置面板` | 单独打开额度设置面板，切换侧栏部分错误静默；默认在有有效数据时隐藏同一 Provider 的接口错误，`/quota_status` 仍保留诊断信息 |
 | `/pricing_refresh` | 从 models.dev 刷新共享价格快照 |
 | `/tokens_today` `/tokens_weekly` `/tokens_monthly` `/tokens_all` `/tokens_session` | 历史与当前会话 Token 用量 |
 | `/gpt-reset-credits` | 查询 ChatGPT 重置卡；带“兑换”参数表示确认兑换 |
@@ -108,13 +107,6 @@ Set-ExecutionPolicy -Scope Process Bypass
 2. 运行 `/quota_status` 检查 Provider、价格快照来源与未定价模型。
 3. Token 报告为空时，先启动 OpenCode 生成 `opencode.db`，再运行一个有模型用量的会话。
 4. 常见症状与解决方案见 [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md)。
-
-## 文档
-
-- [OpenAI/ChatGPT 订阅 Token 记账说明](docs/openai-subscription-token-accounting.md)
-- [已有配置合并指南](docs/MERGE_EXISTING_CONFIG.md)
-- [OpenCode 2.0.12 人工验收记录](docs/V2_MANUAL_ACCEPTANCE.md)
-- [第三方来源与许可证](THIRD_PARTY_NOTICES.md)
 
 ## 卸载
 
