@@ -5,6 +5,9 @@ import { Plugin } from "@opencode/plugin/tui"
 import type { Context } from "@opencode/plugin/tui/context"
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js"
 import { copyText } from "./clipboard.ts"
+import { createSessionCostSummary } from "./metrics/session-cost-summary.ts"
+import type { SessionCostSummary } from "./metrics/session-cost-summary.ts"
+import { formatTokenCount, totalTokenBuckets } from "./metrics/token-buckets.ts"
 import { formatCostUsd } from "./metrics/token-cost.ts"
 import { createV2Metrics } from "./v2-runtime.ts"
 
@@ -126,10 +129,12 @@ export function SubAgentPanel(props: {
   context: Context
   sessionID: string
   runtime: ReturnType<typeof createV2Metrics>
+  summary?: SessionCostSummary
   state: Persisted
   update: (mutation: (draft: Persisted) => void) => Promise<void>
 }) {
   const [tick, setTick] = createSignal(0)
+  const summary = props.summary ?? createSessionCostSummary(props.context, props.runtime, () => props.sessionID, tick)
   const [view, updateView] = props.context.storage.store("subagent-magazine-view-v2", {
     initial: { version: 2, open: true },
   })
@@ -142,7 +147,7 @@ export function SubAgentPanel(props: {
   const maxEntries = () => effective().maxEntries
   const ttlDays = () => effective().ttlDays
   const [expanded, setExpanded] = createSignal("")
-  const timer = setInterval(() => setTick((value) => value + 1), 500)
+  const timer = setInterval(() => setTick((value) => value + 1), 1000)
   onCleanup(() => clearInterval(timer))
   // 过期自动清理：只删已结束且超过保留天数的，正在跑的不动
   createEffect(() => {
@@ -168,10 +173,20 @@ export function SubAgentPanel(props: {
   })
   const visibleEntries = createMemo(() => allEntries().slice(0, maxEntries()))
   const hiddenCount = createMemo(() => Math.max(0, allEntries().length - visibleEntries().length))
+  // Status badges span records under the same root task tree, including nested agents.
+  const taskEntries = createMemo(() => {
+    void tick()
+    const parents = new Set([summary.rootID(), ...summary.descendantIDs()])
+    return Object.entries(props.state.byParent).flatMap(([parentID, entries]) => parents.has(parentID) ? entries : [])
+  })
+  const doneCount = createMemo(() => taskEntries().filter((entry) => entry.status === "done" || entry.status === "cancelled").length)
+  const runningCount = createMemo(() => taskEntries().filter((entry) => entry.status === "running" || entry.status === "cancel_requested").length)
+  const errorCount = createMemo(() => taskEntries().filter((entry) => entry.status === "error").length)
   const statusText = (status: Status) => ({ running: "运行中", done: "已完成", cancel_requested: "取消中", cancelled: "已取消", error: "失败" })[status]
   const dot = (status: Status) => status === "error" ? "✕" : status === "running" || status === "cancel_requested" ? "●" : "✓"
   const color = (status: Status) => status === "error" ? props.context.theme.text.feedback.error.base : status === "running" || status === "cancel_requested" ? props.context.theme.text.feedback.warning.base : props.context.theme.text.feedback.success.base
   const duration = (entry: Entry) => {
+    void tick()
     const seconds = Math.max(0, Math.round(((entry.ended ?? Date.now()) - entry.started) / 1000))
     return seconds >= 60 ? `${Math.floor(seconds / 60)}m${seconds % 60}s` : `${seconds}s`
   }
@@ -221,39 +236,68 @@ export function SubAgentPanel(props: {
     props.context.ui.toast.show({ title: entry.title || entry.agent, message: "已删除这条记录", variant: "success" })
   }
   const theme = props.context.theme
+  const summaryTokensText = () => {
+    const status = summary.descendantTokenStatus()
+    if (status === "failed") return "加载失败"
+    if (status === "incomplete") return "不完整"
+    const tokens = summary.descendantTokens()
+    if (tokens === null) return "加载中…"
+    return `${formatTokenCount(tokens)}${status === "stale" ? "（旧数据）" : ""}`
+  }
+  const summaryCostText = () => {
+    const status = summary.descendantTokenStatus()
+    if (status === "failed") return "加载失败"
+    if (status === "incomplete") return "不完整"
+    const cost = summary.descendantCost()
+    if (!cost) return status === "loading" ? "加载中…" : "—"
+    return `${cost}${status === "stale" ? "（旧数据）" : ""}`
+  }
   return (
     <box flexDirection="column">
       <box flexDirection="row" gap={1} onMouseDown={() => void updateView((draft) => { draft.open = !draft.open })}>
         <text fg={theme.text.action.primary.base}>{view.open ? "▼" : "▶"}</text>
         <text fg={theme.text.action.primary.base}><b>子代理</b></text>
-        <text fg={theme.text.muted}>{allEntries().length} 个</text>
-        <Show when={hiddenCount() > 0}><text fg={theme.text.muted}>（已隐藏 {hiddenCount()} 个）</text></Show>
+        <Show when={doneCount() > 0 || runningCount() > 0 || errorCount() > 0}>
+          <Show when={doneCount() > 0}><text fg={theme.text.feedback.success.base}>✓{doneCount()}</text></Show>
+          <Show when={runningCount() > 0}><text fg={theme.text.feedback.warning.base}>●{runningCount()}</text></Show>
+          <Show when={errorCount() > 0}><text fg={theme.text.feedback.error.base}>✕{errorCount()}</text></Show>
+        </Show>
+        <Show when={!view.open && summary.descendantCount() > 0}>
+          <text fg={theme.text.muted}>{summaryTokensText()}</text>
+          <text fg={theme.text.action.primary.base}>{summaryCostText()}</text>
+        </Show>
       </box>
       <Show when={view.open}>
+        <Show when={hiddenCount() > 0}><text fg={theme.text.muted}>列表另有 {hiddenCount()} 条未显示</text></Show>
         <For each={visibleEntries()}>{(entry) => {
-          const result = () => entry.childID ? props.runtime.metrics.get(entry.childID) : undefined
-          return (
-            <box flexDirection="column">
-              <box flexDirection="row" gap={1} onMouseDown={() => setExpanded((value) => value === entry.id ? "" : entry.id)}>
-                <text fg={color(entry.status)}>{dot(entry.status)}</text>
-                <text fg={theme.text.base}>{entry.title || entry.agent}</text>
-                <text fg={theme.text.muted}>{duration(entry)}</text>
-              </box>
-              <Show when={expanded() === entry.id}>
+            const result = () => {
+              void tick()
+              return entry.childID ? props.runtime.metrics.get(entry.childID) : undefined
+            }
+            const entryTokens = () => result()?.complete && result()?.hasUsage ? totalTokenBuckets(result()!.tokens) : null
+            return (
+              <box flexDirection="column">
+                <box flexDirection="row" gap={1} onMouseDown={() => setExpanded((value) => value === entry.id ? "" : entry.id)}>
+                  <text fg={color(entry.status)}>{dot(entry.status)}</text>
+                  <text fg={theme.text.base}>{entry.title || entry.agent}</text>
+                  <text fg={theme.text.muted}>{duration(entry)}</text>
+                  <Show when={expanded() !== entry.id && entryTokens() !== null && entryTokens()! > 0}><text fg={theme.text.muted}>{formatTokenCount(entryTokens()!)}</text></Show>
+                </box>
+                <Show when={expanded() === entry.id}>
                 <box flexDirection="row" justifyContent="space-between"><text fg={theme.text.muted}>代理</text><text fg={theme.text.base}>{entry.agent}</text></box>
                 <Show when={entry.childID && props.context.data.session.get(entry.childID)?.model}><box flexDirection="row" justifyContent="space-between"><text fg={theme.text.muted}>模型</text><text fg={theme.text.base}>{(() => { const model = props.context.data.session.get(entry.childID!)!.model!; return `${model.providerID}/${model.id}` })()}</text></box></Show>
                 <box flexDirection="row" justifyContent="space-between"><text fg={theme.text.muted}>状态</text><text fg={color(entry.status)}>{statusText(entry.status)}</text></box>
                 <Show when={entry.childID}><box flexDirection="row" justifyContent="space-between" onMouseDown={() => void copyText(entry.childID!)}><text fg={theme.text.muted}>会话 ID</text><text fg={theme.text.base}>{entry.childID!.slice(0, 18)}… ⎘</text></box></Show>
-                <Show when={result()?.complete && result()?.hasUsage}><box flexDirection="row" justifyContent="space-between"><text fg={theme.text.muted}>Token 用量</text><text fg={theme.text.base}>{Object.values(result()!.tokens).reduce((sum: number, value) => sum + Number(value), 0).toLocaleString()}</text></box></Show>
+                <Show when={entryTokens() !== null}><box flexDirection="row" justifyContent="space-between"><text fg={theme.text.muted}>Token 用量</text><text fg={theme.text.base}>{formatTokenCount(entryTokens()!)}</text></box></Show>
                 <Show when={result()?.complete && result()?.hasUsage}><box flexDirection="row" justifyContent="space-between"><text fg={theme.text.muted}>费用</text><text fg={theme.text.base}>{formatCostUsd(result()!.usd, result()!)}</text></box></Show>
                 <Show when={entry.childID}><box flexDirection="row" gap={2}><text fg={theme.text.action.primary.base} onMouseDown={() => props.context.ui.router.navigate({ type: "session", sessionID: entry.childID! })}>→ 进入会话</text><Show when={entry.status === "running"}><text fg={theme.text.feedback.warning.base} onMouseDown={() => void cancel(entry)}>取消任务</text></Show></box></Show>
                 <box flexDirection="row" gap={2}>
                   <Show when={entry.status === "running" || entry.status === "cancel_requested"}><text fg={theme.text.muted} onMouseDown={() => void dismissEntry(entry)}>标记完成</text></Show>
                   <text fg={theme.text.muted} onMouseDown={() => void deleteEntry(entry)}>删除这条</text>
                 </box>
-              </Show>
-            </box>
-          )
+                </Show>
+              </box>
+            )
         }}</For>
       </Show>
     </box>

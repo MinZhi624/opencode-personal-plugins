@@ -336,6 +336,7 @@ export class SessionMetricsService {
   private readonly options: Required<Pick<SessionMetricsServiceOptions, "debounceMs" | "pageSize" | "maxPages">> &
     SessionMetricsServiceOptions
   private results = new Map<string, SessionCostResult>()
+  private stale = new Set<string>()
   private versions = new Map<string, number>()
   private timers = new Map<string, ReturnType<typeof setTimeout>>()
   private pending = new Map<string, Promise<void>>()
@@ -359,6 +360,11 @@ export class SessionMetricsService {
   /** Latest completed aggregation for a session (undefined if never computed). */
   get(sessionID: string): SessionCostResult | undefined {
     return this.results.get(sessionID)
+  }
+
+  /** A newer refresh failed while the last complete result was retained. */
+  isStale(sessionID: string): boolean {
+    return this.stale.has(sessionID)
   }
 
   /** Register a listener invoked whenever the session's result changes. */
@@ -399,6 +405,7 @@ export class SessionMetricsService {
     this.timers.clear()
     this.listeners.clear()
     this.results.clear()
+    this.stale.clear()
     this.versions.clear()
     this.wanted.clear()
     this.pending.clear()
@@ -430,12 +437,18 @@ export class SessionMetricsService {
 
   private async doRun(sessionID: string, version: number, force: boolean): Promise<void> {
     const storeResult = (result: SessionCostResult): void => {
+      if (this.disposed || this.versions.get(sessionID) !== version) return
       // Never overwrite the last COMPLETE result with a fresher incomplete one:
       // the UI keeps showing the most recent fully aggregated value.
       const existing = this.results.get(sessionID)
-      if (existing?.complete && !result.complete) return
-      // Only store when this run is still the latest requested version.
-      if (this.versions.get(sessionID) !== version) return
+      if (existing?.complete && !result.complete) {
+        this.stale.add(sessionID)
+        this.listeners.get(sessionID)?.forEach((listener) => {
+          try { listener() } catch { /* listener errors never propagate */ }
+        })
+        return
+      }
+      if (result.complete) this.stale.delete(sessionID)
       this.results.set(sessionID, result)
       this.listeners.get(sessionID)?.forEach((listener) => {
         try { listener() } catch { /* listener errors never propagate */ }

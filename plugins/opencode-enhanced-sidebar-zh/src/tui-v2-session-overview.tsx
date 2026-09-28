@@ -13,10 +13,12 @@ import {
   sumContextTokens,
 } from "./metrics/session-overview-view.ts"
 import { createSessionCostSummary } from "./metrics/session-cost-summary.ts"
+import type { SessionCostSummary } from "./metrics/session-cost-summary.ts"
+import { formatTokenCount } from "./metrics/token-buckets.ts"
 import { formatTps } from "./metrics/step-tps.ts"
 import { createV2Metrics } from "./v2-runtime.ts"
 
-export function SessionOverview(props: { context: Context; sessionID: string; runtime: ReturnType<typeof createV2Metrics> }) {
+export function SessionOverview(props: { context: Context; sessionID: string; runtime: ReturnType<typeof createV2Metrics>; summary?: SessionCostSummary }) {
   const [tick, setTick] = createSignal(0)
   const [settings, updateSettings] = props.context.storage.store("session-overview-zh-v2", {
     initial: { version: 2, open: true },
@@ -26,7 +28,7 @@ export function SessionOverview(props: { context: Context; sessionID: string; ru
     const unsubscribe = props.runtime.metrics.subscribe(props.sessionID, () => setTick((value) => value + 1))
     onCleanup(unsubscribe)
   })
-  const costs = createSessionCostSummary(props.context, props.runtime, () => props.sessionID, tick)
+  const costs = props.summary ?? createSessionCostSummary(props.context, props.runtime, () => props.sessionID, tick)
   onCleanup(() => {
     clearInterval(timer)
   })
@@ -85,6 +87,7 @@ export function SessionOverview(props: { context: Context; sessionID: string; ru
           <box flexDirection="row" justifyContent="space-between"><text fg={theme.text.muted}>使用率</text><text fg={theme.text.base}>{contextUsed()!.toLocaleString()} / {contextLimit()!.toLocaleString()} · {percent()}%</text></box>
           <box flexDirection="row"><text fg={contextBarColor()}>{"█".repeat(contextBarCells(percent()))}</text><text fg={theme.text.muted}>{"░".repeat(CONTEXT_BAR_CELLS - contextBarCells(percent()))}</text></box>
         </Show>
+        <box flexDirection="row" justifyContent="space-between"><text fg={theme.text.muted}>使用Token用量</text><text fg={theme.text.base}>{costs.treeTokenStatus() === "failed" ? "加载失败" : costs.treeTokenStatus() === "incomplete" ? "不完整" : costs.treeTokens() === null ? "加载中…" : `${formatTokenCount(costs.treeTokens()!)}${costs.treeTokenStatus() === "stale" ? "（旧数据）" : ""}`}</text></box>
         <Show when={cacheHit() !== undefined}><box flexDirection="row" justifyContent="space-between"><text fg={theme.text.muted}>缓存命中</text><text fg={theme.text.base}>{cacheHit()}%</text></box></Show>
         <box flexDirection="row" justifyContent="space-between"><text fg={theme.text.muted}>TPS</text><text fg={tps().startsWith("~") ? theme.text.muted : theme.text.base}>{tps()}</text></box>
         <Show when={costs.session()}><box flexDirection="row" justifyContent="space-between"><text fg={theme.text.muted}>花费（本会话）</text><text fg={theme.text.base}>{costs.session()}</text></box></Show>

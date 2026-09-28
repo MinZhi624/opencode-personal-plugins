@@ -63,3 +63,13 @@ export function formatCostUsd(
   const base = `$${usd.toFixed(4)}`
   return opts.partial ? `${base}+` : base
 }
+
+/** Two-decimal collapsed-header cost, matching the master sidebar summary. */
+export function formatCompactCostUsd(
+  usd: number,
+  opts: { hasUsage: boolean; partial: boolean },
+): string | null {
+  if (!opts.hasUsage) return null
+  if (opts.partial && usd === 0) return "未定价"
+  return `$${usd.toFixed(2)}${opts.partial ? "+" : ""}`
+}

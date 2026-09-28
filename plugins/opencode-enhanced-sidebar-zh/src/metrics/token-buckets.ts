@@ -50,6 +50,17 @@ export function totalTokenBuckets(buckets: TokenBuckets): number {
   )
 }
 
+/** Compact decimal Token display, consistent across overview and subagents. */
+export function formatTokenCount(value: number): string {
+  if (!Number.isFinite(value) || value < 0) return "—"
+  if (value < 1_000) return `${Math.round(value)}`
+  if (value < 1_000_000) {
+    if (Number((value / 1_000).toFixed(1)) >= 1_000) return "1.0M"
+    return `${(value / 1_000).toFixed(1)}K`
+  }
+  return `${(value / 1_000_000).toFixed(1)}M`
+}
+
 export function tokenBucketsFromMessage(message: TokenCarrier): TokenBuckets {
   const tokens = message.tokens
   if (!tokens) return emptyTokenBuckets()

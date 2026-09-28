@@ -2,12 +2,13 @@
 
 import "@opentui/solid/preload"
 import { Plugin } from "@opencode/plugin/tui"
-import { For } from "solid-js"
+import { createSignal, For, onCleanup } from "solid-js"
 import { QuotaPanel } from "../../opencode-quota-zh/dist/tui-v2.tsx"
 import { SkillPanel } from "../../opencode-skill-panel/src/tui-v2.tsx"
 import { SessionOverview } from "./tui-v2-session-overview.tsx"
 import { createSubagentController, registerSubagentCommands, SubAgentPanel } from "./tui-v2-subagent-magazine.tsx"
 import { createV2Metrics } from "./v2-runtime.ts"
+import { createSessionCostSummary } from "./metrics/session-cost-summary.ts"
 import {
   resolveSidebarCardSettings,
   SIDEBAR_CARD_SETTINGS_KEY,
@@ -30,27 +31,30 @@ export default Plugin.define({
       initial: uninitializedSidebarCardSettings(),
     })
     const cards = () => resolveSidebarCardSettings(cardSettings, context.options)
-    const renderCard = (id: SidebarCardID, sessionID: string) => {
-      switch (id) {
-        case "quota":
-          return <QuotaPanel context={context} sessionID={sessionID} />
-        case "sessionOverview":
-          return <SessionOverview context={context} sessionID={sessionID} runtime={runtime} />
-        case "subagents":
-          return <SubAgentPanel context={context} sessionID={sessionID} runtime={runtime} state={subagents.state} update={subagents.update} />
-        case "skill":
-          return <SkillPanel context={context} sessionID={sessionID} maxUsed={context.options.skillPanelMaxUsed} defaultOpen={context.options.skillPanelDefaultOpen} />
+    function SidebarCards(props: { sessionID: string }) {
+      const [tick, setTick] = createSignal(0)
+      const timer = setInterval(() => setTick((value) => value + 1), 500)
+      onCleanup(() => clearInterval(timer))
+      const summary = createSessionCostSummary(context, runtime, () => props.sessionID, tick)
+      const renderCard = (id: SidebarCardID) => {
+        switch (id) {
+          case "quota":
+            return <QuotaPanel context={context} sessionID={props.sessionID} />
+          case "sessionOverview":
+            return <SessionOverview context={context} sessionID={props.sessionID} runtime={runtime} summary={summary} />
+          case "subagents":
+            return <SubAgentPanel context={context} sessionID={props.sessionID} runtime={runtime} state={subagents.state} update={subagents.update} summary={summary} />
+          case "skill":
+            return <SkillPanel context={context} sessionID={props.sessionID} maxUsed={context.options.skillPanelMaxUsed} defaultOpen={context.options.skillPanelDefaultOpen} />
+        }
       }
+      return <box flexDirection="column" gap={1}><For each={visibleSidebarCards(cards())}>{(id) => renderCard(id)}</For></box>
     }
     const disposeSlot = context.ui.slot({
       append: "sidebar.content",
       render: (props) => {
         activeSessionID = props.sessionID
-        return (
-          <box flexDirection="column" gap={1}>
-            <For each={visibleSidebarCards(cards())}>{(id) => renderCard(id, props.sessionID)}</For>
-          </box>
-        )
+        return <SidebarCards sessionID={props.sessionID} />
       },
     })
     const disposeCommands = registerSubagentCommands(context, () => activeSessionID)
