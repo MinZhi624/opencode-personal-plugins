@@ -1,6 +1,7 @@
 ---
 name: implement
-description: "Use ONLY when the user explicitly invokes /implement. Implement a piece of work based on a spec or set of tickets."
+description: "Use ONLY when the user explicitly requests the implement skill. Implement a piece of work based on a spec or set of tickets."
+slash: false
 ---
 
 ## OpenCode Adapter

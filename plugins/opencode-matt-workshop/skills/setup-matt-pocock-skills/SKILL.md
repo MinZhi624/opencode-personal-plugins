@@ -1,6 +1,7 @@
 ---
 name: setup-matt-pocock-skills
-description: "Use ONLY when the user explicitly invokes /setup-matt-pocock-skills. Configure this repo for the engineering skills — set up its issue tracker, triage label vocabulary, and domain doc layout. Run once before first use of the other engineering skills."
+description: "Use ONLY when the user explicitly requests the setup-matt-pocock-skills skill. Configure this repo for the engineering skills — set up its issue tracker, triage label vocabulary, and domain doc layout. Run once before first use of the other engineering skills."
+slash: false
 ---
 
 ## OpenCode Adapter

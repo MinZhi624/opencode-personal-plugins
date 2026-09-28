@@ -18,7 +18,7 @@ flowchart TD
     B -- 清楚 --> G{有 ticket/issue<br/>或任务较长？}
     G -- 否，快速实现 --> E
     G -- 是 --> F
-    C --> Spec["任务太大 → /to-spec → /to-ticket"]
+    C --> Spec["任务太大 → to-spec → to-tickets"]
     Spec --> NewWindow["新窗口"] --> F
 ```
 
@@ -40,7 +40,7 @@ flowchart TD
 | 不清楚的事情 | Drafter →（快速实现 → Tinker / 完整实施 → Foreman） |
 | 清楚的事情，快速实现 | Tinker（默认） |
 | 有 ticket/issue，或任务较长 | Foreman |
-| 任务太大 / context 太长 | `/to-spec` → `/to-ticket` → 新窗口 → Foreman `/implement` |
+| 任务太大 / context 太长 | `to-spec` skill → `to-tickets` skill → 新窗口 → Foreman `implement` skill |
 
 `to_spec → to_ticket` 的作用是**把大任务持久化，然后清空上下文重新执行**。它不是每个任务都必须经过的路径。
 
@@ -246,35 +246,35 @@ flowchart TD
 
 任务太大 / context 太长时：
 
-1. 在 Drafter 中运行 `/to-spec` —— 把已讨论内容合成规格。
-2. 运行 `/to-ticket` —— 拆成带阻塞关系的 tickets。
-3. 开新窗口，切换到 Foreman 运行 `/implement`。
+1. 在 Drafter 中运行 `to-spec` skill —— 把已讨论内容合成规格。
+2. 运行 `to-tickets` skill —— 拆成带阻塞关系的 tickets。
+3. 开新窗口，切换到 Foreman 运行 `implement` skill。
 4. 新窗口的 Foreman 根据 spec / tickets 实施，旧 context 不再拖累。
 
-`/to-spec` → `/to-ticket` 不是每个任务都必须经过；它专门解决"大任务 + 长上下文"。
+`to-spec` skill → `to-tickets` skill 不是每个任务都必须经过；它专门解决"大任务 + 长上下文"。
 
 ### 第四步：Worker 一览（委派或直接调用）
 
 | Worker | 做什么 | 何时用 | 访问方式 |
 | --- | --- | --- | --- |
-| `maker` | 实施一个边界清晰的独立模块 | Foreman 需要并行实现 | 隐藏，仅通过委派 |
-| `inspector` | 只读审查 Standards / Spec 一个维度 | 实现完成后需要独立审查 | 隐藏，仅通过委派 |
+| `maker` | 实施一个边界清晰的独立模块 | Foreman 需要并行实现 | 由 Foreman 委派 |
+| `inspector` | 只读审查 Standards / Spec 一个维度 | 实现完成后需要独立审查 | 由 Foreman 委派 |
 | `archivist` | 调研一手资料并写带引用的报告 | 需要外部资料、文档、API 事实 | 可见，可直接 `@archivist` |
 | `surveyor` | 只读映射代码结构、约定与关系 | 需要先摸清代码库再动手 | 可见，可直接 `@surveyor` |
 
 所有 Worker：共享 working tree、只改 assigned scope、不自行 commit/reset、连续三轮无进展即停止汇报、受 `steps` 上限约束。
 
-### 常用命令一览
+### 常用技能一览
 
-| 命令 | 用途 | 何时用 |
+| 技能 | 用途 | 何时用 |
 | --- | --- | --- |
-| `/ask-matt` | 让插件推荐当前处境最合适的 Skill | 不确定该用哪个工作流 |
-| `/to-spec` | 把当前对话合成规格并发布到 tracker | 大任务持久化第一步 |
-| `/to-ticket` | 把规格拆成带阻塞关系的 tickets | 大任务持久化第二步 |
-| `/implement` | 按 spec / tickets 实施 | Tinker 或 Foreman 下运行 |
-| `/tdd` | 测试驱动开发 | 仅当你明确选择 seams/behaviors 后 |
-| `/code-review` | Standards + Spec 双轴审查 | 实现完成后收尾 |
-| `/matt-handoff` | 生成交接文档供新会话继续 | 需要换窗口 / 换 Agent |
+| `ask-matt` skill | 让插件推荐当前处境最合适的 Skill | 不确定该用哪个工作流 |
+| `to-spec` skill | 把当前对话合成规格并发布到 tracker | 大任务持久化第一步 |
+| `to-tickets` skill | 把规格拆成带阻塞关系的 tickets | 大任务持久化第二步 |
+| `implement` skill | 按 spec / tickets 实施 | Tinker 或 Foreman 下运行 |
+| `tdd` skill | 测试驱动开发 | 仅当你明确选择 seams/behaviors 后 |
+| `code-review` skill | Standards + Spec 双轴审查 | 实现完成后收尾 |
+| `matt-handoff` skill | 生成交接文档供新会话继续 | 需要换窗口 / 换 Agent |
 
 ### 验证边界速查
 
@@ -295,9 +295,9 @@ flowchart TD
 
 ## Workflow Skills
 
-- 全部 25 个 Promoted Skills 注册为同名 Workflow Command；Matt 的 handoff 使用 `/matt-handoff`，避免与 OpenCode 内置 `/handoff` 冲突。
-- `/implement` 在 Tinker 中由自己执行且不含双轴 review；在 Foreman 中实施主线并可并行委派，终审 Standards/Spec 双轴 Inspector 并行。
-- `/tdd` 仅在用户明确选择 seams/behaviors 后运行；直接调用 `/tdd` 也必须先确认范围。
+- 全部 25 个 Promoted Skills 仅注册为 OpenCode V2 Skill，不注册斜杠命令；handoff 的 Skill ID 为 `handoff`。
+- `implement` skill 在 Tinker 中由自己执行且不含双轴 review；在 Foreman 中实施主线并可并行委派，终审 Standards/Spec 双轴 Inspector 并行。
+- `tdd` skill 仅在用户明确选择 seams/behaviors 后运行；直接调用 `tdd` skill 也必须先确认范围。
 - Tinker 遇到需要委派或重量级审查的 Skill 会停止，并提示用户选择 Foreman。
 - 所有 Worker 使用共享 working tree；Foreman 在委派前声明 Delegation Leverage、Assigned Scope 和预期结果。
 

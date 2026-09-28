@@ -3,7 +3,6 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { manifest } from "./catalog.js";
 import { buildWorkshopAgents } from "./agents.js";
-import { buildWorkshopCommands } from "./commands.js";
 import { WORKSHOP_SKILLS_PATH } from "./config.js";
 import { parseWorkshopOptions } from "./options.js";
 function permissions(value) {
@@ -58,26 +57,13 @@ export default Plugin.define({
             }
             editor.default("tinker");
         });
-        const commands = buildWorkshopCommands();
-        await context.command.transform((editor) => {
-            for (const [name, command] of Object.entries(commands)) {
-                editor.add({
-                    name,
-                    description: command.description,
-                    execute: async (input) => {
-                        await context.session.prompt({
-                            sessionID: input.sessionID,
-                            ...input.prompt,
-                            text: command.template.replace("$ARGUMENTS", input.prompt.text),
-                            delivery: input.delivery,
-                        });
-                    },
-                });
-            }
-        });
         const skills = await Promise.all(manifest.skills.map(async (item) => {
             const path = join(WORKSHOP_SKILLS_PATH, item.name, "SKILL.md");
-            return { id: item.name, name: item.name, path, content: await readFile(path, "utf8") };
+            const content = await readFile(path, "utf8");
+            const description = content.match(/^---\r?\n[\s\S]*?^description:\s*(.+)$/m)?.[1];
+            if (!description)
+                throw new Error(`Missing skill description: ${path}`);
+            return { id: item.name, name: item.name, description: JSON.parse(description), autoinvoke: item.implicitInvocation, path, content };
         }));
         await context.skill.transform((editor) => {
             for (const skill of skills)

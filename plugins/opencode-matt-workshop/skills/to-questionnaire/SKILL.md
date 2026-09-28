@@ -1,6 +1,7 @@
 ---
 name: to-questionnaire
-description: "Use ONLY when the user explicitly invokes /to-questionnaire. Turn a decision you can't fully answer into a questionnaire for someone else to fill in."
+description: "Use ONLY when the user explicitly requests the to-questionnaire skill. Turn a decision you can't fully answer into a questionnaire for someone else to fill in."
+slash: false
 ---
 
 ## OpenCode Adapter

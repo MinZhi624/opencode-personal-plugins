@@ -1,6 +1,7 @@
 ---
 name: wait-what
-description: "Use ONLY when the user explicitly invokes /wait-what. Stop. That last message did not land — re-pitch it."
+description: "Use ONLY when the user explicitly requests the wait-what skill. Stop. That last message did not land — re-pitch it."
+slash: false
 ---
 
 ## OpenCode Adapter

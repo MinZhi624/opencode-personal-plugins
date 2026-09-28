@@ -51,7 +51,7 @@ function adapterBody(name, body) {
   ].join("\n")
   let result = body
   result = result.replaceAll("Agent tool", "OpenCode task tool")
-  result = result.replaceAll("`/handoff`", "`/matt-handoff`")
+  result = result.replaceAll("`/handoff`", "`handoff` skill")
   if (name === "research") {
     result = replaceAnchor(result, "Spin up a **background agent** to do the research, so you keep working while it reads.", "When the active role can delegate, start one Archivist Worker Run with the full research brief and target Markdown report path. Otherwise stop and ask the user to invoke visible Archivist or select Foreman.", name)
   }
@@ -65,7 +65,12 @@ function adapterBody(name, body) {
     result = replaceAnchor(result, "- If `CLAUDE.md` exists, edit it.\n- Else if `AGENTS.md` exists, edit it.", "- If `AGENTS.md` exists, edit it.\n- Else if `CLAUDE.md` exists, edit it.", name)
     result = replaceAnchor(result, "Never create `AGENTS.md` when `CLAUDE.md` already exists (or vice versa) — always edit the one that's already there.", "Never create a second instruction file when one already exists — OpenCode reads `AGENTS.md` before falling back to `CLAUDE.md`.", name)
   }
-  if (name === "wayfinder") result = replaceAnchor(result, "capturing its findings on a throwaway `research/<name>` branch with a context pointer from the ticket.", "writing its findings to a unique Markdown path in the current worktree with a context pointer from the ticket. Do not create a branch.", name)
+  if (name === "wayfinder") {
+    result = replaceAnchor(result, "capturing its findings on a throwaway `research/<name>` branch with a context pointer from the ticket.", "writing its findings to a unique Markdown path in the current worktree with a context pointer from the ticket. Do not create a branch.", name)
+    result = result.replace("spin up a `/research` subagent", "start an Archivist Worker Run")
+  }
+  result = result.replace(/`\/(?!\/)([a-z][a-z-]*)`/g, "`$1` skill")
+  result = result.replaceAll("Slash commands are the user-facing entries.", "Use the native skill tool to load skills by ID; no Workshop slash commands are registered.")
   if (name === "wizard") result = `Before creating or validating a wizard, verify that Bash is available. On Windows, require WSL or Git Bash; do not attempt a PowerShell rewrite.\n\n${result}`
   return `${adapter}${result}`
 }
@@ -81,9 +86,9 @@ async function copySkill(sourceDir, destinationDir, name, implicitInvocation) {
   const skillPath = join(sourceDir, "SKILL.md")
   const parsed = parseFrontmatter(await readFile(skillPath, "utf8"), skillPath)
   if (parsed.values.name !== name) throw new Error(`Manifest name mismatch for ${name}: ${parsed.values.name}`)
-  const description = implicitInvocation ? parsed.values.description : `Use ONLY when the user explicitly invokes /${name}. ${parsed.values.description}`
+  const description = implicitInvocation ? parsed.values.description : `Use ONLY when the user explicitly requests the ${name} skill. ${parsed.values.description}`
   const runtimeName = name === "handoff" ? "matt-handoff" : name
-  const content = `---\nname: ${runtimeName}\ndescription: ${JSON.stringify(description)}\n---\n\n${adapterBody(name, parsed.body)}`
+  const content = `---\nname: ${runtimeName}\ndescription: ${JSON.stringify(description)}\nslash: false\n---\n\n${adapterBody(name, parsed.body)}`
   await writeFile(join(destinationDir, "SKILL.md"), content)
   if (name === "codebase-design") {
     const designPath = join(destinationDir, "DESIGN-IT-TWICE.md")

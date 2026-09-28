@@ -1,6 +1,7 @@
 ---
 name: teach
-description: "Use ONLY when the user explicitly invokes /teach. Teach the user a new skill or concept, within this workspace."
+description: "Use ONLY when the user explicitly requests the teach skill. Teach the user a new skill or concept, within this workspace."
+slash: false
 ---
 
 ## OpenCode Adapter

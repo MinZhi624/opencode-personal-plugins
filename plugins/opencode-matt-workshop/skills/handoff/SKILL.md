@@ -1,6 +1,7 @@
 ---
 name: matt-handoff
-description: "Use ONLY when the user explicitly invokes /handoff. Compact the current conversation into a handoff document for another agent to pick up."
+description: "Use ONLY when the user explicitly requests the handoff skill. Compact the current conversation into a handoff document for another agent to pick up."
+slash: false
 ---
 
 ## OpenCode Adapter
