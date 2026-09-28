@@ -1,4 +1,4 @@
-import { createMemo } from "solid-js"
+import { createEffect, createMemo } from "solid-js"
 import type { Context } from "@opencode/plugin/tui/context"
 import type { createV2Metrics } from "../v2-runtime.ts"
 import { formatCostUsd } from "./token-cost.ts"
@@ -27,12 +27,12 @@ export type SessionCostSummary = {
 export function createSessionCostSummary(
   context: Context,
   runtime: ReturnType<typeof createV2Metrics>,
-  sessionID: string,
+  sessionID: () => string,
   tick: () => void,
 ): SessionCostSummary {
-  const family = createMemo(() => context.data.session.family(sessionID))
+  const family = createMemo(() => context.data.session.family(sessionID()))
   const descendants = createMemo(() => {
-    const pending = new Set([sessionID])
+    const pending = new Set([sessionID()])
     const result: string[] = []
     let changed = true
     while (changed) {
@@ -48,14 +48,13 @@ export function createSessionCostSummary(
     }
     return result
   })
-  const refreshCosts = () => {
-    runtime.metrics.refresh(sessionID, { delayMs: 0 })
+  createEffect(() => {
+    runtime.metrics.refresh(sessionID(), { delayMs: 0 })
     for (const id of family()) runtime.metrics.refresh(id, { delayMs: 0 })
-  }
-  refreshCosts()
+  })
   const session = createMemo(() => {
     void tick()
-    return formatSessionCost(runtime.metrics.get(sessionID))
+    return formatSessionCost(runtime.metrics.get(sessionID()))
   })
   const subagent = createMemo(() => {
     void tick()
@@ -70,7 +69,7 @@ export function createSessionCostSummary(
   })
   const tree = createMemo(() => {
     void tick()
-    const rootID = context.data.session.root(sessionID)
+    const rootID = context.data.session.root(sessionID())
     const treeSessions = family().map((id) => runtime.metrics.get(id))
     if (!treeSessions.length || treeSessions.some((result) => !result?.complete)) return null
     const root = runtime.metrics.get(rootID)

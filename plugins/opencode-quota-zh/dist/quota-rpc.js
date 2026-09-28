@@ -1,5 +1,8 @@
 import { Rpc } from "@opencode/plugin";
 import { z } from "zod";
+import { QUOTA_DIALOG_COMMANDS } from "./lib/quota-dialog-commands.js";
+import { QUOTA_SNAPSHOT_STATUSES } from "./lib/quota-sidebar-cards.js";
+const commandIDSchema = z.enum(QUOTA_DIALOG_COMMANDS.map((command) => command.id));
 // The TUI receives structured provider cards and renders them natively; it
 // never reconstructs percentages from formatted display text.
 const quotaSidebarRowSchema = z.union([
@@ -32,6 +35,9 @@ export const quotaRpc = Rpc.define({
                 suppressPartialErrorsOverride: z.boolean().optional(),
             }),
             output: z.object({
+                // Explicit snapshot status so consumers can tell a disabled quota
+                // background from an empty result; card visibility never gates this.
+                status: z.enum(QUOTA_SNAPSHOT_STATUSES),
                 cards: z.array(quotaSidebarCardSchema),
             }),
         },
@@ -41,19 +47,26 @@ export const quotaRpc = Rpc.define({
                 suppressPartialErrors: z.boolean(),
             }),
         },
-        resolveOAuthCredential: {
+        command: {
             input: z.object({
-                integrationID: z.string(),
+                command: commandIDSchema,
+                arguments: z.string().optional(),
+                sessionID: z.string().optional(),
             }),
-            output: z.object({
-                credential: z
-                    .object({
-                    access: z.string(),
-                    refresh: z.string().optional(),
-                    expiresAt: z.number().optional(),
-                })
-                    .nullable(),
-            }),
+            output: z.discriminatedUnion("state", [
+                z.object({
+                    state: z.literal("output"),
+                    command: commandIDSchema,
+                    title: z.string(),
+                    output: z.string(),
+                    dialogSize: z.enum(["medium", "large", "xlarge"]),
+                }),
+                z.object({
+                    state: z.literal("noop"),
+                    command: commandIDSchema,
+                    reason: z.literal("disabled"),
+                }),
+            ]),
         },
     },
     events: {},

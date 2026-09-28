@@ -48,6 +48,24 @@ export type QuotaSidebarCard = {
   error?: string;
 };
 
+/**
+ * Status of the public quota snapshot interface.
+ *
+ * "ready" means the quota background ran and the cards carry the queried
+ * data (possibly empty when no provider is configured); "disabled" is the
+ * explicit unavailable state returned when the quota background is switched
+ * off. Sidebar card visibility is a display preference and never gates this
+ * interface, so it does not appear here.
+ */
+export const QUOTA_SNAPSHOT_STATUSES = ["ready", "disabled"] as const;
+
+export type QuotaSnapshotStatus = (typeof QUOTA_SNAPSHOT_STATUSES)[number];
+
+export interface QuotaSnapshotResponse {
+  status: QuotaSnapshotStatus;
+  cards: QuotaSidebarCard[];
+}
+
 /** Rendered instead of 0% when a percentage is missing or not finite. */
 export const QUOTA_SIDEBAR_UNKNOWN_VALUE = "未知";
 
@@ -167,4 +185,38 @@ export function buildQuotaSidebarCards(
   }
 
   return [...cards.values()];
+}
+
+/**
+ * Build the public quota snapshot response consumed by the sidebar card.
+ *
+ * The response status only distinguishes a running background ("ready", cards
+ * may still be empty) from an explicitly disabled background ("disabled").
+ * Hiding the sidebar card must not turn this into an empty or failing
+ * interface: card visibility is applied where the card is rendered, never
+ * here, so independent commands keep querying the same server-side data.
+ */
+export function buildQuotaSnapshotResponse(params: {
+  /** Whether the quota background is enabled; false yields the disabled status. */
+  enabled: boolean;
+  data: QuotaRenderData | null | undefined;
+  suppressPartialErrors?: boolean;
+  partialProviderErrors?: readonly QuotaToastError[];
+}): QuotaSnapshotResponse {
+  if (!params.enabled) {
+    return { status: "disabled", cards: [] };
+  }
+
+  const options: BuildQuotaSidebarCardsOptions = {};
+  if (params.suppressPartialErrors !== undefined) {
+    options.suppressPartialErrors = params.suppressPartialErrors;
+  }
+  if (params.partialProviderErrors !== undefined) {
+    options.partialProviderErrors = params.partialProviderErrors;
+  }
+
+  return {
+    status: "ready",
+    cards: buildQuotaSidebarCards(params.data, options),
+  };
 }

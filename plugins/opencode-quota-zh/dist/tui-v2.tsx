@@ -6,41 +6,26 @@ import type { Context } from "@opencode/plugin/tui/context"
 import { createSignal, For, onCleanup, Show } from "solid-js"
 import { sanitizeDisplayText } from "./lib/display-sanitize.js"
 import {
-  buildQuotaDialogCommandOutput,
   QUOTA_DIALOG_COMMANDS,
   type QuotaDialogCommandId,
 } from "./lib/quota-dialog-commands.js"
-import type { QuotaSidebarCard, QuotaSidebarRow } from "./lib/quota-sidebar-cards.js"
-import type { QuotaRuntimeClient, QuotaSessionModelContext } from "./lib/quota-runtime-context.js"
+import {
+  QUOTA_SIDEBAR_UNKNOWN_VALUE,
+  type QuotaSidebarCard,
+  type QuotaSidebarRow,
+  type QuotaSnapshotStatus,
+} from "./lib/quota-sidebar-cards.js"
 import { quotaRpc } from "./quota-rpc.js"
 
-type QuotaView = { cards: QuotaSidebarCard[] }
+type QuotaView = { status: QuotaSnapshotStatus; cards: QuotaSidebarCard[] }
 
 const BAR_CELLS = 20
 
-function sessionModel(context: Context, sessionID: string): QuotaSessionModelContext {
-  const model = context.data.session.get(sessionID)?.model
-  return model ? { modelID: model.id, providerID: model.providerID } : {}
-}
-
-// The TUI process cannot resolve V2 integration credentials itself: the client
-// API deliberately never exposes them. Route resolution through the server RPC
-// so command/status output uses the same host-managed credential as the sidebar.
-function quotaRuntimeClient(context: Context): QuotaRuntimeClient {
-  const source = context.client as unknown as QuotaRuntimeClient
-  return {
-    config: source.config,
-    integration: {
-      resolveOAuthCredential: async (integrationID: string) => {
-        const result = await context.client.rpc(quotaRpc).resolveOAuthCredential({ integrationID })
-        return result.credential
-      },
-    },
-  }
-}
-
 // Quota data always comes from the V2 server RPC; a failed query surfaces as
 // the panel error state instead of falling back to a local V1-style path.
+// The snapshot RPC is the public quota data interface: it stays available
+// regardless of card visibility, and reports a disabled quota background as
+// its own status instead of an empty card list.
 async function loadQuota(
   context: Context,
   sessionID: string,
@@ -107,6 +92,17 @@ function formatReset(resetTimeIso?: string): string {
 function QuotaRow(props: { context: Context; row: QuotaSidebarRow }) {
   const theme = () => props.context.theme
   if (props.row.kind === "percent") {
+    // A missing/non-finite percentage must never render as a real 0% quota;
+    // the server already maps those to unknown value rows, this is the
+    // render-side guard keeping failures visually distinct from zero quota.
+    if (!Number.isFinite(props.row.percentRemaining)) {
+      return (
+        <box flexDirection="row" justifyContent="space-between">
+          <text fg={theme().text.muted}>{props.row.label}</text>
+          <text fg={theme().text.base}>{QUOTA_SIDEBAR_UNKNOWN_VALUE}</text>
+        </box>
+      )
+    }
     const percent = clampPercent(props.row.percentRemaining)
     const used = 100 - percent
     return (
@@ -199,7 +195,7 @@ export function QuotaPanel(props: { context: Context; sessionID: string }) {
   const [settings, updateSettings] = props.context.storage.store("quota-zh-view-v2", {
     initial: { version: 2, open: true, suppressPartialErrors: null as boolean | null },
   })
-  const [state, setState] = createSignal<"loading" | "ready" | "error">("loading")
+  const [state, setState] = createSignal<"loading" | "ready" | "error" | "disabled">("loading")
   const [cards, setCards] = createSignal<QuotaSidebarCard[]>([])
   let disposed = false
   let running = false
@@ -220,7 +216,9 @@ export function QuotaPanel(props: { context: Context; sessionID: string }) {
       .then((result) => {
         if (disposed) return
         setCards(result.cards)
-        setState("ready")
+        // A disabled quota background is an explicit state, distinct from an
+        // empty ready result and from a failed request.
+        setState(result.status === "disabled" ? "disabled" : "ready")
       })
       .catch(() => !disposed && setState("error"))
       .finally(() => {
@@ -323,6 +321,9 @@ export function QuotaPanel(props: { context: Context; sessionID: string }) {
         <Show when={state() === "error"}>
           <text fg={theme().text.feedback.error.base}>额度查询失败</text>
         </Show>
+        <Show when={state() === "disabled"}>
+          <text fg={theme().text.muted}>额度后台未启用</text>
+        </Show>
         <Show when={state() === "ready" && cards().length === 0}>
           <text fg={theme().text.muted}>暂无额度数据</text>
         </Show>
@@ -336,6 +337,9 @@ export function QuotaPanel(props: { context: Context; sessionID: string }) {
         </Show>
         <Show when={state() === "error"}>
           <text fg={theme().text.feedback.error.base}>额度查询失败</text>
+        </Show>
+        <Show when={state() === "disabled"}>
+          <text fg={theme().text.muted}>额度后台未启用</text>
         </Show>
         <Show when={state() === "ready" && cards().length === 0}>
           <text fg={theme().text.muted}>暂无额度数据</text>
@@ -371,15 +375,15 @@ async function runCommand(
     args = answer.trim() || undefined
   }
   try {
-    const result = await buildQuotaDialogCommandOutput({
+    const result = await context.client.rpc(quotaRpc).command({
       command,
-      arguments: args,
-      client: quotaRuntimeClient(context),
-      roots: { fallbackDirectory: context.location?.directory ?? process.cwd() },
-      sessionID,
-      resolveSessionMeta: (id) => Promise.resolve(sessionModel(context, id)),
+      ...(args !== undefined ? { arguments: args } : {}),
+      ...(sessionID !== undefined ? { sessionID } : {}),
     })
-    if (result.state === "noop") return
+    if (result.state === "noop") {
+      context.ui.toast.show({ title: "额度", variant: "info", message: "额度后台未启用，此命令暂不可用" })
+      return
+    }
     const alert = context.ui.dialog.alert({ title: result.title, message: result.output })
     context.ui.dialog.set({ size: result.dialogSize })
     await alert

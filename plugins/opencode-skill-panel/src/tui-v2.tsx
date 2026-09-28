@@ -53,14 +53,17 @@ export function SkillPanel(props: SkillPanelProps) {
   const [used, setUsed] = createSignal<SkillUsage[]>([])
   const [loaded, setLoaded] = createSignal(false)
   const [open, setOpen] = createSignal(defaultOpen())
+  let generation = 0
 
   const refresh = async (sessionID: string) => {
+    const current = ++generation
     try {
-      setUsed(await fetchSkillUsage(props.context, sessionID))
+      const result = await fetchSkillUsage(props.context, sessionID)
+      if (current === generation) setUsed(result)
     } catch {
-      setUsed([])
+      if (current === generation) setUsed([])
     } finally {
-      setLoaded(true)
+      if (current === generation) setLoaded(true)
     }
   }
 
@@ -71,9 +74,6 @@ export function SkillPanel(props: SkillPanelProps) {
   })
 
   // 事件名与 opencode-enhanced-sidebar-zh 在 2.0.11/2.0.12 验证过的一致
-  onCleanup(() => {
-    for (const unsubscribe of unsubs) unsubscribe()
-  })
   const unsubs = [
     props.context.data.on("session.step.ended", (event) => {
       if (event.data.sessionID === props.sessionID) void refresh(props.sessionID)
@@ -88,6 +88,10 @@ export function SkillPanel(props: SkillPanelProps) {
       if (event.data.sessionID === props.sessionID) void refresh(props.sessionID)
     }),
   ]
+  onCleanup(() => {
+    generation++
+    for (const unsubscribe of unsubs) unsubscribe()
+  })
 
   const theme = () => props.context.theme
   return (

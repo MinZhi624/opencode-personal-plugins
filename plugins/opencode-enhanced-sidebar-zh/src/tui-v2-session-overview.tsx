@@ -3,7 +3,7 @@
 import "@opentui/solid/preload"
 import { Plugin } from "@opencode/plugin/tui"
 import type { Context } from "@opencode/plugin/tui/context"
-import { createMemo, createSignal, onCleanup, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js"
 import {
   cacheHitPercent,
   contextBarCells,
@@ -22,11 +22,13 @@ export function SessionOverview(props: { context: Context; sessionID: string; ru
     initial: { version: 2, open: true },
   })
   const timer = setInterval(() => setTick((value) => value + 1), 500)
-  const unsubscribe = props.runtime.metrics.subscribe(props.sessionID, () => setTick((value) => value + 1))
-  const costs = createSessionCostSummary(props.context, props.runtime, props.sessionID, tick)
+  createEffect(() => {
+    const unsubscribe = props.runtime.metrics.subscribe(props.sessionID, () => setTick((value) => value + 1))
+    onCleanup(unsubscribe)
+  })
+  const costs = createSessionCostSummary(props.context, props.runtime, () => props.sessionID, tick)
   onCleanup(() => {
     clearInterval(timer)
-    unsubscribe()
   })
   const messages = createMemo(() => {
     void tick()

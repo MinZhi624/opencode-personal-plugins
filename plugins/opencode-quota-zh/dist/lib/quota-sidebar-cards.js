@@ -1,6 +1,16 @@
 import { formatAccountingBoolean, formatAccountingQuantity, getAccountingEntryLabel, } from "./accounting-format.js";
 import { sanitizeQuotaRenderData, sanitizeQuotaToastError } from "./display-sanitize.js";
 import { isBooleanEntry, isPercentEntry, isQuantityEntry, isValueEntry, } from "./entries.js";
+/**
+ * Status of the public quota snapshot interface.
+ *
+ * "ready" means the quota background ran and the cards carry the queried
+ * data (possibly empty when no provider is configured); "disabled" is the
+ * explicit unavailable state returned when the quota background is switched
+ * off. Sidebar card visibility is a display preference and never gates this
+ * interface, so it does not appear here.
+ */
+export const QUOTA_SNAPSHOT_STATUSES = ["ready", "disabled"];
 /** Rendered instead of 0% when a percentage is missing or not finite. */
 export const QUOTA_SIDEBAR_UNKNOWN_VALUE = "未知";
 function errorKey(error) {
@@ -103,4 +113,29 @@ export function buildQuotaSidebarCards(data, options = {}) {
         cards.set(cardKey, card);
     }
     return [...cards.values()];
+}
+/**
+ * Build the public quota snapshot response consumed by the sidebar card.
+ *
+ * The response status only distinguishes a running background ("ready", cards
+ * may still be empty) from an explicitly disabled background ("disabled").
+ * Hiding the sidebar card must not turn this into an empty or failing
+ * interface: card visibility is applied where the card is rendered, never
+ * here, so independent commands keep querying the same server-side data.
+ */
+export function buildQuotaSnapshotResponse(params) {
+    if (!params.enabled) {
+        return { status: "disabled", cards: [] };
+    }
+    const options = {};
+    if (params.suppressPartialErrors !== undefined) {
+        options.suppressPartialErrors = params.suppressPartialErrors;
+    }
+    if (params.partialProviderErrors !== undefined) {
+        options.partialProviderErrors = params.partialProviderErrors;
+    }
+    return {
+        status: "ready",
+        cards: buildQuotaSidebarCards(params.data, options),
+    };
 }

@@ -6,7 +6,8 @@
  * @packageDocumentation
  */
 import { Plugin } from "@opencode/plugin";
-import { buildQuotaSidebarCards } from "./lib/quota-sidebar-cards.js";
+import { buildQuotaDialogCommandOutput } from "./lib/quota-dialog-commands.js";
+import { buildQuotaSnapshotResponse } from "./lib/quota-sidebar-cards.js";
 import { collectQuotaRenderData } from "./lib/quota-render-data.js";
 import { createQuotaRuntimeRequestContext, resolveQuotaRuntimeContext, } from "./lib/quota-runtime-context.js";
 import { quotaRpc } from "./quota-rpc.js";
@@ -71,30 +72,32 @@ export default Plugin.define({
         await context.rpc.register(quotaRpc, {
             async snapshot(input) {
                 const runtime = await loadRuntime(context, input.sessionID);
-                if (!runtime.config.enabled || !runtime.config.tuiSidebarPanel.enabled) {
-                    return { cards: [] };
-                }
-                const result = await collectQuotaRenderData({
-                    client: runtime.client,
-                    resolveRuntimeProviderIds: runtime.resolveRuntimeProviderIds,
-                    config: runtime.config,
-                    configMeta: runtime.configMeta,
-                    request: createQuotaRuntimeRequestContext(runtime),
-                    surfaceExplicitProviderIssues: true,
-                    formatStyle: "allWindows",
-                    providers: runtime.providers,
-                    includeAllWindowsData: true,
-                });
+                // The snapshot is the public quota data interface: it is gated only by
+                // the quota background toggle, never by sidebar card visibility, so
+                // hiding the card does not stop independent commands or queries.
+                const result = runtime.config.enabled
+                    ? await collectQuotaRenderData({
+                        client: runtime.client,
+                        resolveRuntimeProviderIds: runtime.resolveRuntimeProviderIds,
+                        config: runtime.config,
+                        configMeta: runtime.configMeta,
+                        request: createQuotaRuntimeRequestContext(runtime),
+                        surfaceExplicitProviderIssues: true,
+                        formatStyle: "allWindows",
+                        providers: runtime.providers,
+                        includeAllWindowsData: true,
+                    })
+                    : null;
                 const suppressPartialErrors = input.suppressPartialErrorsOverride ?? runtime.config.tuiSidebarPanel.suppressPartialErrors;
-                const partialProviderErrors = suppressPartialErrors
+                const partialProviderErrors = suppressPartialErrors && result
                     ? result.providerResults.flatMap(({ result: providerResult }) => providerResult.entries.length > 0 ? providerResult.errors : [])
                     : [];
-                return {
-                    cards: buildQuotaSidebarCards(result.allWindowsData ?? result.data, {
-                        suppressPartialErrors,
-                        partialProviderErrors,
-                    }),
-                };
+                return buildQuotaSnapshotResponse({
+                    enabled: runtime.config.enabled,
+                    data: result ? (result.allWindowsData ?? result.data) : null,
+                    suppressPartialErrors,
+                    partialProviderErrors,
+                });
             },
             async settings() {
                 const runtime = await loadRuntime(context);
@@ -102,19 +105,24 @@ export default Plugin.define({
                     suppressPartialErrors: runtime.config.tuiSidebarPanel.suppressPartialErrors,
                 };
             },
-            async resolveOAuthCredential(input) {
-                const credential = await resolveHostOAuthCredential(context, input.integrationID);
-                return {
-                    credential: credential
-                        ? {
-                            access: credential.access,
-                            ...(credential.refresh ? { refresh: credential.refresh } : {}),
-                            ...(credential.expiresAt !== undefined
-                                ? { expiresAt: credential.expiresAt }
-                                : {}),
-                        }
-                        : null,
-                };
+            async command(input) {
+                // Commands run against the connected server's location, config and
+                // storage. Credentials never cross the RPC boundary to the TUI.
+                return buildQuotaDialogCommandOutput({
+                    command: input.command,
+                    arguments: input.arguments,
+                    sessionID: input.sessionID,
+                    client: createQuotaCoreClient(context),
+                    roots: {
+                        activeDirectory: context.location.directory,
+                        fallbackDirectory: context.location.directory,
+                    },
+                    resolveSessionMeta: async (id) => {
+                        const session = await context.session.get({ sessionID: id });
+                        const model = session?.model;
+                        return model ? { modelID: model.id, providerID: model.providerID } : {};
+                    },
+                });
             },
         });
     },

@@ -262,7 +262,7 @@ export function SubAgentPanel(props: {
 
 export function createSubagentController(
   context: Context,
-  runtime = createV2Metrics(context),
+  runtime: ReturnType<typeof createV2Metrics>,
 ) {
     const [state, update] = context.storage.store<Persisted>("subagent-magazine-v2", { initial: { version: 2, byParent: {} } })
     const tools = new Map<string, ToolInfo>()
