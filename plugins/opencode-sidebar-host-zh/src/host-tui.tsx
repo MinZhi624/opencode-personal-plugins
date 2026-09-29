@@ -1,7 +1,7 @@
 /** @jsxImportSource @opentui/solid */
 // 侧栏宿主（生产版）：只拥有侧栏追加入口、卡片注册 Interface、排序／显隐设置与管理菜单。
 //
-// 明确不做的事（docs/refeactor/SIDEBAR-PHASE2-SPEC.md「三个责任区」）：
+// 明确不做的事：
 // - 不静态导入任何业务卡片（额度／会话概览／子代理／技能或第三方卡片）；
 // - 不创建会话统计运行时、不持有 Provider 凭据、不实现卡片业务计算；
 // - 不 replace 原生侧栏：只 append 到 sidebar.content 之后；

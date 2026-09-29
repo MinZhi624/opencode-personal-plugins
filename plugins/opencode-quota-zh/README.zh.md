@@ -58,5 +58,4 @@ Server 入口是 `dist/index.js`，OpenCode v2 CLI 入口是 `dist/tui-v2.tsx`�
 
 ## 相关文档
 
-- [OpenAI/ChatGPT 订阅 Token 记账说明](../../docs/openai-subscription-token-accounting.md)
 - [整合包主 README](../../README.md)

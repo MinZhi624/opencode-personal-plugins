@@ -303,7 +303,7 @@ flowchart TD
 
 ## Reproducible adaptation
 
-上游快照固定在 `vendor/mattpocock-skills/`，版本 `v1.2.2`、commit `8b36d4fb2635b3c21998dcd8144439c9e5ba7302`。`skills/`、`skill-manifest.json` 和 `dist/` 都是生成物，不要手改。
+上游快照固定为 Matt Pocock Skills `v1.2.2`、commit `8b36d4fb2635b3c21998dcd8144439c9e5ba7302`；快照本体只保留在源码仓库，不随安装包分发。`skills/`、`skill-manifest.json` 和 `dist/` 都是生成物，不要手改。在源码仓库中重新生成：
 
 ```bash
 npm run sync:matt-skills
@@ -316,8 +316,10 @@ OpenCode v2 会重载受监视的配置与插件；未受监视的本地依赖�
 
 ## Architecture
 
-- [Domain language](./CONTEXT.md)
-- [Architecture decisions](./docs/adr/)
-- [Bundle merge guide](../../docs/MERGE_EXISTING_CONFIG.md)
+- **独立原生插件。** 通过 OpenCode 的 config hook 注册自己的 Primary 与 Worker Agent，只使用原生权限、任务委派、可见性与 `steps` 上限；不依赖其他 agent 包，也不实现调度器、worktree 管理、命令执行器、Hook 层或持久任务运行时。
+- **可复现适配边界。** 固定版本的上游快照 + 显式适配规则 + 提交进仓库的生成 Skill；开发知识资产（领域语言、设计决策）与上游快照都不进入安装包分发的运行集。
+- 其余取舍见上文[设计原则](#设计原则总结)。
+
+合并到已有 OpenCode 配置的方法见 [`docs/MERGE_EXISTING_CONFIG.md`](../../docs/MERGE_EXISTING_CONFIG.md)。
 
 这是非官方 OpenCode adapter。Matt Pocock 的 vendored Skills 保留上游 MIT 许可证和 provenance。

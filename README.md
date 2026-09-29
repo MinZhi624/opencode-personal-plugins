@@ -3,7 +3,7 @@
 <p align="center">OpenCode 本地中文插件整合包：额度、Token 用量、API 标价估算与工程工作流。</p>
 
 <p align="center">
-  <a href="#版本记录"><img alt="版本" src="https://img.shields.io/badge/版本-v2.1.0-blue?style=flat-square" /></a>
+  <a href="#版本记录"><img alt="版本" src="https://img.shields.io/badge/版本-v1.0.0-blue?style=flat-square" /></a>
   <a href="https://opencode.ai/v2/docs/"><img alt="OpenCode" src="https://img.shields.io/badge/OpenCode-2.0.18-blue?style=flat-square" /></a>
   <a href="https://nodejs.org/"><img alt="Node.js" src="https://img.shields.io/badge/Node.js-%E2%89%A522.6-339933?style=flat-square" /></a>
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" /></a>
@@ -18,10 +18,25 @@
 | 插件 | 加载面 | 用途 | 独立说明 |
 | --- | --- | --- | --- |
 | `opencode-quota-zh` | Server + TUI | Provider 额度后台和独立命令（关闭卡片后仍工作） | [README.zh.md](plugins/opencode-quota-zh/README.zh.md) |
-| `opencode-sidebar-host-zh` / `opencode-session-data` | TUI | 排序／显隐宿主和独立共享会话统计 | [正式规格](docs/refeactor/SIDEBAR-PHASE2-SPEC.md) |
-| `opencode-quota-card-zh` / `opencode-session-overview-zh` / `opencode-subagent-card-zh` / `opencode-skill-panel` | TUI | 可分别启停的额度、上下文、子代理、技能卡片 | [正式规格](docs/refeactor/SIDEBAR-PHASE2-SPEC.md) |
+| `opencode-sidebar-host-zh` / `opencode-session-data` | TUI | 排序／显隐宿主和独立共享会话统计 | [README.md](plugins/opencode-sidebar-host-zh/README.md) |
+| `opencode-quota-card-zh` / `opencode-session-overview-zh` / `opencode-subagent-card-zh` / `opencode-skill-panel` | TUI | 可分别启停的额度、上下文、子代理、技能卡片 | [README.md](plugins/opencode-quota-card-zh/README.md) |
 | `opencode-matt-workshop` | Server | Drafter、Foreman、Tinker 与 Workflow Skill | [README.md](plugins/opencode-matt-workshop/README.md) |
 | `gpt-reset-credits` | Server | ChatGPT 重置卡查询与确认兑换 | [README.md](plugins/gpt-reset-credits/README.md) |
+
+## 核心设计原则
+
+侧栏、额度与工作流三部分共享同一组取舍，改动前先对照：
+
+- **上游核心少改。** Provider 支持、额度查询、缓存与核心计算沿用上游；不为中文样式、卡片位置或显示开关深入修改上游核心。必要的 OpenCode v2 兼容补丁集中管理并记录原因和适用版本。
+- **适配层隔离上游变化。** 上游结果先转换为本地稳定的数据契约，卡片不直接依赖上游内部文件；上游接口变化优先在适配层解决。
+- **凭据留在服务端。** 需要凭据的额度查询在服务端完成，TUI 只消费结构化非敏感数据，不取得 access/refresh token。
+- **一份数据，多处展示。** 共享统计模块只负责数据与计算（消息读取、Token、价格、会话关系、TPS），不负责卡片布局；关掉一张卡片不影响其他卡片消费同一结果。
+- **宿主只管排列。** 宿主用 `append: "sidebar.content"` 追加到原生侧栏，只管理本套新增卡片的顺序与显隐，不接管 Provider 查询和业务计算。
+- **三种操作互相独立。** 隐藏卡片（显示偏好）、禁用卡片插件（撤销注册并清理）、停用额度后台（停止数据能力）不是同一件事，不互相暗中控制。
+- **估算不是账单。** Token 费用是按 models.dev 公开单价的估算，不等于 Provider 实际账单，也不等于 ChatGPT 订阅额度；无价格的模型显示“未定价”，不伪装成 `$0`。
+- **手动控制优先于自动判断。** Workshop 的角色切换、TDD、验证范围都由用户显式选择，插件不自动切档、不默认扩张任务。
+
+各插件的详细边界见上文表格中的独立说明；本包的取舍记录以代码注释和上述原则为准。
 
 ## 上游项目（间接参考）
 
@@ -82,7 +97,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 > OpenCode v2 会重载受监视的配置与插件；未受监视的本地依赖变更后请重启服务。
 > 升级自聚合侧栏时，必须在 `cli.json` 删除 `opencode-enhanced-sidebar-zh` 条目再加入新宿主和四张卡片；不能同时启用两套展示。安装器默认不修改已有配置。
 
-新宿主的跨插件 JSX 注册通过同一 TUI 进程内的自有版本化接合处实现，并非 OpenCode 官方保证的跨插件 API。正式安装后的人工验收记录见 [`docs/refeactor/SIDEBAR-PHASE2-INSTALL-ACCEPTANCE.md`](docs/refeactor/SIDEBAR-PHASE2-INSTALL-ACCEPTANCE.md)；未勾选的项目不能视为通过。
+新宿主的跨插件 JSX 注册通过同一 TUI 进程内的自有版本化接合处实现，并非 OpenCode 官方保证的跨插件 API；仅按 OpenCode 2.0.18 验证，升级须重新验收。接合处契约与迁移注意见 [`opencode-sidebar-host-zh`](plugins/opencode-sidebar-host-zh/README.md) 与 [`opencode-quota-card-zh`](plugins/opencode-quota-card-zh/README.md)。
 
 ## 更新
 
@@ -141,6 +156,13 @@ Set-ExecutionPolicy -Scope Process Bypass
 ```
 
 然后重启 OpenCode。卸载不会删除 OpenCode 的登录凭证或会话数据库。
+
+## 版本记录
+
+当前版本 **1.0.0**，与 `package.json` 及各插件 `package.json` 的 `version` 字段一致；root README 徽章随该版本号更新。
+
+- 公开文档只覆盖用法与核心设计原则；内部设计、原型与验收记录不随安装包分发。
+- OpenCode 兼容基线为 2.0.18；升级 OpenCode 后须按上文重新验收自有接合处。
 
 ## 许可证与声明
 

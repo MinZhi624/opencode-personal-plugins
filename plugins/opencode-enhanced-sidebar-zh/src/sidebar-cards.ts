@@ -4,7 +4,7 @@
  * 只放纯函数和类型：不 import context、不做 IO，方便脱离 TUI 直接验证。
  * 命令面板菜单见 tui-v2-sidebar-card-menu.tsx，宿主渲染见 tui-v2.tsx。
  *
- * 设置契通（docs/refeactor/SIDEBAR-PHASE1-SPEC.md）：
+ * 设置契约：
  * - 宿主持久化带版本的卡片 ID 顺序及显隐状态，用 context.storage.store 保存；
  * - 首次无新设置时按既有顺序（额度、会话概览、子代理、技能）初始化，
  *   旧启用选项决定首次显隐；已有新设置后菜单保存值优先，不被启动选项覆写；

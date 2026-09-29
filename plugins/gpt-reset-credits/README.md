@@ -36,5 +36,4 @@ Linux/macOS 默认使用 `python3`，Windows 默认使用 `py -3`；可用 `OPEN
 
 ## 相关文档
 
-- [OpenAI/ChatGPT 订阅 Token 记账说明](../../docs/openai-subscription-token-accounting.md)
 - [整合包主 README](../../README.md)

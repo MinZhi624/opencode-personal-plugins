@@ -1,6 +1,6 @@
 # opencode-quota-card-zh — 「额度」卡片（独立 TUI 插件）
 
-第二阶段侧栏模块化（docs/refeactor/SIDEBAR-PHASE2-SPEC.md）中的**额度卡片**：可单独启停的
+第二阶段侧栏模块化中的**额度卡片**：可单独启停的
 TUI 插件，向侧栏宿主注册一张稳定身份为 `quota`、标题「额度」的卡片。卡片内容原样复用
 `opencode-quota-zh` 已构建的 `QuotaPanel`；额度查询、Provider 核算与凭据留在服务端。
 
@@ -22,10 +22,10 @@ TUI 插件，向侧栏宿主注册一张稳定身份为 `quota`、标题「额�
 **不做**：
 
 - 不注册任何命令、键位或槽位。`/quota` 等命令归 `opencode-quota-zh` 后台插件所有，
-  卡片显隐、启停都不影响它们（规格用户故事 11／12）。
-- 不自绘侧栏、不回退 `replace`。宿主缺席时绝不替换或重复原生侧栏（用户故事 22）。
+  卡片显隐、启停都不影响它们。
+- 不自绘侧栏、不回退 `replace`。宿主缺席时绝不替换或重复原生侧栏。
 - 不接触凭据。TUI 只经服务端 RPC（`snapshot`／`settings`）消费结构化非敏感数据，
-  不取得 access／refresh token（规格「quota 责任区」红线）。
+  不取得 access／refresh token。
 - 不改额度口径。既有 RPC 状态（`ready`／`disabled`）与展示状态（加载中／额度查询失败／
   额度后台未启用／暂无额度数据）由 `QuotaPanel` 原样保留，失败不显示为零额度。
 - 不复制额度渲染逻辑；展示随 `opencode-quota-zh` 的构建产物单一来源演进。
@@ -77,10 +77,9 @@ TUI 插件，向侧栏宿主注册一张稳定身份为 `quota`、标题「额�
 根因是该构建产物按其 `.js` 依赖推断类型时丢失了仅类型导出（`QuotaSidebarCard` 等），
 属于生成产物的固有属性（任何导入方同理）。把同一字节文件换成
 `plugins/opencode-quota-zh/src/tui-v2.tsx` 复跑为 0 错误，证明本插件自身类型完备。
-运行时不读 `src`：暂存发行包只含 quota-zh 的 `dist`（见 scripts/stage-runtime.mjs），
-因此导入路径必须是 `dist`。
+运行时不读 `src`：暂存发行包只含 quota-zh 的 `dist`，因此导入路径必须是 `dist`。
 
 ## 未验证项
 
-- 真实安装后的 TUI 端到端人工验收（宿主就绪后按 SIDEBAR-PHASE2-INSTALL-ACCEPTANCE.md 执行）。
+- 真实安装后的 TUI 端到端人工验收（宿主就绪后按安装版验收清单逐项执行，未勾选项不能视为通过）。
 - 其他 OpenCode 版本；跨插件注册是版本限定、需升级复验的自有接合处，非官方承诺接口。
