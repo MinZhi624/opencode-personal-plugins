@@ -12,7 +12,7 @@
  *   `acquireSessionData` 取得运行时与摘要工厂，绝不自行创建统计运行时；
  * - 实例锚定在 `globalThis[Symbol.for(...)]` 的注册表上，因此即使双方各持
  *   一份模块拷贝也收敛到同一实例；注册表以 `context.renderer` 为键，
- *   同一 TUI 内跨插件共享，多个 TUI 窗口彼此隔离；
+ *   同一 TUI 内跨插件、跨会话位置共享，多个 TUI 窗口彼此隔离；
  * - 数据模块缺席时消费者必须报告“不可用”，不得回退为自建运行时或零值。
  */
 
@@ -22,9 +22,10 @@ import { createSessionCostSummary } from "./metrics/session-cost-summary.ts"
 import { createSessionDataRuntime, type SessionDataRuntime } from "./runtime.ts"
 
 /** 当前 Interface 版本。不兼容版本确定性拒绝接管，绝不静默混用。 */
-export const SESSION_DATA_SEAM_VERSION = 1
+export const SESSION_DATA_SEAM_VERSION = 2
 /** Seam 注册表锚点（globalThis[Symbol.for(...)]）。 */
-export const SESSION_DATA_SEAM_SYMBOL = Symbol.for("opencode-session-data.seam.v1")
+export const SESSION_DATA_SEAM_SYMBOL = Symbol.for("opencode-session-data.seam.v2")
+const LEGACY_SESSION_DATA_SEAM_SYMBOL = Symbol.for("opencode-session-data.seam.v1")
 /**
  * 数据插件卸载后的清理宽限（毫秒）。热重载／快速切换期间新代会接管同一
  * 运行时；只有宽限内无人接管才真正销毁，避免误杀仍在使用的运行时。
@@ -85,11 +86,14 @@ export interface SessionDataSeamInstall {
 interface InternalSeam extends SessionDataSeam {
   /** 原始数据插件的连接客户端；换连接重新 setup 时不得接管旧运行时。 */
   readonly sourceClient: Context["client"]
+  /** 每次 setup 接管递增；旧代 cleanup 不能卸载新代持有的 seam。 */
+  installGeneration: number
   orphanedFlag: boolean
   pendingDisposeTimer?: ReturnType<typeof setTimeout>
 }
 
-type SeamRegistry = WeakMap<object, Map<string, SessionDataSeam>>
+type SeamRegistry = WeakMap<object, SessionDataSeam>
+type LegacySeamRegistry = WeakMap<object, Map<string, SessionDataSeam>>
 
 function registry(globalObj: object): SeamRegistry {
   const holder = globalObj as Record<symbol, SeamRegistry | undefined>
@@ -100,29 +104,35 @@ function registry(globalObj: object): SeamRegistry {
   return created
 }
 
+/** 换代时把旧位置表指向新代，再通知旧消费者，兼容仍在挂载的 v1 卡片。 */
+export function retireLegacySessionDataSeams(globalObj: object, renderer: object, replacement: SessionDataSeam): void {
+  const old = (globalObj as Record<symbol, LegacySeamRegistry | undefined>)[LEGACY_SESSION_DATA_SEAM_SYMBOL]?.get(renderer)
+  if (!old) return
+  const seams = new Set([...old.values()].filter((seam) => seam.version !== SESSION_DATA_SEAM_VERSION))
+  for (const scope of old.keys()) old.set(scope, replacement)
+  for (const seam of seams) seam.dispose()
+}
+
 /**
  * 按 TUI 实例隔离的键：同一 TUI 内所有插件共享同一个 renderer，多个 TUI
  * 窗口（含同进程多实例）各自不同。缺失时退化为 context 本身。
+ * 不能以当前 location 再分区：它可能随标签切换，而数据插件只 setup 一次。
+ * 运行时的统计缓存已经按 sessionID 分区。
  */
 function instanceKey(context: Context): object {
   const renderer: unknown = context.renderer
   return renderer && typeof renderer === "object" ? (renderer as object) : context
 }
 
-function locationKey(context: Context): string {
-  const location = context.location ?? context.data.location.default()
-  return `${location.directory}\u0000${location.workspaceID ?? ""}`
-}
-
 /** 当前 TUI 实例的 seam；数据模块缺席时为 undefined。 */
 export function lookupSessionDataSeam(context: Context): SessionDataSeam | undefined {
-  const seam = registry(globalThis).get(instanceKey(context))?.get(locationKey(context))
+  const seam = registry(globalThis).get(instanceKey(context))
   if (!seam || seam.orphaned()) return undefined
   return seam
 }
 
-function createSeam(context: Context): InternalSeam {
-  const runtime = createSessionDataRuntime(context)
+function createSeam(context: Context, createRuntime: (context: Context) => SessionDataRuntime): InternalSeam {
+  const runtime = createRuntime(context)
   const counts = new Map<string, number>()
   const disposeListeners = new Set<() => void>()
   let disposed = false
@@ -135,6 +145,7 @@ function createSeam(context: Context): InternalSeam {
     version: SESSION_DATA_SEAM_VERSION,
     runtime,
     sourceClient: context.client,
+    installGeneration: 1,
     orphanedFlag: false,
     consumers: () => total(),
     consumerCounts: () => Object.fromEntries(counts),
@@ -203,49 +214,40 @@ function cancelPendingDispose(seam: InternalSeam): void {
 export function installSessionDataSeam(
   globalObj: object,
   context: Context,
+  createRuntime: (context: Context) => SessionDataRuntime = createSessionDataRuntime,
 ): SessionDataSeamInstall {
   const map = registry(globalObj)
   const key = instanceKey(context)
-  let locations = map.get(key)
-  if (!locations) {
-    locations = new Map()
-    map.set(key, locations)
-  }
-  const scope = locationKey(context)
-  const existing = locations.get(scope) as InternalSeam | undefined
+  const existing = map.get(key) as InternalSeam | undefined
   if (existing && existing.version === SESSION_DATA_SEAM_VERSION && existing.sourceClient === context.client) {
     cancelPendingDispose(existing)
     existing.orphanedFlag = false
+    const generation = ++existing.installGeneration
+    retireLegacySessionDataSeams(globalObj, key, existing)
     return {
       seam: existing,
       adopted: true,
       replacedVersion: undefined,
-      dispose: () => {
-        existing.orphanedFlag = true
-        existing.pendingDisposeTimer = setTimeout(() => {
-          existing.pendingDisposeTimer = undefined
-          if (locations.get(scope) !== existing) return
-          locations.delete(scope)
-          existing.dispose()
-        }, SESSION_DATA_DISPOSE_GRACE_MS)
-      },
+      dispose: () => disposeInstall(map, key, existing, generation),
     }
   }
-  const seam = createSeam(context)
+  const seam = createSeam(context, createRuntime)
+  // v1 按位置分表；新代先发布，再使旧消费者收到销毁通知并重新接入。
+  // v1 表的旧位置键改指新代；旧代卸载计时器只会检查 v1 表中的旧实例。
+  map.set(key, seam)
+  retireLegacySessionDataSeams(globalObj, key, seam)
   if (existing) {
     // 版本不兼容：新代先注册，旧消费者重新 acquire 时落到新代。
-    locations.set(scope, seam)
     cancelPendingDispose(existing)
     existing.dispose()
-    return { seam, adopted: false, replacedVersion: existing.version, dispose: () => scheduleDispose(locations, scope, seam) }
+    return { seam, adopted: false, replacedVersion: existing.version, dispose: () => disposeInstall(map, key, seam, 1) }
   }
-  locations.set(scope, seam)
-  return { seam, adopted: false, replacedVersion: undefined, dispose: () => scheduleDispose(locations, scope, seam) }
+  return { seam, adopted: false, replacedVersion: undefined, dispose: () => disposeInstall(map, key, seam, 1) }
 }
 
-function scheduleDispose(map: Map<string, SessionDataSeam>, key: string, seam: InternalSeam): void {
+function disposeInstall(map: SeamRegistry, key: object, seam: InternalSeam, generation: number): void {
+  if (seam.installGeneration !== generation || map.get(key) !== seam || seam.orphanedFlag) return
   seam.orphanedFlag = true
-  if (seam.pendingDisposeTimer !== undefined) clearTimeout(seam.pendingDisposeTimer)
   seam.pendingDisposeTimer = setTimeout(() => {
     seam.pendingDisposeTimer = undefined
     if (map.get(key) !== seam) return
