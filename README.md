@@ -3,7 +3,7 @@
 <p align="center">OpenCode 本地中文插件整合包：额度、Token 用量、API 标价估算与工程工作流。</p>
 
 <p align="center">
-  <a href="#版本记录"><img alt="版本" src="https://img.shields.io/badge/版本-v1.0.1-blue?style=flat-square" /></a>
+  <a href="#版本记录"><img alt="版本" src="https://img.shields.io/badge/版本-v2.1.0-blue?style=flat-square" /></a>
   <a href="https://opencode.ai/v2/docs/"><img alt="OpenCode" src="https://img.shields.io/badge/OpenCode-2.0.18-blue?style=flat-square" /></a>
   <a href="https://nodejs.org/"><img alt="Node.js" src="https://img.shields.io/badge/Node.js-%E2%89%A522.6-339933?style=flat-square" /></a>
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" /></a>
@@ -44,23 +44,38 @@
 
 - OpenCode 2.0.18（跨插件侧栏接合处按此版本验证；升级须重新验收）
 - Node.js 22.6 或更高版本、npm
-- Python 3.10 或更高版本（仅 `gpt-reset-credits` 需要）
+- Python 3.10 或更高版本（仅安装 `alone` 组的 `gpt-reset-credits` 时需要）
 
 Linux / macOS / WSL：
 
 ```bash
-bash install.sh
+bash install.sh                 # 交互式选择组件组（终端中预选上次安装的组合）
+bash install.sh --all           # 安装全部组，跳过提问
+bash install.sh --only workshop,sidebar
 ```
 
 Windows PowerShell：
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
-.\install.ps1
+.\install.ps1                   # 或 .\install.ps1 --all / --only workshop,sidebar
 ```
 
-安装器默认不会覆盖已有 OpenCode 配置；已有配置请参考
-[`docs/MERGE_EXISTING_CONFIG.md`](docs/MERGE_EXISTING_CONFIG.md)。
+### 安装组
+
+| 组 | 内容 | 说明 |
+| --- | --- | --- |
+| `workshop` | `opencode-matt-workshop` | 工作流：Drafter / Foreman / Tinker 等 agent 与 Workflow Skill 命令 |
+| `sidebar` | `opencode-quota-zh`、`opencode-sidebar-host-zh`、`opencode-session-data` 与四张卡片 | 侧栏与额度：`/quota` 命令、卡片和共享会话统计都在此组 |
+| `alone` | `gpt-reset-credits` | 独立插件；需要 Python 3.10+ |
+
+组之间无依赖，可任意组合；组内依赖插件（含隐藏共享库 `opencode-enhanced-sidebar-zh`）随组整体安装。
+想要 `/quota` 命令需安装 `sidebar` 组。非交互环境（CI／重定向）请显式使用 `--all` 或 `--only` / `--without`，
+不带参数会报错退出而不静默全装。
+
+安装器默认不会覆盖已有 OpenCode 配置；按本次选择裁剪的合并片段生成在 bundle 的
+`docs/MERGE-SELECTED.md`，通用合并方法见 [`docs/MERGE_EXISTING_CONFIG.md`](docs/MERGE_EXISTING_CONFIG.md)。
+本包生成且之后未改过的配置会在下次安装时自动备份并更新。
 
 > [!IMPORTANT]
 > OpenCode v2 会重载受监视的配置与插件；未受监视的本地依赖变更后请重启服务。
@@ -71,9 +86,10 @@ Set-ExecutionPolicy -Scope Process Bypass
 ## 更新
 
 1. 关闭 OpenCode。
-2. 重新运行安装器（`install.sh` / `install.ps1`），默认保留已有配置。
-3. 若检测到已有配置，按提示手工合并插件条目。
-4. 重启 OpenCode。
+2. 重新运行安装器（`install.sh` / `install.ps1`）。交互模式预选上次安装的组件组；用 `--only` / `--without` 可增减组。
+3. 已有配置默认保留，按提示用 `docs/MERGE-SELECTED.md` 的片段合并；本包生成且未改过的配置会自动备份并更新。
+4. 减少组件组时，bundle 保留未选组的插件文件（已有配置不会指向缺失路径）；按 `docs/MERGE-SELECTED.md` 的清单删除配置条目后该组才真正停用。
+5. 重启 OpenCode。
 
 ## 常用命令
 
@@ -115,7 +131,9 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 ## 卸载
 
-从 `opencode.json(c)` 和 `cli.json` 的 `plugins` 列表删除本包条目，删除：
+只想停用部分功能时，重跑安装器并去掉对应组，再按 bundle `docs/MERGE-SELECTED.md` 的清单删除配置条目。
+
+完全卸载：从 `opencode.json(c)` 和 `cli.json` 的 `plugins` 列表删除本包条目，删除：
 
 ```text
 ~/.config/opencode/opencode-zh-bundle/

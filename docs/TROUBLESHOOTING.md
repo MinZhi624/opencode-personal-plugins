@@ -1,8 +1,15 @@
 # OpenCode v2 故障排查
 
+## 配置条目指向未安装的组件组
+
+选择性安装减少组件组后，若配置里仍有该组条目，插件会继续加载（bundle 保留未选组的文件）；
+若手动删过 bundle 里的插件目录而配置条目还在，OpenCode 会报找不到插件路径。
+按 bundle `docs/MERGE-SELECTED.md` 的"未选组需要删除的条目"清单删除对应条目，或重跑安装器
+并用 `--replace-config` 写入按当前选择生成的模板（会先备份）。
+
 ## 版本或配置不兼容
 
-本包固定支持 OpenCode 2.0.12。确认 opencode --version，并检查：
+本包固定支持 OpenCode 2.0.18。确认 opencode --version，并检查：
 
 - 服务端配置为 ~/.config/opencode/opencode.json(c)，键名为 plugins。
 - 终端配置为 ~/.config/opencode/cli.json，schema 为 https://opencode.ai/v2/cli.json。
@@ -11,12 +18,12 @@
 ## 找不到包或模块
 
 在 bundle 根目录执行 npm ci --omit=dev --ignore-scripts --no-audit --no-fund。
-四个插件共用根目录 node_modules，不要进入插件目录分别安装，也不要运行
+全部插件共用根目录 node_modules，不要进入插件目录分别安装，也不要运行
 npm audit fix --force。
 
 ## 侧边栏不显示或重复
 
-确认 cli.json 只保留一份三个 v2 入口，并按额度、会话概览、子代理排序。旧 v1
+确认 cli.json 中本包各插件条目没有重复注册（同一插件只出现一次），旧 v1
 入口与聚合入口必须删除。配置支持重载；若本地依赖未被监视，重启 OpenCode 服务。
 
 ## API 标价估算缺失

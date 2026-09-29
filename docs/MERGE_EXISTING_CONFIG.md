@@ -2,6 +2,8 @@
 
 侧栏模块化接合处目前仅按 OpenCode 2.0.18 的原型结果设计；正式安装版还需人工验收。安装器默认保留已有配置；合并前请自行备份。
 
+> 按本次安装选择裁剪好的逐条片段见安装器生成的 `MERGE-SELECTED.md`（位于 bundle 的 `docs/` 下）；本文是通用方法与注意事项。
+
 ## 服务端：opencode.json(c)
 
 把 config/opencode.jsonc 中的条目合并到现有配置：
