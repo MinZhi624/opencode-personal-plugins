@@ -10,6 +10,8 @@ docs/research/
 !/docs/openai-subscription-token-accounting.md
 /prototype/
 /CONTEXT.md
+/AGENTS.md
+/plugins/*/AGENTS.md
 /plugins/opencode-matt-workshop/CONTEXT.md
 /plugins/opencode-matt-workshop/docs/adr/
 /plugins/opencode-matt-workshop/docs/implementation/
