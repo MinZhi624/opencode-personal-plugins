@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="#版本记录"><img alt="版本" src="https://img.shields.io/badge/版本-v1.0.1-blue?style=flat-square" /></a>
-  <a href="https://opencode.ai/v2/docs/"><img alt="OpenCode" src="https://img.shields.io/badge/OpenCode-2.0.12-blue?style=flat-square" /></a>
+  <a href="https://opencode.ai/v2/docs/"><img alt="OpenCode" src="https://img.shields.io/badge/OpenCode-2.0.18-blue?style=flat-square" /></a>
   <a href="https://nodejs.org/"><img alt="Node.js" src="https://img.shields.io/badge/Node.js-%E2%89%A522.6-339933?style=flat-square" /></a>
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" /></a>
 </p>
@@ -13,12 +13,13 @@
 
 ## 简介
 
-本包不重写 OpenCode，而是在若干开源项目基础上做 OpenCode 适配、中文化与本地整合。四个插件可独立使用：
+本包不重写 OpenCode，而是在若干开源项目基础上做 OpenCode 适配、中文化与本地整合。侧栏功能由独立宿主、共享会话统计和四张可分别启停的卡片组成：
 
 | 插件 | 加载面 | 用途 | 独立说明 |
 | --- | --- | --- | --- |
-| `opencode-quota-zh` | Server + TUI | Provider 额度、历史 Token 统计、API 标价估算 | [README.zh.md](plugins/opencode-quota-zh/README.zh.md) |
-| `opencode-session-overview-zh` / `opencode-subagent-magazine-zh` | TUI | 可独立开关的上下文、TPS、子代理与任务树费用 | [README.zh.md](plugins/opencode-enhanced-sidebar-zh/README.zh.md) |
+| `opencode-quota-zh` | Server + TUI | Provider 额度后台和独立命令（关闭卡片后仍工作） | [README.zh.md](plugins/opencode-quota-zh/README.zh.md) |
+| `opencode-sidebar-host-zh` / `opencode-session-data` | TUI | 排序／显隐宿主和独立共享会话统计 | [正式规格](docs/refeactor/SIDEBAR-PHASE2-SPEC.md) |
+| `opencode-quota-card-zh` / `opencode-session-overview-zh` / `opencode-subagent-card-zh` / `opencode-skill-panel` | TUI | 可分别启停的额度、上下文、子代理、技能卡片 | [正式规格](docs/refeactor/SIDEBAR-PHASE2-SPEC.md) |
 | `opencode-matt-workshop` | Server | Drafter、Foreman、Tinker 与 Workflow Skill | [README.md](plugins/opencode-matt-workshop/README.md) |
 | `gpt-reset-credits` | Server | ChatGPT 重置卡查询与确认兑换 | [README.md](plugins/gpt-reset-credits/README.md) |
 
@@ -41,7 +42,7 @@
 
 环境要求：
 
-- OpenCode 2.0.12 或更高版本
+- OpenCode 2.0.18（跨插件侧栏接合处按此版本验证；升级须重新验收）
 - Node.js 22.6 或更高版本、npm
 - Python 3.10 或更高版本（仅 `gpt-reset-credits` 需要）
 
@@ -63,6 +64,9 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 > [!IMPORTANT]
 > OpenCode v2 会重载受监视的配置与插件；未受监视的本地依赖变更后请重启服务。
+> 升级自聚合侧栏时，必须在 `cli.json` 删除 `opencode-enhanced-sidebar-zh` 条目再加入新宿主和四张卡片；不能同时启用两套展示。安装器默认不修改已有配置。
+
+新宿主的跨插件 JSX 注册通过同一 TUI 进程内的自有版本化接合处实现，并非 OpenCode 官方保证的跨插件 API。正式安装后的人工验收记录见 [`docs/refeactor/SIDEBAR-PHASE2-INSTALL-ACCEPTANCE.md`](docs/refeactor/SIDEBAR-PHASE2-INSTALL-ACCEPTANCE.md)；未勾选的项目不能视为通过。
 
 ## 更新
 
@@ -76,6 +80,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 | 命令 | 用途 |
 | --- | --- |
 | `/quota` | 查看当前 Provider 额度 |
+| `/sidebar-cards` | 统一管理已注册卡片的顺序和显隐（不等于禁用插件） |
 | `/quota_status` | 诊断认证、价格快照与未定价模型 |
 | `Ctrl+P` → `额度设置面板` | 单独打开额度设置面板，切换侧栏部分错误静默；默认在有有效数据时隐藏同一 Provider 的接口错误，`/quota_status` 仍保留诊断信息 |
 | `/pricing_refresh` | 从 models.dev 刷新共享价格快照 |
@@ -103,7 +108,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 ## 故障排查
 
-1. 确认 OpenCode 版本为 2.0.12，且使用 `cli.json` 而非旧 `tui.json(c)`。
+1. 确认 OpenCode 版本为 2.0.18，且使用 `cli.json` 而非旧 `tui.json(c)`。
 2. 运行 `/quota_status` 检查 Provider、价格快照来源与未定价模型。
 3. Token 报告为空时，先启动 OpenCode 生成 `opencode.db`，再运行一个有模型用量的会话。
 4. 常见症状与解决方案见 [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md)。

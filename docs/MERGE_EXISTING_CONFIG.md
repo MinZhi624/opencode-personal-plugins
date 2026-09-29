@@ -1,6 +1,6 @@
 # 合并到已有 OpenCode v2 配置
 
-本分支只支持 OpenCode 2.0.12。安装器默认保留已有配置；合并前请自行备份。
+侧栏模块化接合处目前仅按 OpenCode 2.0.18 的原型结果设计；正式安装版还需人工验收。安装器默认保留已有配置；合并前请自行备份。
 
 ## 服务端：opencode.json(c)
 
@@ -16,11 +16,25 @@
 
 ## 终端：cli.json
 
-OpenCode v2 的终端配置只有全局 ~/.config/opencode/cli.json。把模板中的额度包与增强侧栏包
-追加到 plugins；增强侧栏按“会话概览 → 子代理”顺序注册，并可通过 options 分别关闭。schema 必须是
+OpenCode v2 的终端配置只有全局 ~/.config/opencode/cli.json。保留 `opencode-quota-zh`（独立额度命令），
+将原 `opencode-enhanced-sidebar-zh` 的单个聚合条目**删除并替换为**模板中的
+`opencode-session-data`、`opencode-sidebar-host-zh`、`opencode-session-overview-zh`、
+`opencode-subagent-card-zh`、`opencode-quota-card-zh`、`opencode-skill-panel` 六个条目。
+不要同时加载聚合入口和四张新卡，否则会重复展示、重复统计监听。schema 为
 https://opencode.ai/v2/cli.json。
 
-2.0.12 应加载插件包目录，由包的 exports["./tui"] 选择 CLI 入口；不要直接配置源码 TSX。
+旧聚合入口的 `subagentsSortOrder`、`subagentsMaxEntries`、`subagentsTtlDays` 选项移到子代理卡片；
+`skillPanelMaxUsed`、`skillPanelDefaultOpen` 移到技能卡片。旧的 `sessionOverview`、`subagents`、
+`skillPanel` 启用选项现在由**是否加载对应插件**表达；需要隐藏而不禁用时用 `/sidebar-cards` 菜单。
+宿主与数据模块互不依赖；关闭额度卡片不影响 `opencode-quota-zh` 的命令及服务端 RPC。
+若旧选项有 `false`，首次切换前可从 `plugins` 移除对应卡片，或在宿主选项中填入旧设置
+`legacySettings: {"version":1,"order":["quota","sessionOverview","subagents","skill"],"hidden":[...旧隐藏项]}`；
+旧插件的持久化空间可能按插件隔离，宿主读不到时不会宣称已迁移。切换后检查 `/sidebar-host-status` 的迁移状态，
+逐项核对旧顺序、显隐、概览折叠及子代理记录，**不要在未核对时删除旧插件的存档或回退配置**。
+
+若升级后子代理卡展开为空而旧聚合卡有记录，在关闭 TUI 前先备份状态；OpenCode 2.0.18 的本地安装可从仓库运行 `node scripts/migrate-sidebar-subagents.mjs` 仅查看脱敏计数，再运行 `node scripts/migrate-sidebar-subagents.mjs --apply` 将旧插件命名空间的子代理记录幂等合并到新卡片命名空间。脚本会先备份两个存档，绝不删除旧文件；执行后完全重启 TUI 验证。此脚本不迁移布局和折叠状态，不适用于未验证的其他版本／远程状态路径。
+
+应加载插件包目录，由包的 exports["./tui"] 选择 CLI 入口；不要直接配置源码 TSX。
 删除旧 tui.json(c) 中本包的 v1 入口，避免重复面板。
 
 ## v1 回退

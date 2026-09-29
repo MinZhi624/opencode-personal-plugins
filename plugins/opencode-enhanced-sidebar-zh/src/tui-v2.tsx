@@ -8,6 +8,7 @@ import { SkillPanel } from "../../opencode-skill-panel/src/tui-v2.tsx"
 import { SessionOverview } from "./tui-v2-session-overview.tsx"
 import { createSubagentController, registerSubagentCommands, SubAgentPanel } from "./tui-v2-subagent-magazine.tsx"
 import { createV2Metrics } from "./v2-runtime.ts"
+import { acquireSessionData } from "../../opencode-session-data/src/seam.ts"
 import { createSessionCostSummary } from "./metrics/session-cost-summary.ts"
 import {
   resolveSidebarCardSettings,
@@ -22,7 +23,9 @@ import { registerSidebarCardCommands } from "./tui-v2-sidebar-card-menu.tsx"
 export default Plugin.define({
   id: "opencode-enhanced-sidebar-zh",
   setup(context) {
-    const runtime = createV2Metrics(context)
+    // 旧入口仅作回退；若共享数据模块已启用，不再创建第二份统计监听。
+    const shared = acquireSessionData(context, undefined, "opencode-enhanced-sidebar-zh")
+    const runtime = shared?.runtime ?? createV2Metrics(context)
     const subagents = createSubagentController(context, runtime)
     let activeSessionID: string | undefined
     // 卡片顺序与显隐的存档：首次无存档时按旧顺序＋旧启用选项初始化，
@@ -64,7 +67,8 @@ export default Plugin.define({
       disposeCommands()
       disposeCardMenu()
       subagents.dispose()
-      runtime.dispose()
+      if (shared) shared.release()
+      else runtime.dispose()
     }
   },
 })

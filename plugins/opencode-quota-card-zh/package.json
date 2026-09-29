@@ -1,0 +1,13 @@
+{
+  "name": "opencode-quota-card-zh",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "第二阶段侧栏模块化：可独立启停的「额度」TUI 卡片插件，向侧栏宿主注册卡片，内容复用 opencode-quota-zh 的 QuotaPanel。",
+  "exports": {
+    "./tui": {
+      "import": "./tui.ts"
+    }
+  },
+  "license": "MIT"
+}

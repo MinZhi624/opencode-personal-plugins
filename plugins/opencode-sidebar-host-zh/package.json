@@ -1,0 +1,15 @@
+{
+  "name": "opencode-sidebar-host-zh",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./tui": "./tui.ts",
+    "./card": "./src/register-card.ts"
+  },
+  "peerDependencies": {
+    "@opentui/core": ">=0.5.8",
+    "@opentui/solid": ">=0.5.8",
+    "solid-js": ">=1.9.0"
+  }
+}

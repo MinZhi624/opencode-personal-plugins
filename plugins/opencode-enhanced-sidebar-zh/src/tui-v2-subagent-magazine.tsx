@@ -128,13 +128,13 @@ const SUBAGENT_TOOLS = new Set(["subagent", "task", "delegate", "call_omo_agent"
 export function SubAgentPanel(props: {
   context: Context
   sessionID: string
-  runtime: ReturnType<typeof createV2Metrics>
+  runtime?: ReturnType<typeof createV2Metrics>
   summary?: SessionCostSummary
   state: Persisted
   update: (mutation: (draft: Persisted) => void) => Promise<void>
 }) {
   const [tick, setTick] = createSignal(0)
-  const summary = props.summary ?? createSessionCostSummary(props.context, props.runtime, () => props.sessionID, tick)
+  const summary = props.summary ?? (props.runtime ? createSessionCostSummary(props.context, props.runtime, () => props.sessionID, tick) : undefined)
   const [view, updateView] = props.context.storage.store("subagent-magazine-view-v2", {
     initial: { version: 2, open: true },
   })
@@ -176,7 +176,7 @@ export function SubAgentPanel(props: {
   // Status badges span records under the same root task tree, including nested agents.
   const taskEntries = createMemo(() => {
     void tick()
-    const parents = new Set([summary.rootID(), ...summary.descendantIDs()])
+    const parents = new Set(summary ? [summary.rootID(), ...summary.descendantIDs()] : props.context.data.session.family(props.sessionID))
     return Object.entries(props.state.byParent).flatMap(([parentID, entries]) => parents.has(parentID) ? entries : [])
   })
   const doneCount = createMemo(() => taskEntries().filter((entry) => entry.status === "done" || entry.status === "cancelled").length)
@@ -237,6 +237,7 @@ export function SubAgentPanel(props: {
   }
   const theme = props.context.theme
   const summaryTokensText = () => {
+    if (!summary) return "共享会话数据不可用"
     const status = summary.descendantTokenStatus()
     if (status === "failed") return "加载失败"
     if (status === "incomplete") return "不完整"
@@ -245,6 +246,7 @@ export function SubAgentPanel(props: {
     return `${formatTokenCount(tokens)}${status === "stale" ? "（旧数据）" : ""}`
   }
   const summaryCostText = () => {
+    if (!summary) return "共享会话数据不可用"
     const status = summary.descendantTokenStatus()
     if (status === "failed") return "加载失败"
     if (status === "incomplete") return "不完整"
@@ -262,17 +264,18 @@ export function SubAgentPanel(props: {
           <Show when={runningCount() > 0}><text fg={theme.text.feedback.warning.base}>●{runningCount()}</text></Show>
           <Show when={errorCount() > 0}><text fg={theme.text.feedback.error.base}>✕{errorCount()}</text></Show>
         </Show>
-        <Show when={!view.open && summary.descendantCount() > 0}>
+         <Show when={!view.open && summary && summary.descendantCount() > 0}>
           <text fg={theme.text.muted}>{summaryTokensText()}</text>
           <text fg={theme.text.action.primary.base}>{summaryCostText()}</text>
         </Show>
       </box>
       <Show when={view.open}>
+        <Show when={!props.runtime}><text fg={theme.text.muted}>共享会话数据不可用；子代理记录仍可操作</text></Show>
         <Show when={hiddenCount() > 0}><text fg={theme.text.muted}>列表另有 {hiddenCount()} 条未显示</text></Show>
         <For each={visibleEntries()}>{(entry) => {
             const result = () => {
               void tick()
-              return entry.childID ? props.runtime.metrics.get(entry.childID) : undefined
+               return entry.childID ? props.runtime?.metrics.get(entry.childID) : undefined
             }
             const entryTokens = () => result()?.complete && result()?.hasUsage ? totalTokenBuckets(result()!.tokens) : null
             return (
@@ -306,7 +309,7 @@ export function SubAgentPanel(props: {
 
 export function createSubagentController(
   context: Context,
-  runtime: ReturnType<typeof createV2Metrics>,
+  runtime?: ReturnType<typeof createV2Metrics>,
 ) {
     const [state, update] = context.storage.store<Persisted>("subagent-magazine-v2", { initial: { version: 2, byParent: {} } })
     const tools = new Map<string, ToolInfo>()
@@ -351,7 +354,7 @@ export function createSubagentController(
           }
           entry.childID = childID
         })
-        runtime.metrics.refresh(childID)
+        runtime?.metrics.refresh(childID)
       }),
       context.data.on("session.tool.success", (event) => {
         const childID = typeof event.data.metadata?.sessionID === "string" ? event.data.metadata.sessionID : undefined
@@ -368,7 +371,7 @@ export function createSubagentController(
           }
           if (!childID) { entry.status = "done"; entry.ended = event.created }
         })
-        if (childID) runtime.metrics.refresh(childID)
+        if (childID) runtime?.metrics.refresh(childID)
       }),
       context.data.on("session.tool.failed", (event) => {
         void update((draft) => {
@@ -385,7 +388,7 @@ export function createSubagentController(
           target.status = eventName === "session.execution.failed" ? "error" : target.status === "cancel_requested" || eventName === "session.execution.interrupted" ? "cancelled" : "done"
           target.ended = event.created
         })
-        runtime.metrics.refresh(event.data.sessionID, { delayMs: 150 })
+        runtime?.metrics.refresh(event.data.sessionID, { delayMs: 150 })
       })),
     ]
     return {

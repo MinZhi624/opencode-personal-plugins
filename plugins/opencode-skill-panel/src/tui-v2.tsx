@@ -4,6 +4,7 @@ import "@opentui/solid/preload"
 import type { Context } from "@opencode/plugin/tui/context"
 import { Plugin } from "@opencode/plugin/tui"
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js"
+import { registerSidebarCard } from "../../opencode-sidebar-host-zh/src/register-card.ts"
 import { collectSkillUsage, sortUsage, type SkillUsage } from "./skill-tracker.ts"
 
 /** V2 消息分页契约：limit 1..200，order 仅第一页且不与 cursor 同用。
@@ -44,9 +45,7 @@ export interface SkillPanelProps {
   defaultOpen?: boolean
 }
 
-/** 「技能」面板：显示本会话已加载的 skill。
- * 由 opencode-enhanced-sidebar-zh 的 replace 树组合渲染（子代理面板之后），
- * 与 QuotaPanel / SessionOverview / SubAgentPanel 同树，顺序由 JSX 顺序保障。 */
+/** 「技能」面板：显示本会话已加载的 skill，由独立插件接入排序宿主。 */
 export function SkillPanel(props: SkillPanelProps) {
   const maxUsed = () => props.maxUsed ?? 8
   const defaultOpen = () => props.defaultOpen !== false
@@ -135,11 +134,18 @@ export function SkillPanel(props: SkillPanelProps) {
   )
 }
 
-/** 独立加载时是 no-op：侧栏内容区被 enhanced-sidebar 的 replace 独占，
- * 树外的插槽注册会被吞掉，面板经由 SkillPanel 组件进树渲染。 */
 export default Plugin.define({
   id: "opencode-skill-panel",
-  setup() {
-    return () => {}
+  setup(context) {
+    const registration = registerSidebarCard({
+      id: "skill",
+      owner: "opencode-skill-panel",
+      title: "技能",
+      render: ({ sessionID }) => <SkillPanel context={context} sessionID={sessionID} maxUsed={context.options.skillPanelMaxUsed} defaultOpen={context.options.skillPanelDefaultOpen} />,
+      onStatus(status) {
+        if (status.state === "rejected") context.ui.toast.show({ title: "技能", message: `侧栏注册被拒：${status.code}`, variant: "error" })
+      },
+    })
+    return () => registration.dispose()
   },
 })

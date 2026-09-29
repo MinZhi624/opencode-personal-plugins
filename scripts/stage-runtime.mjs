@@ -21,6 +21,11 @@ await Promise.all([
   copy("plugins/opencode-quota-zh/LICENSE", "plugins/opencode-quota-zh/LICENSE"),
   copy("plugins/opencode-quota-zh/README.zh.md", "plugins/opencode-quota-zh/README.zh.md"),
   copy("plugins/opencode-enhanced-sidebar-zh"),
+  copy("plugins/opencode-session-data"),
+  copy("plugins/opencode-sidebar-host-zh"),
+  copy("plugins/opencode-session-overview-zh"),
+  copy("plugins/opencode-subagent-card-zh"),
+  copy("plugins/opencode-quota-card-zh"),
   copy("plugins/opencode-skill-panel"),
   copy("plugins/gpt-reset-credits"),
   copy("package.json"), copy("package-lock.json"), copy("README.md"), copy("LICENSE"), copy("THIRD_PARTY_NOTICES.md"), copy("install.sh"), copy("install.ps1"),
@@ -46,7 +51,7 @@ for (const path of staged) {
     forbidden.push(`non-runtime quota-zh file staged: ${path}`)
   }
 }
-const required = ["config/opencode.jsonc", "config/cli.json", "plugins/opencode-matt-workshop/index.ts", "plugins/opencode-matt-workshop/dist/src/index.js", "plugins/opencode-matt-workshop/skill-manifest.json", "plugins/opencode-matt-workshop/skills/ask-matt/SKILL.md", "plugins/opencode-matt-workshop/skills/wizard/template.sh", "plugins/opencode-matt-workshop/licenses/MATT-POCOCK-SKILLS-LICENSE", "plugins/opencode-quota-zh/index.ts", "plugins/opencode-quota-zh/tui.ts", "plugins/opencode-quota-zh/dist/index.js", "plugins/opencode-quota-zh/dist/tui-v2.tsx", "plugins/opencode-quota-zh/package.json", "plugins/opencode-skill-panel/tui.ts", "plugins/opencode-skill-panel/src/tui-v2.tsx", "plugins/opencode-skill-panel/src/skill-tracker.ts"]
+const required = ["config/opencode.jsonc", "config/cli.json", "plugins/opencode-matt-workshop/index.ts", "plugins/opencode-matt-workshop/dist/src/index.js", "plugins/opencode-matt-workshop/skill-manifest.json", "plugins/opencode-matt-workshop/skills/ask-matt/SKILL.md", "plugins/opencode-matt-workshop/skills/wizard/template.sh", "plugins/opencode-matt-workshop/licenses/MATT-POCOCK-SKILLS-LICENSE", "plugins/opencode-quota-zh/index.ts", "plugins/opencode-quota-zh/tui.ts", "plugins/opencode-quota-zh/dist/index.js", "plugins/opencode-quota-zh/dist/tui-v2.tsx", "plugins/opencode-quota-zh/package.json", "plugins/opencode-session-data/tui.ts", "plugins/opencode-sidebar-host-zh/tui.ts", "plugins/opencode-session-overview-zh/tui.ts", "plugins/opencode-subagent-card-zh/tui.ts", "plugins/opencode-quota-card-zh/tui.ts", "plugins/opencode-skill-panel/tui.ts", "plugins/opencode-skill-panel/src/tui-v2.tsx", "plugins/opencode-skill-panel/src/skill-tracker.ts"]
 for (const path of required) if (!staged.includes(path)) forbidden.push(`missing required runtime file: ${path}`)
 if (forbidden.length) throw new Error(`Runtime distribution isolation failed:\n${forbidden.join("\n")}`)
 console.log(`Runtime staging passed (${staged.length} files): ${destination}`)

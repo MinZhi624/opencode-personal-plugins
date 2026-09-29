@@ -1,7 +1,9 @@
 # opencode-enhanced-sidebar-zh
 
-中文 OpenCode 增强侧边栏，融合上下文、TPS、子代理和 API 标价估算。
-运行时提供两个可独立启停的 TUI 插件：
+中文 OpenCode 增强侧边栏的第一阶段实现，融合上下文、TPS、子代理和 API 标价估算。
+**本目录的 `tui.ts` 是旧聚合入口，仅作回退，不要与第二阶段宿主及独立卡片同时加载。**
+第二阶段安装及迁移见仓库根目录的 `config/cli.json`、`docs/MERGE_EXISTING_CONFIG.md`。
+历史模块中曾提供两个 TUI 插件定义：
 
 - `opencode-session-overview-zh`：上下文、缓存命中、TPS，以及本会话、子代理、任务树三行花费。
 - `opencode-subagent-magazine-zh`：子代理监控；展开条目内含该子代理的 Token 用量与费用。
@@ -15,9 +17,8 @@
 1. 上下文
 2. 子代理
 
-在 OpenCode 的 Plugins 面板中可分别开关额度、会话概览和子代理。迁移旧配置时，
-OpenCode v2 请在 `cli.json` 中分别加载 `src/tui-v2-session-overview.tsx` 与
-`src/tui-v2-subagent-magazine.tsx`；两个面板可独立开关。
+请勿直接配置 `src/tui-v2-session-overview.tsx` 或 `src/tui-v2-subagent-magazine.tsx`；
+使用第二阶段模板中各插件包目录的独立入口，避免每张卡分别创建完整统计运行时。
 
 ## 行为说明
 
@@ -49,7 +50,7 @@ OpenCode v2 请在 `cli.json` 中分别加载 `src/tui-v2-session-overview.tsx` 
 - 消息来源是 `client.message.list()` 按 cursor 分页的完整结果（按 id 去重），
   不会截断为 TUI 状态里最近的 100 条消息。
 - 价格数据：数据源为 https://models.dev/api.json（USD / 1M tokens）；内置快照
-  `src/data/modelsdev-pricing.min.json` 作为兜底，并与 quota-zh 共享
+  `../opencode-session-data/src/data/modelsdev-pricing.min.json` 作为兜底，并与 quota-zh 共享
   `opencode-quota/` 运行时快照，确保两个界面使用同一价格目录；刷新失败或网络不可用时继续使用内置快照。
 - 完整会话取数（opencode 2.0.x 契约）：每页 `limit` 上限 200，仅首屏带
   `order: "asc"`，后续页只传 `cursor`（`cursor` 与 `order` 同传会被服务端
