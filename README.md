@@ -49,7 +49,7 @@
 Linux / macOS / WSL：
 
 ```bash
-bash install.sh                 # 交互式选择组件组（终端中预选上次安装的组合）
+bash install.sh                 # ↑↓ 移动、空格勾选、Enter 确认（预选上次安装的组合）
 bash install.sh --all           # 安装全部组，跳过提问
 bash install.sh --only workshop,sidebar
 ```
@@ -72,6 +72,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 组之间无依赖，可任意组合；组内依赖插件（含隐藏共享库 `opencode-enhanced-sidebar-zh`）随组整体安装。
 想要 `/quota` 命令需安装 `sidebar` 组。非交互环境（CI／重定向）请显式使用 `--all` 或 `--only` / `--without`，
 不带参数会报错退出而不静默全装。
+交互终端安装结束后会显示结果并等待按 Enter 退出；非交互安装不会等待。
 
 安装器默认不会覆盖已有 OpenCode 配置；按本次选择裁剪的合并片段生成在 bundle 的
 `docs/MERGE-SELECTED.md`，通用合并方法见 [`docs/MERGE_EXISTING_CONFIG.md`](docs/MERGE_EXISTING_CONFIG.md)。

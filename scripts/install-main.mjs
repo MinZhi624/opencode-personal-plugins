@@ -6,6 +6,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeF
 import { homedir } from "node:os"
 import { dirname, join, resolve, sep } from "node:path"
 import readline from "node:readline/promises"
+import { clearScreenDown, cursorTo, emitKeypressEvents, moveCursor } from "node:readline"
 import { fileURLToPath } from "node:url"
 import { GROUPS, GROUP_IDS, groupById, renderCli, renderMergeDoc, renderOpencode } from "./install-groups.mjs"
 
@@ -27,7 +28,7 @@ function timestamp() {
 function usage() {
   console.log(`用法：bash install.sh [选项]（Windows：.\\install.ps1 [选项]）
 
-  （无参数且在交互终端中运行）交互式选择要安装的组件组
+  （无参数且在交互终端中运行）↑↓ 移动、空格勾选、Enter 确认、Esc 取消
   --all                安装全部组（跳过提问）
   --only <组,组>       只安装指定组
   --without <组,组>    安装除指定组外的全部组
@@ -71,7 +72,7 @@ function canonical(ids) {
   return GROUP_IDS.filter((id) => ids.includes(id))
 }
 
-async function pickGroups(preselected) {
+async function pickGroupsByNumber(preselected) {
   const selected = new Set(preselected)
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
   try {
@@ -82,7 +83,13 @@ async function pickGroups(preselected) {
         console.log(`        ${g.summary}`)
       })
       const answer = (await rl.question("> ")).trim().toLowerCase()
-      if (answer === "") break
+      if (answer === "") {
+        if (!selected.size) {
+          console.log("至少选择一组。")
+          continue
+        }
+        break
+      }
       if (answer === "a") {
         for (const g of GROUPS) selected.add(g.id)
         continue
@@ -108,6 +115,82 @@ async function pickGroups(preselected) {
     rl.close()
   }
   return canonical([...selected])
+}
+
+async function pickGroupsByKeys(preselected) {
+  const input = process.stdin
+  const output = process.stdout
+  const selected = new Set(preselected)
+  const wasRaw = input.isRaw === true
+  const wasPaused = input.isPaused()
+  let index = 0
+  let lines = 0
+
+  // 每次从菜单顶行重绘；保留之前的终端输出，不清空整屏。
+  function render() {
+    cursorTo(output, 0)
+    clearScreenDown(output)
+    const frame = [
+      "选择组件  ↑↓移动  空格勾选  Enter确认  Esc取消",
+      "",
+      ...GROUPS.map((group, i) =>
+        `${i === index ? "❯" : " "} [${selected.has(group.id) ? "✓" : " "}] ${group.title}`,
+      ),
+      "",
+      selected.size
+        ? `已选择 ${selected.size} 组：${canonical([...selected]).join("、")}`
+        : "至少选择一组，才能继续安装。",
+    ]
+    lines = frame.length
+    output.write(`${frame.join("\n")}\n`)
+    moveCursor(output, 0, -lines)
+  }
+
+  emitKeypressEvents(input)
+  input.setRawMode(true)
+  input.resume()
+  try {
+    render()
+    const result = await new Promise((resolveSelection, rejectSelection) => {
+      function onKeypress(_text, key) {
+        if (!key) return
+        if (key.name === "escape" || (key.ctrl && key.name === "c")) {
+          input.off("keypress", onKeypress)
+          rejectSelection(new UserError("已取消安装。"))
+          return
+        }
+        if (key.name === "up") index = (index - 1 + GROUPS.length) % GROUPS.length
+        else if (key.name === "down") index = (index + 1) % GROUPS.length
+        else if (key.name === "space") {
+          const id = GROUPS[index].id
+          if (selected.has(id)) selected.delete(id)
+          else selected.add(id)
+        } else if (key.name === "return" || key.name === "enter") {
+          if (selected.size) {
+            input.off("keypress", onKeypress)
+            resolveSelection(canonical([...selected]))
+            return
+          }
+        } else return
+        render()
+      }
+      input.on("keypress", onKeypress)
+    })
+    return result
+  } finally {
+    cursorTo(output, 0)
+    clearScreenDown(output)
+    input.setRawMode(wasRaw)
+    if (wasPaused) input.pause()
+  }
+}
+
+function pickGroups(preselected) {
+  // dumb / 窄终端退回序号输入，不依赖 ANSI 光标控制。
+  if (process.env.TERM === "dumb" || (process.stdout.columns || 0) < 60 || !process.stdin.setRawMode) {
+    return pickGroupsByNumber(preselected)
+  }
+  return pickGroupsByKeys(preselected)
 }
 
 function checkNodeVersion() {
@@ -259,7 +342,7 @@ async function main() {
   if (opts.all) ids = GROUP_IDS
   else if (opts.only) ids = canonical(opts.only)
   else if (opts.without) ids = canonical(GROUP_IDS.filter((id) => !opts.without.includes(id)))
-  else if (!process.stdin.isTTY) {
+  else if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new UserError("未指定选择且不在交互终端中。请使用 --all 或 --only / --without。")
   } else {
     const previous = readState()
@@ -339,7 +422,16 @@ async function main() {
   } else {
     console.log("配置已就绪。")
   }
-  console.log("安装完成后请启动 OpenCode 进行人工验收；受监视的插件和配置支持 v2 重载。")
+  console.log(needsMerge ? "插件文件安装完成；配置尚需手工合并。" : "安装完成！")
+  console.log("配置就绪后请启动 OpenCode 进行人工验收；受监视的插件和配置支持 v2 重载。")
+  if (process.stdin.isTTY && process.stdout.isTTY) {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
+    try {
+      await rl.question("按 Enter 退出安装器……")
+    } finally {
+      rl.close()
+    }
+  }
   return 0
 }
 
