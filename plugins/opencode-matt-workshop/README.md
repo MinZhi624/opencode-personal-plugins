@@ -316,8 +316,21 @@ Workshop 不保留自动化测试套件或 CI 门禁：同步后由构建命令�
 
 ## Architecture
 
-- [Domain language](./CONTEXT.md)
-- [Architecture decisions](./docs/adr/)
+- **Standalone native plugin**：通过 OpenCode config hook 注册角色，只使用原生权限、任务委派、可见性与 `steps` 上限；不依赖其他 agent 包，也不实现 scheduler、worktree manager、命令运行器或持久任务运行时。
+- **可复现适配边界**：`vendor/mattpocock-skills/` 固定上游快照，按 tracked 适配规则机械生成提交入仓库的 `skills/`；安装时按显式 allowlist 只分发运行时所需文件，开发期知识资产与上游快照不进入安装产物。
+- **角色边界**：Drafter 只澄清不实施，Tinker 只实施不委派，Foreman 仅在并行或 specialist 明显更优时委派；每次 Worker Run 有有限上限，连续无进展即停止并汇报。
 - [Bundle merge guide](../../docs/MERGE_EXISTING_CONFIG.md)
+
+### 核心术语
+
+| 术语 | 含义 |
+| --- | --- |
+| Workflow Skill / Workflow Command | 可复用的工作方法；每个 Promoted Skill 都有同名斜杠命令 |
+| Ready Work | 目标、验收条件、范围与验证方式已确定，无需新产品或架构决策即可实施的工作 |
+| Delegable Slice | 一个 Maker 在新上下文中可以独立实施并验证的有界端到端单元 |
+| Assigned Scope | 明确交给某个 Maker 的路径与行为；范围之外的工作仍归 Foreman 或其他 Worker |
+| Delegation Leverage | 启动一次 Worker Run 的具体收益：能真正并行，或 Worker 明显更适合 |
+| Manual Transition | 用户显式选择下一个 Primary Agent 或 Skill；Workshop 不自动切换角色 |
+| Role Boundary | 阻止 Primary Agent 越界的限制：Drafter 不实施、Tinker 不委派 |
 
 这是非官方 OpenCode adapter。Matt Pocock 的 vendored Skills 保留上游 MIT 许可证和 provenance。

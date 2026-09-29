@@ -3,3 +3,15 @@ runtime-stage/
 plugins/opencode-quota-zh/dev-dist/
 teach/*
 docs/research/
+# Only installation and troubleshooting guides in docs/ are public.
+/docs/*
+!/docs/MERGE_EXISTING_CONFIG.md
+!/docs/TROUBLESHOOTING.md
+!/docs/openai-subscription-token-accounting.md
+/prototype/
+/CONTEXT.md
+/AGENTS.md
+/plugins/*/AGENTS.md
+/plugins/opencode-matt-workshop/CONTEXT.md
+/plugins/opencode-matt-workshop/docs/adr/
+/plugins/opencode-matt-workshop/docs/implementation/
