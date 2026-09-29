@@ -554,12 +554,6 @@ export default Plugin.define({
       }
     }, 1000)
 
-    context.ui.toast.show({
-      title: "侧栏宿主",
-      message: handle.adopted ? `seam v${SEAM_VERSION} 已接管既有注册表` : `seam v${SEAM_VERSION} 就绪`,
-      variant: "success",
-    })
-
     return () => {
       disposeListener()
       disposeSlot()
