@@ -31,13 +31,17 @@ https://opencode.ai/v2/cli.json。
 宿主与数据模块互不依赖；关闭额度卡片不影响 `opencode-quota-zh` 的命令及服务端 RPC。
 若旧选项有 `false`，首次切换前可从 `plugins` 移除对应卡片，或在宿主选项中填入旧设置
 `legacySettings: {"version":1,"order":["quota","sessionOverview","subagents","skill"],"hidden":[...旧隐藏项]}`；
-旧插件的持久化空间可能按插件隔离，宿主读不到时不会宣称已迁移。切换后检查 `/sidebar-host-status` 的迁移状态，
+旧插件的持久化空间可能按插件隔离，宿主读不到时不会宣称已迁移。文件没有 `sidebarCards` 时用 `/sidebar-host-import` 预览并确认导入；已有配置时文件优先，不自动迁移。切换后检查 `/sidebar-host-status` 的配置来源，
 逐项核对旧顺序、显隐、概览折叠及子代理记录，**不要在未核对时删除旧插件的存档或回退配置**。
 
 若升级后子代理卡展开为空而旧聚合卡有记录，在关闭 TUI 前先备份状态；OpenCode 2.0.18 的本地安装可从仓库运行 `node scripts/migrate-sidebar-subagents.mjs` 仅查看脱敏计数，再运行 `node scripts/migrate-sidebar-subagents.mjs --apply` 将旧插件命名空间的子代理记录幂等合并到新卡片命名空间。脚本会先备份两个存档，绝不删除旧文件；执行后完全重启 TUI 验证。此脚本不迁移布局和折叠状态，不适用于未验证的其他版本／远程状态路径。
 
 应加载插件包目录，由包的 exports["./tui"] 选择 CLI 入口；不要直接配置源码 TSX。
 删除旧 tui.json(c) 中本包的 v1 入口，避免重复面板。
+
+宿主条目使用 `{ "package": "./opencode-zh-bundle/plugins/opencode-sidebar-host-zh", "options": { "sidebarCards": { "order": ["sessionOverview", "quota", "subagents", "skill"], "hidden": [] } } }`。`order`／`hidden` 的值是稳定卡片 ID，隐藏不等于停用插件。卡片内部业务参数仍写各自条目的 `options`。
+
+菜单与手改文件共用这一位置；菜单只有安全写入并重新读取确认后才提示保存。本窗口立即应用，其他窗口未同步时重启 TUI。没有唯一可写宿主条目或存在环境变量覆盖时菜单拒写，给出手动片段，不回退写 storage。菜单修改后安装器默认保留配置；不要用重装或 `--replace-config` 重置用户排序。
 
 ## v1 回退
 

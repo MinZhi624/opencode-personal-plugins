@@ -22,6 +22,70 @@ export const LEGACY_SIDEBAR_CARD_IDS = ["quota", "sessionOverview", "subagents",
 
 export type LegacySidebarCardID = (typeof LEGACY_SIDEBAR_CARD_IDS)[number]
 
+/** 文件选项不携带旧 storage 的 auto／migrated 元数据。 */
+export interface SidebarCardSettings {
+  order: string[]
+  hidden: string[]
+}
+
+export function parseSidebarCards(value: unknown): { settings: SidebarCardSettings; issues: string[] } {
+  const issues: string[] = []
+  if (value === undefined) return { settings: { order: [], hidden: [] }, issues }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return { settings: { order: [], hidden: [] }, issues: ["sidebarCards 必须是对象，已使用默认值"] }
+  }
+  const input = value as Record<string, unknown>
+  function list(field: "order" | "hidden"): string[] {
+    const raw = input[field]
+    if (raw === undefined) return []
+    if (!Array.isArray(raw)) {
+      issues.push(`sidebarCards.${field} 必须是字符串数组，已忽略`)
+      return []
+    }
+    if (raw.some((id) => typeof id !== "string" || id.trim().length === 0)) {
+      issues.push(`sidebarCards.${field} 含无效 ID，已忽略无效项`)
+    }
+    return toIDList(raw)
+  }
+  const order = list("order")
+  const hidden = list("hidden")
+  for (const id of hidden) if (!order.includes(id)) order.push(id)
+  return { settings: { order, hidden }, issues }
+}
+
+/** 完整序列：未知／隐藏项占位；新注册项仅在内存追加，不自动写文件。 */
+export function completeSidebarCards(settings: SidebarCardSettings, registeredIDs: readonly string[]): SidebarCardSettings {
+  const order = [...settings.order]
+  for (const id of registeredIDs) if (!order.includes(id)) order.push(id)
+  return { order, hidden: [...settings.hidden] }
+}
+
+export function changeSidebarCard(
+  settings: SidebarCardSettings,
+  id: string,
+  action: "show" | "hide" | "up" | "down",
+): { settings: SidebarCardSettings; result: "ok" | "boundary" | "unknown" } {
+  const order = [...settings.order]
+  let hidden = [...settings.hidden]
+  if (action === "show" || action === "hide") {
+    if (!order.includes(id)) order.push(id)
+    hidden = hidden.filter((item) => item !== id)
+    if (action === "hide") hidden.push(id)
+    return { settings: { order, hidden }, result: "ok" }
+  }
+  const index = order.indexOf(id)
+  if (index === -1) return { settings, result: "unknown" }
+  const target = index + (action === "up" ? -1 : 1)
+  if (target < 0 || target >= order.length) return { settings, result: "boundary" }
+  ;[order[index], order[target]] = [order[target]!, order[index]!]
+  return { settings: { order, hidden }, result: "ok" }
+}
+
+export function sameSidebarCards(a: SidebarCardSettings, b: SidebarCardSettings): boolean {
+  return a.order.length === b.order.length && a.order.every((id, i) => id === b.order[i]) &&
+    a.hidden.length === b.hidden.length && a.hidden.every((id, i) => id === b.hidden[i])
+}
+
 /** 仅用于迁移后菜单里对“尚未加载”的旧卡片做可读标注，不参与任何业务判断。 */
 export const LEGACY_SIDEBAR_CARD_LABELS: Record<LegacySidebarCardID, string> = {
   quota: "额度",

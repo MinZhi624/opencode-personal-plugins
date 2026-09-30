@@ -99,6 +99,8 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 新宿主的跨插件 JSX 注册通过同一 TUI 进程内的自有版本化接合处实现，并非 OpenCode 官方保证的跨插件 API；仅按 OpenCode 2.0.18 验证，升级须重新验收。接合处契约与迁移注意见 [`opencode-sidebar-host-zh`](plugins/opencode-sidebar-host-zh/README.md) 与 [`opencode-quota-card-zh`](plugins/opencode-quota-card-zh/README.md)。
 
+侧栏排列以全局 `cli.json` 中唯一宿主条目的 `options.sidebarCards` 为准：`order` 为稳定卡片 ID 数组（如 `sessionOverview`、`quota`、`subagents`、`skill`），`hidden` 为隐藏 ID 数组。`/sidebar-cards` 写回同一文件；失败时只读降级，不另存排序。菜单改过的文件属于用户自定义，重装默认保留，不会重置顺序。旧 storage 仅可显式导入，不能覆盖已有文件设置。第三方接入见 [对接指南](plugins/opencode-sidebar-host-zh/INTEGRATION.md)，不提供任意插件自动适配。
+
 ## 更新
 
 1. 关闭 OpenCode。
@@ -112,7 +114,8 @@ Set-ExecutionPolicy -Scope Process Bypass
 | 命令 | 用途 |
 | --- | --- |
 | `/quota` | 查看当前 Provider 额度 |
-| `/sidebar-cards` | 统一管理已注册卡片的顺序和显隐（不等于禁用插件） |
+| `/sidebar-cards` | 统一管理卡片顺序／显隐，保存到 cli.json（不等于禁用插件） |
+| `/sidebar-host-import` `/sidebar-host-status` | 显式导入旧设置／查看文件配置与注册诊断 |
 | `/quota_status` | 诊断认证、价格快照与未定价模型 |
 | `Ctrl+P` → `额度设置面板` | 单独打开额度设置面板，切换侧栏部分错误静默；默认在有有效数据时隐藏同一 Provider 的接口错误，`/quota_status` 仍保留诊断信息 |
 | `/pricing_refresh` | 从 models.dev 刷新共享价格快照 |

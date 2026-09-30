@@ -1,6 +1,6 @@
 # opencode-skill-panel
 
-侧栏"技能"面板：在 OpenCode V2 TUI 侧栏、**"子代理"面板下方**，以可伸缩卡片
+侧栏"技能"面板：在 OpenCode V2 TUI 侧栏中，以可伸缩卡片
 （与"额度/上下文"相同的 `▼/▶` 点击折叠交互）显示**当前会话已加载/调用的 skill**。
 
 ```
@@ -19,9 +19,9 @@
   `（已加载 N）` 计数。
 - **实时刷新**：监听 `session.step.ended` / `session.execution.*` 事件自动更新，
   切换会话时自动重扫。
-- **位置固定**：通过 `append: "sidebar.footer"` 插槽挂在侧栏**主内容区
-  （额度/上下文/子代理所在区域）下方**；该插槽有真实插件验证可见，且不与
-  `opencode-enhanced-sidebar-zh` 的 `replace: "sidebar.content"` 竞争。
+- **位置可配置**：以卡片 ID `skill` 注册到独立侧栏宿主，由宿主的
+  `options.sidebarCards.order/hidden` 控制位置和显隐；不再直出 `sidebar.footer`。
+  需要同时加载 `opencode-sidebar-host-zh`，宿主缺席时排队，不自绘重复侧栏。
 
 ## 配置
 
@@ -31,10 +31,14 @@
 {
   "plugins": [
     {
+      "package": "./opencode-zh-bundle/plugins/opencode-sidebar-host-zh",
+      "options": { "sidebarCards": { "order": ["skill"], "hidden": [] } }
+    },
+    {
       "package": "./opencode-zh-bundle/plugins/opencode-skill-panel",
       "options": {
-        "maxUsed": 8,
-        "defaultOpen": true
+        "skillPanelMaxUsed": 8,
+        "skillPanelDefaultOpen": true
       }
     }
   ]
@@ -43,8 +47,8 @@
 
 | 选项 | 默认 | 说明 |
 |---|---|---|
-| `maxUsed` | `8` | 最多显示条数，超出显示 `…还有 N 个` |
-| `defaultOpen` | `true` | 初始是否展开（点击标题随时切换） |
+| `skillPanelMaxUsed` | `8` | 最多显示条数，超出显示 `…还有 N 个` |
+| `skillPanelDefaultOpen` | `true` | 初始是否展开（点击标题随时切换） |
 
 ## 兼容性
 

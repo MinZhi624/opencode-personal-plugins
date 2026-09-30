@@ -63,7 +63,15 @@ export const GROUPS = [
     opencodeExtras: "",
     cliEntries: `    "./opencode-zh-bundle/plugins/opencode-quota-zh",
     "./opencode-zh-bundle/plugins/opencode-session-data",
-    "./opencode-zh-bundle/plugins/opencode-sidebar-host-zh",
+    {
+      "package": "./opencode-zh-bundle/plugins/opencode-sidebar-host-zh",
+      "options": {
+        "sidebarCards": {
+          "order": ["sessionOverview", "quota", "subagents", "skill"],
+          "hidden": []
+        }
+      }
+    },
     "./opencode-zh-bundle/plugins/opencode-quota-card-zh",
     "./opencode-zh-bundle/plugins/opencode-session-overview-zh",
     {
