@@ -1,12 +1,7 @@
 ---
 name: ask-matt
-description: "Use ONLY when the user explicitly requests this workflow in natural language or by name; a suggestion from another skill does not count. Recommend a suitable Workshop method when the user asks how to approach a task or which skill to use."
-slash: false
+description: Recommend a suitable Workshop method when the user asks how to approach a task or which skill to use.
 ---
-
-## OpenCode Adapter
-
-Workflow references in this text name Workshop Workflow Skills by their exact ID. Describe what you need in natural language; the skill descriptions decide when a skill fires, and an exact ID is never required to start a flow. Load a skill with the native skill tool by ID — no Workshop slash commands are registered. Use only the current Workshop Primary Agent's native OpenCode capabilities and role boundaries. Never switch Primary Agents automatically.
 
 # Choose a method
 

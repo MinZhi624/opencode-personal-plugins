@@ -1,159 +1,109 @@
 {
   "upstream": {
-    "version": "1.2.2",
-    "tag": "v1.2.2",
-    "commit": "8b36d4fb2635b3c21998dcd8144439c9e5ba7302"
+    "version": "1.2.3",
+    "tag": "v1.2.3",
+    "commit": "6acc160e4e0cd062dbbbd7a1b26ae92855edf07e"
   },
   "skills": [
     {
       "name": "ask-matt",
-      "implicitInvocation": false,
-      "command": true,
-      "guardedBy": null
+      "implicitInvocation": true
     },
     {
       "name": "diagnosing-bugs",
-      "implicitInvocation": true,
-      "command": true,
-      "guardedBy": "foreman"
+      "implicitInvocation": true
     },
     {
       "name": "grill-with-docs",
-      "implicitInvocation": false,
-      "command": true,
-      "guardedBy": null
+      "implicitInvocation": true
     },
     {
       "name": "triage",
-      "implicitInvocation": false,
-      "command": true,
-      "guardedBy": "drafter"
+      "implicitInvocation": true
     },
     {
       "name": "improve-codebase-architecture",
-      "implicitInvocation": false,
-      "command": true,
-      "guardedBy": null
+      "implicitInvocation": true
     },
     {
       "name": "setup-matt-pocock-skills",
-      "implicitInvocation": false,
-      "command": true,
-      "guardedBy": null
+      "implicitInvocation": true
     },
     {
       "name": "tdd",
-      "implicitInvocation": true,
-      "command": true,
-      "guardedBy": "foreman"
+      "implicitInvocation": true
     },
     {
       "name": "to-spec",
-      "implicitInvocation": false,
-      "command": true,
-      "guardedBy": "drafter"
+      "implicitInvocation": true
     },
     {
       "name": "to-tickets",
-      "implicitInvocation": false,
-      "command": true,
-      "guardedBy": "drafter"
+      "implicitInvocation": true
     },
     {
       "name": "wayfinder",
-      "implicitInvocation": false,
-      "command": true,
-      "guardedBy": "drafter"
+      "implicitInvocation": true
     },
     {
       "name": "implement",
-      "implicitInvocation": false,
-      "command": true,
-      "guardedBy": "foreman"
+      "implicitInvocation": true
     },
     {
       "name": "prototype",
-      "implicitInvocation": true,
-      "command": true,
-      "guardedBy": "foreman"
+      "implicitInvocation": true
     },
     {
       "name": "research",
-      "implicitInvocation": true,
-      "command": true,
-      "guardedBy": null
+      "implicitInvocation": true
     },
     {
       "name": "domain-modeling",
-      "implicitInvocation": true,
-      "command": true,
-      "guardedBy": null
+      "implicitInvocation": true
     },
     {
       "name": "codebase-design",
-      "implicitInvocation": true,
-      "command": true,
-      "guardedBy": null
+      "implicitInvocation": true
     },
     {
       "name": "code-review",
-      "implicitInvocation": true,
-      "command": true,
-      "guardedBy": null
+      "implicitInvocation": true
     },
     {
       "name": "resolving-merge-conflicts",
-      "implicitInvocation": true,
-      "command": true,
-      "guardedBy": "foreman"
+      "implicitInvocation": true
     },
     {
       "name": "wizard",
-      "implicitInvocation": true,
-      "command": true,
-      "guardedBy": "foreman"
+      "implicitInvocation": true
     },
     {
       "name": "grill-me",
-      "implicitInvocation": false,
-      "command": true,
-      "guardedBy": null
+      "implicitInvocation": true
     },
     {
       "name": "grilling",
-      "implicitInvocation": true,
-      "command": true,
-      "guardedBy": null
+      "implicitInvocation": true
     },
     {
       "name": "handoff",
-      "implicitInvocation": false,
-      "command": true,
-      "guardedBy": null
+      "implicitInvocation": true
     },
     {
       "name": "teach",
-      "implicitInvocation": false,
-      "command": true,
-      "guardedBy": null
+      "implicitInvocation": true
     },
     {
       "name": "to-questionnaire",
-      "implicitInvocation": false,
-      "command": true,
-      "guardedBy": null
+      "implicitInvocation": true
     },
     {
       "name": "wait-what",
-      "implicitInvocation": false,
-      "command": true,
-      "guardedBy": null
+      "implicitInvocation": true
     },
     {
       "name": "writing-for-agents",
-      "implicitInvocation": true,
-      "command": true,
-      "guardedBy": null
+      "implicitInvocation": true
     }
   ]
 }

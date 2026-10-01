@@ -6,7 +6,7 @@ slash: false
 
 ## OpenCode Adapter
 
-References such as `/tdd` name Workflow Skills. Slash commands are the user-facing entries. Use only the current Workshop Primary Agent's native OpenCode capabilities and role boundaries. Never switch Primary Agents automatically.
+Workflow references in this text name Workshop Workflow Skills by their exact ID. Describe what you need in natural language; the skill descriptions decide when a skill fires, and an exact ID is never required to start a flow. Load a skill with the native skill tool by ID — no Workshop slash commands are registered. Use only the current Workshop Primary Agent's native OpenCode capabilities and role boundaries. Never switch Primary Agents automatically.
 
 1. **See the current state** of the merge/rebase. Check git history, and the conflicting files.
 

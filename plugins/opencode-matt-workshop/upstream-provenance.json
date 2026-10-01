@@ -1,7 +1,16 @@
 {
   "repository": "https://github.com/mattpocock/skills.git",
-  "version": "1.2.2",
-  "tag": "v1.2.2",
-  "commit": "8b36d4fb2635b3c21998dcd8144439c9e5ba7302",
-  "snapshot": "vendor/mattpocock-skills"
+  "version": "1.2.3",
+  "tag": "v1.2.3",
+  "tagObject": "835450ef244ab7335f75d95b83e7d979eae22a6d",
+  "commit": "6acc160e4e0cd062dbbbd7a1b26ae92855edf07e",
+  "commitRole": "commit that the annotated tag v1.2.3 points to (merge of PR #782)",
+  "verified": {
+    "method": "git ls-remote for the tag object, git cat-file to resolve it to a commit, shallow clone at the tag, then byte-for-byte diff of the cloned tree against the local snapshot",
+    "at": "2026-10-01",
+    "snapshotMatchesCommit": true
+  },
+  "snapshot": "vendor/mattpocock-skills",
+  "snapshotDigestAlgorithm": "sha256 over each file, concatenated as <relative posix path>\\0<sha256-of-file or 'link:<target>'>\\0, paths sorted",
+  "snapshotDigest": "cd117ee5266d2b3fe6d9616f4e9eac07c489a6dc0d3b4f9456fde15d0cb84ed6"
 }

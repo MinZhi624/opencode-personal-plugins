@@ -6,11 +6,9 @@ slash: false
 
 ## OpenCode Adapter
 
-References such as `/tdd` name Workflow Skills. Slash commands are the user-facing entries. Use only the current Workshop Primary Agent's native OpenCode capabilities and role boundaries. Never switch Primary Agents automatically.
+Workflow references in this text name Workshop Workflow Skills by their exact ID. Describe what you need in natural language; the skill descriptions decide when a skill fires, and an exact ID is never required to start a flow. Load a skill with the native skill tool by ID — no Workshop slash commands are registered. Use only the current Workshop Primary Agent's native OpenCode capabilities and role boundaries. Never switch Primary Agents automatically.
 
-Use Archivist for delegated external primary-source research. Tinker cannot delegate: it must ask the user to select Foreman or invoke visible Archivist directly.
-
-When the active role can delegate, start one Archivist Worker Run with the full research brief and target Markdown report path. Otherwise stop and ask the user to invoke visible Archivist or select Foreman.
+Start one Archivist Worker Run with the full research brief and the target Markdown report path, and keep working while it reads.
 
 Its job:
 

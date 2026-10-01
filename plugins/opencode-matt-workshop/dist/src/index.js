@@ -2,35 +2,9 @@ import { Plugin } from "@opencode/plugin";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { manifest } from "./catalog.js";
-import { buildWorkshopAgents } from "./agents.js";
+import { buildWorkshopAgents, mergePermissions } from "./agents.js";
 import { WORKSHOP_SKILLS_PATH } from "./config.js";
 import { parseWorkshopOptions } from "./options.js";
-function permissions(value) {
-    const result = [];
-    const actionNames = {
-        bash: "shell",
-        task: "subagent",
-        todowrite: undefined,
-        list: undefined,
-        lsp: undefined,
-    };
-    for (const [legacyAction, rule] of Object.entries(value)) {
-        const action = legacyAction in actionNames ? actionNames[legacyAction] : legacyAction;
-        if (!action)
-            continue;
-        if (rule === "allow" || rule === "deny" || rule === "ask") {
-            result.push({ action, resource: "*", effect: rule });
-            continue;
-        }
-        if (!rule || typeof rule !== "object")
-            continue;
-        for (const [resource, effect] of Object.entries(rule)) {
-            if (effect === "allow" || effect === "deny" || effect === "ask")
-                result.push({ action, resource, effect });
-        }
-    }
-    return result;
-}
 export default Plugin.define({
     id: "opencode-matt-workshop",
     async setup(context) {
@@ -44,7 +18,11 @@ export default Plugin.define({
                     agent.color = definition.color;
                     agent.steps = definition.steps;
                     agent.system = definition.prompt;
-                    agent.permissions = permissions(definition.permission ?? {});
+                    // 原生 v2 ruleset：保留 agent 现有规则（原生默认 + 用户显式配置）及其相对顺序，
+                    // 按 base → Workshop policy → 用户规则 → Workshop hard 分层合并；不整体覆盖，
+                    // policy 从不在用户规则之后，职责硬限制（禁递归 / 禁自行 Git 变更 / 只读不 edit、
+                    // 不通过 shell 写文件）始终位于最后，不被用户 allow 覆盖。
+                    agent.permissions = mergePermissions((agent.permissions ?? []), (definition.permissions ?? { policy: [], hard: [] }));
                     if (typeof definition.model === "string") {
                         const [providerID, ...model] = definition.model.split("/");
                         agent.model = {

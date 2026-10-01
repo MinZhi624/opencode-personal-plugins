@@ -1,14 +1,12 @@
 ---
 name: code-review
-description: "Review the changes since a fixed point (commit, branch, tag, or merge-base) along two axes — Standards (does the code follow this repo's documented coding standards?) and Spec (does the code match what the originating issue/spec asked for?). Runs both reviews in parallel sub-agents and reports them side by side. Use when the user wants to review a branch, a PR, work-in-progress changes, or asks to \"review since X\"."
+description: "Use ONLY when the user explicitly requests this workflow in natural language or by name; a suggestion from another skill does not count. Review the changes since a fixed point (commit, branch, tag, or merge-base) along two axes — Standards (does the code follow this repo's documented coding standards?) and Spec (does the code match what the originating issue/spec asked for?). Runs both reviews in parallel sub-agents and reports them side by side. Use when the user wants to review a branch, a PR, work-in-progress changes, or asks to \"review since X\"."
 slash: false
 ---
 
 ## OpenCode Adapter
 
-References such as `/tdd` name Workflow Skills. Slash commands are the user-facing entries. Use only the current Workshop Primary Agent's native OpenCode capabilities and role boundaries. Never switch Primary Agents automatically.
-
-In Tinker, perform the Standards and Spec axes yourself. In Foreman, start two independent Inspector Worker Runs in parallel and aggregate their findings. Do not use unrelated generic subagents.
+Workflow references in this text name Workshop Workflow Skills by their exact ID. Describe what you need in natural language; the skill descriptions decide when a skill fires, and an exact ID is never required to start a flow. Load a skill with the native skill tool by ID — no Workshop slash commands are registered. Use only the current Workshop Primary Agent's native OpenCode capabilities and role boundaries. Never switch Primary Agents automatically.
 
 Two-axis review of the diff between `HEAD` and a fixed point the user supplies:
 
@@ -63,8 +61,6 @@ Each smell reads *what it is* → *how to fix*; match it against the diff:
 - **Refused Bequest** — a subclass or implementer that ignores or overrides most of what it inherits. → drop the inheritance, use composition.
 
 ### 4. Spawn both sub-agents in parallel
-
-In Foreman, send one message containing two native task calls to Inspector, one for each review axis. In Tinker, execute both review axes yourself without task calls.
 
 **Standards sub-agent prompt** — include:
 

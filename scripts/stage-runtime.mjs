@@ -46,7 +46,10 @@ async function list(directory) {
   return (await Promise.all(entries.map(async (entry) => entry.isDirectory() ? list(join(directory, entry.name)) : [join(directory, entry.name)]))).flat()
 }
 const staged = (await list(destination)).map((path) => relative(destination, path).replaceAll("\\", "/"))
-const forbidden = staged.filter((path) => /plugins\/opencode-matt-workshop\/(vendor|src|docs\/adr|docs\/implementation)(\/|$)|(^|\/)\.agents(\/|$)|(^|\/)CONTEXT\.md$|sync-matt-skills|skill-policy|upstream-provenance/.test(path))
+// matt-workshop 的源码资产只允许出现在源码仓库：vendor / src / 内部 docs / 本地技能源目录
+// 一律不得进入运行包。local-skills 是手写本地技能（当前为 ask-matt）的唯一来源，
+// 日常同步会优先读取它覆盖同名上游技能后生成 skills/，但 local-skills 本身不参与发行。
+const forbidden = staged.filter((path) => /plugins\/opencode-matt-workshop\/(vendor|src|docs\/adr|docs\/implementation|local-skills)(\/|$)|(^|\/)\.agents(\/|$)|(^|\/)CONTEXT\.md$|sync-matt-skills|skill-policy|upstream-provenance/.test(path))
 const quotaZhAllowed = /^plugins\/opencode-quota-zh\/(dist\/|index\.ts$|tui\.ts$|package\.json$|LICENSE$|README\.zh\.md$)/
 for (const path of staged) {
   if (path.startsWith("plugins/opencode-quota-zh/") && !quotaZhAllowed.test(path)) {

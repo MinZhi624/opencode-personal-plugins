@@ -1,14 +1,12 @@
 ---
 name: tdd
-description: "Test-driven development. Use when the user wants to build features or fix bugs test-first, mentions \"red-green-refactor\", or wants integration tests."
+description: "Use ONLY when the user explicitly requests this workflow in natural language or by name; a suggestion from another skill does not count. Test-driven development. Use when the user wants to build features or fix bugs test-first, mentions \"red-green-refactor\", or wants integration tests."
 slash: false
 ---
 
 ## OpenCode Adapter
 
-References such as `/tdd` name Workflow Skills. Slash commands are the user-facing entries. Use only the current Workshop Primary Agent's native OpenCode capabilities and role boundaries. Never switch Primary Agents automatically.
-
-TDD is opt-in. Before writing a test, ask the user to select the seams and behaviors it will cover, even when `/tdd` was invoked directly. Do not let an agent choose that scope implicitly.
+Workflow references in this text name Workshop Workflow Skills by their exact ID. Describe what you need in natural language; the skill descriptions decide when a skill fires, and an exact ID is never required to start a flow. Load a skill with the native skill tool by ID — no Workshop slash commands are registered. Use only the current Workshop Primary Agent's native OpenCode capabilities and role boundaries. Never switch Primary Agents automatically.
 
 # Test-Driven Development
 

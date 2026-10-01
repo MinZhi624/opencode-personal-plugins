@@ -34,7 +34,7 @@
 - **宿主只管排列。** 宿主用 `append: "sidebar.content"` 追加到原生侧栏，只管理本套新增卡片的顺序与显隐，不接管 Provider 查询和业务计算。
 - **三种操作互相独立。** 隐藏卡片（显示偏好）、禁用卡片插件（撤销注册并清理）、停用额度后台（停止数据能力）不是同一件事，不互相暗中控制。
 - **估算不是账单。** Token 费用是按 models.dev 公开单价的估算，不等于 Provider 实际账单，也不等于 ChatGPT 订阅额度；无价格的模型显示“未定价”，不伪装成 `$0`。
-- **手动控制优先于自动判断。** Workshop 的角色切换、TDD、验证范围都由用户显式选择，插件不自动切档、不默认扩张任务。
+- **手动控制优先于自动判断。** Workshop 的角色切换、委派范围、TDD、验证范围都由用户显式选择，插件不自动切档、不默认扩张任务、不默认重审查。
 
 各插件的详细边界见上文表格中的独立说明；本包的取舍记录以代码注释和上述原则为准。
 
@@ -80,7 +80,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 | 组 | 内容 | 说明 |
 | --- | --- | --- |
-| `workshop` | `opencode-matt-workshop` | 工作流：Drafter / Foreman / Tinker 等 agent 与 Workflow Skill 命令 |
+| `workshop` | `opencode-matt-workshop` | 工作流：Drafter / Tinker / Foreman 与四个 Worker、25 个 Workflow Skill |
 | `sidebar` | `opencode-quota-zh`、`opencode-sidebar-host-zh`、`opencode-session-data` 与四张卡片 | 侧栏与额度：`/quota` 命令、卡片和共享会话统计都在此组 |
 | `alone` | `gpt-reset-credits` | 独立插件；需要 Python 3.10+ |
 
@@ -121,7 +121,8 @@ Set-ExecutionPolicy -Scope Process Bypass
 | `/pricing_refresh` | 从 models.dev 刷新共享价格快照 |
 | `/tokens_today` `/tokens_weekly` `/tokens_monthly` `/tokens_all` `/tokens_session` | 历史与当前会话 Token 用量 |
 | `/gpt-reset-credits` | 查询 ChatGPT 重置卡；带“兑换”参数表示确认兑换 |
-| `/setup-matt-pocock-skills` 等 | Workshop 将上游 Workflow Skill 注册为同名命令，见 [opencode-matt-workshop](plugins/opencode-matt-workshop/README.md) |
+
+Workshop（`workshop` 组）不注册斜杠命令：上游 Matt Pocock Skills `v1.2.3` 的 25 个 Promoted Skills 适配为 OpenCode Skill，在 `drafter` / `tinker` / `foreman` 角色内按需加载；TDD、独立完整 review、多方案设计、spec / tickets 等重量级工作流按约定只在明确要求时启动——这是提示词层面的行为约定，不是 native 硬权限，不作绝对触发保证。角色说明见 [opencode-matt-workshop](plugins/opencode-matt-workshop/README.md)。
 
 费用口径：
 
