@@ -23,9 +23,22 @@ const harnessCommands = {
 const explicitIntentPrefix =
   "Use ONLY when the user explicitly requests this workflow in natural language or by name; a suggestion from another skill does not count. "
 
-// 重流程门槛：即使上游允许隐式调用，也必须由用户显式意图触发。
+// 重流程门槛：即使上游允许隐式调用，描述也必须由用户显式意图触发。这是提示词层面
+// 的门槛，与 user-only 的可见性开关是两个独立维度——重流程不必一律隐藏，两边互不推断。
 // codebase-design 只是普通 reference，不在此列。
 const heavyFlows = new Set(["tdd", "code-review", "improve-codebase-architecture", "to-spec", "to-tickets"])
+
+// 上游 user-only 语义：`disable-model-invocation: true` 表示该技能只由用户触发，
+// 不参与模型自动调用；local frontmatter 可覆盖——未声明时沿用上游，只有明确的
+// true / false 才算覆盖。其它取值直接抛错，避免静默错映射成可见或不可见。
+function readInvocationFlag(values, label) {
+  const raw = values["disable-model-invocation"]
+  if (raw === undefined) return undefined
+  const normalized = String(raw).trim().toLowerCase()
+  if (normalized === "true") return true
+  if (normalized === "false") return false
+  throw new Error(`Unsupported disable-model-invocation value for ${label}: ${raw}`)
+}
 
 function usage() {
   return [
@@ -146,7 +159,7 @@ const upstreamAnchors = {
 const adapterPreamble = [
   "## OpenCode Adapter",
   "",
-  "Workflow references in this text name Workshop Workflow Skills by their exact ID. Describe what you need in natural language; the skill descriptions decide when a skill fires, and an exact ID is never required to start a flow. Load a skill with the native skill tool by ID — no Workshop slash commands are registered. Use only the current Workshop Primary Agent's native OpenCode capabilities and role boundaries. Never switch Primary Agents automatically.",
+  "Workflow references in this text name Workshop Workflow Skills by their exact ID. Describe what you need in natural language; the skill descriptions decide when a skill fires, and an exact ID is never required to start a flow. User-only skills are exposed through the native skill menu; other skills can be discovered as needed. Load skills by exact ID with the native skill tool. Workshop does not register a custom command executor. Use only the current Workshop Primary Agent's native OpenCode capabilities and role boundaries. Never switch Primary Agents automatically.",
   "",
 ].join("\n")
 
@@ -201,7 +214,7 @@ async function readLocalSkill(name) {
   return parsed
 }
 
-async function copySkill(sourceDir, destinationDir, name, knownSkills, { description, explicitIntent }) {
+async function copySkill(sourceDir, destinationDir, name, knownSkills, { description, explicitIntent, userOnly }) {
   await rm(destinationDir, { recursive: true, force: true })
   // agents/ 是上游 harness 的界面元数据，不进入运行时。
   await cp(sourceDir, destinationDir, {
@@ -220,7 +233,13 @@ async function copySkill(sourceDir, destinationDir, name, knownSkills, { descrip
   const finalDescription = explicitIntent ? `${explicitIntentPrefix}${description}` : description
 
   const runtimeName = name === "handoff" ? "matt-handoff" : name
-  const content = `---\nname: ${runtimeName}\ndescription: ${JSON.stringify(finalDescription)}\nslash: false\n---\n\n${adapterPreamble}${adapted}`
+  // user-only：原生 slash 入口 + metadata 让 OpenCode 不把该技能列进模型可发现清单；
+  // 技能仍然注册，按 ID 可加载，所以不是 hard deny。普通技能保持 slash: false，
+  // 不把可发现范围扩大到模型自动调用。
+  const frontmatter = [`name: ${runtimeName}`, `description: ${JSON.stringify(finalDescription)}`]
+  if (userOnly) frontmatter.push("slash: true", "metadata:", "  opencode/autoinvoke: false")
+  else frontmatter.push("slash: false")
+  const content = `---\n${frontmatter.join("\n")}\n---\n\n${adapterPreamble}${adapted}`
   await writeFile(join(destinationDir, "SKILL.md"), content)
 
   // 附属资源与 SKILL.md 走同一套引用改写，避免残留已废弃的斜杠命令写法。
@@ -275,16 +294,18 @@ async function generate() {
     if (upstream.values.name !== name) throw new Error(`Manifest name mismatch for ${name}: ${upstream.values.name}`)
     // 本地正文优先：描述与显式意图门槛都取 local frontmatter。
     const local = await readLocalSkill(name)
-    const upstreamExplicit = upstream.values["disable-model-invocation"] === "true"
-    const localExplicit = local ? local.values["disable-model-invocation"] === "true" : false
-    // autoinvoke=false 会把技能从模型可见列表里藏掉，自然语言请求就再也发现不了它。
-    // 所有技能都保持可见，门槛由描述的显式意图前缀承担。
-    const explicitIntent = heavyFlows.has(name) || upstreamExplicit || localExplicit
+    // user-only 归约：local 明确声明优先，否则沿用上游；两边都没声明即可模型自动调用。
+    const upstreamUserOnly = readInvocationFlag(upstream.values, `${name} (upstream)`) ?? false
+    const localUserOnly = local ? readInvocationFlag(local.values, `${name} (local)`) : undefined
+    const userOnly = localUserOnly ?? upstreamUserOnly
+    // 描述里的显式意图前缀独立于可见性：重流程一律保留，user-only 也保留，
+    // 不再反过来说"所有技能都可见"。模型不 advertise ≠ 硬拒绝，描述不假报硬限制。
+    const explicitIntent = heavyFlows.has(name) || userOnly
     const description = local?.values.description ?? upstream.values.description
     if (!description) throw new Error(`Missing skill description: ${name}`)
-    const origin = await copySkill(sourceDir, join(output, name), name, knownSkills, { description, explicitIntent })
+    const origin = await copySkill(sourceDir, join(output, name), name, knownSkills, { description, explicitIntent, userOnly })
     if (origin === "local") localSources.push(name)
-    skills.push({ name, implicitInvocation: true })
+    skills.push({ name, implicitInvocation: !userOnly })
   }
 
   const manifest = { upstream: { version: provenance.version, tag: provenance.tag, commit: provenance.commit }, skills }

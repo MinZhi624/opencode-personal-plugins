@@ -135,18 +135,16 @@ Git 提交 / 暂存 / 推送 / 改写历史仍然只在你明确要求具体动�
 
 - **不做 worktree orchestration**：所有子 Agent 共享同一个 repo / working tree。
 - 依靠提示词约束 Worker：只修改 assigned scope、不随便动其他模块、不 revert 别人的修改、不自行 commit / reset、发现冲突就报告。
-- 最后由发起委派的 Primary Agent 做 Git coordination：`git diff` → 看各 agent 修改 → 简单检查 → 整合。
+- 最后由发起委派的 Primary Agent 做 Git coordination：`git diff` → 看各 agent 修改 → 简单检查 → 整合。Worker 需要 diff 时可自行 `git diff` 获取，不强制由 Parent 在 brief 里提供。
 - 第一版不做复杂 worktree management。
 
-### 只读角色怎么取证
+### Worker 的 shell 与只读边界
 
-硬性 native 限制只有纯 deny：Drafter / Inspector / Surveyor / Archivist 的 shell 为 deny，Inspector / Surveyor 的 `edit` 为 deny，Worker 不递归委派（task deny）。Drafter 可写 Markdown / HTML 规划产物、Archivist 只写指派的 Markdown 报告——这些编辑范围是 **policy 默认**，用户可以用显式权限规则覆盖，但提示词里的职责要求不变。
+四个 Worker（Maker / Inspector / Surveyor / Archivist）都放开普通 shell：统计、查询、只读命令（计数、检索、`git diff` / `git log` / `git status`、跑已有的廉价检查）都在职责范围内，用来取证；diff 由 Worker 自己 `git diff` 获取即可，不强制由 Parent 在 brief 里提供。放开只针对子代理——Drafter 仍然 shell deny。
 
-只读调查靠 `read` / `glob` / `grep` / `list` / webfetch / websearch 这类只读工具完成，不通过 shell 绕开写入限制。
+硬性 native 限制保留纯 deny：危险命令（`sudo`、`su`、`rm -rf`、`git reset` / `git clean` / `git checkout` / `git rebase` / `git push`、`systemctl`、`mkfs`、`dd` 等）、`git commit` / `git add` / `git revert`、Worker 递归委派与提问用户均为 deny；用户显式 deny 同样能覆盖 policy 的 shell 放行。`edit` 的禁 / 限定和任务职责不变：Inspector / Surveyor 禁 `edit`，Archivist 只写指派的 Markdown 报告，Maker 在 assigned scope 内实施——这些编辑范围是 **policy 默认**，用户可以用显式权限规则覆盖，但提示词里的职责要求不变。
 
-需要命令输出、diff 或测试结果时，由保留 shell 能力的实施主 Agent（Tinker / Foreman）执行，并把相关输出放进委派 brief；只读 Worker 不自行跑命令，也不因为 brief 里贴了命令输出就顺带改文件。
-
-这是**职责边界**，不是完整 OS sandbox，也不虚构基于 MCP 的完备沙箱：它约束的是"这个角色该做什么"，不承诺阻断所有副作用路径。实际弹不弹确认、哪些路径要确认，以用户自己的 native 权限配置为准。
+**shell 本身带有副作用权限，所以这不是 OS 级只读沙箱，也不存在"硬权限全面只读"。** 它约束的是"这个角色该做什么"，不承诺阻断所有副作用路径——普通 shell 命令理论上也能改文件。因此 Inspector / Surveyor / Archivist 的"只读"依旧是职责约定：只跑与取证相关的命令，不借 shell 绕开 `edit` 限制，也不因为跑了统计命令就顺带改文件。实际弹不弹确认、哪些路径要确认，以用户自己的 native 权限配置为准。
 
 ## 子 Agent 必须有生命上限
 
@@ -292,10 +290,12 @@ context 太长、你要换窗口继续，并明确要求把讨论落盘时：
 | --- | --- | --- | --- |
 | `maker` | 实施一个边界清晰的独立模块 | 需要并行实现 | 由 Tinker 或 Foreman 委派 |
 | `inspector` | 只读审查 Standards / Spec 一个维度 | 你明确要求独立审查时 | 由 Tinker 或 Foreman 委派（可两个并行） |
-| `archivist` | 调研一手资料并写带引用的报告 | 需要外部资料、文档、API 事实 | 可见，可直接 `@archivist`；也可由 Primary Agent 委派 |
-| `surveyor` | 只读映射代码结构、约定与关系 | 需要先摸清代码库再动手 | 可见，可直接 `@surveyor`；也可由 Primary Agent 委派 |
+| `archivist` | 调研一手资料并写带引用的报告 | 需要外部资料、文档、API 事实 | 由 Tinker 或 Foreman 委派；也可在 TUI 直接 `@archivist`（插件不写 `hidden`，显隐跟随原生默认与你的配置） |
+| `surveyor` | 只读映射代码结构、约定与关系 | 需要先摸清代码库再动手 | 由 Tinker 或 Foreman 委派；也可在 TUI 直接 `@surveyor`（同上） |
 
-所有 Worker：共享 working tree、只改 assigned scope、不自行 commit/reset、持续无进展即停止汇报、受 `steps` 上限约束。
+所有 Worker：共享 working tree、可跑普通 shell 统计 / 查询 / 只读命令取证（危险命令与 Git 自主变更仍 deny）、只改 assigned scope、不自行 commit/reset、持续无进展即停止汇报、受 `steps` 上限约束。
+
+**可见性**：插件不再设置 `hidden` 字段，不强制隐藏也不强制显示，全部 Agent 跟随 OpenCode 原生默认（可见）。想隐藏某个 Agent（例如 Maker / Inspector），在自己的配置里显式写 `"hidden": true` 即可，插件不覆盖它。
 
 ### 常用技能一览
 
@@ -337,13 +337,13 @@ context 太长、你要换窗口继续，并明确要求把讨论落盘时：
 
 ## Workflow Skills
 
-- 全部 25 个 Promoted Skills 仅注册为 OpenCode V2 Skill，不注册斜杠命令；handoff 的 Skill ID 为 `handoff`。
+- 全部 25 个 Promoted Skills 注册为 OpenCode V2 Skill，不注册自定义命令执行器；user-only 技能开放原生技能菜单入口，普通技能按需由模型发现。handoff 的 Skill ID 为 `handoff`。
 - `implement` skill 在 Tinker 中默认自执行；在 Foreman 中实施主线并可并行委派。
 - 实现后的 Standards / Spec 双轴审查**不默认运行**，只在你明确要求时启动：Tinker 和 Foreman 都可以并行两个 Inspector，各审一轴后汇总。
 - `tdd` skill 是 opt-in：先让你选定 seams / behaviors 再写测试，直接调用 `tdd` skill 也必须先确认范围。
 - `to-spec` / `to-tickets` 是按需持久化路径，只在明确要求跨窗口时使用。
 - 所有 Worker 使用共享 working tree；Primary Agent 在委派前声明 Delegation Leverage、Assigned Scope 和预期结果。
-- **以上"只在明确要求时启动"都是提示词层面的行为约定，不是 native 硬 permission。** 插件不承诺绝对触发保证。25 个技能均已 advertise，上游的 `disable-model-invocation` 已被转换成对使用条件的要求写进描述，不再作为隐藏技能的手段；重型工作流是否启动，取决于你的明确要求与各自的描述条件。native 权限弹窗以用户实际配置为准。请把它当作默认行为预期，不是强制边界。
+- **"只在明确要求时启动"是提示词层面的行为约定，不是 native 硬 permission。** 上游 `disable-model-invocation: true` 映射为 V2 `autoinvoke: false`，从模型可发现列表移除，并以 `slash: true` 开放用户侧原生技能菜单；本地技能可以显式覆盖该调用标记。普通技能仍可按需发现。隐藏发现不等于禁止加载：技能仍已注册，已知道 ID 的 Agent 仍可能通过 `skill` 工具加载，实际加载权限由原生 `skill` 规则决定。本包不额外加确认弹窗，也不承诺绝对的 user-only 安全隔离。
 
 ## Reproducible adaptation
 
@@ -372,7 +372,7 @@ OpenCode v2 会重载受监视的配置与插件；未受监视的本地依赖�
 
 ## Architecture
 
-- **独立原生插件。** 通过 OpenCode 的 config hook 注册自己的 Primary 与 Worker Agent，只使用原生权限、任务委派、可见性与 `steps` 上限；不依赖其他 agent 包，也不实现调度器、worktree 管理、命令执行器、Hook 层或持久任务运行时。
+- **独立原生插件。** 通过 OpenCode 的 config hook 注册自己的 Primary 与 Worker Agent，只使用原生权限、任务委派与 `steps` 上限（不再设置 `hidden` 字段，可见性跟随原生默认，用户可自行配置）；不依赖其他 agent 包，也不实现调度器、worktree 管理、命令执行器、Hook 层或持久任务运行时。
 - **可复现适配边界。** 固定版本的上游快照 + 显式适配规则 + 提交进仓库的生成 Skill；开发知识资产（领域语言、设计决策）与上游快照都不进入安装包分发的运行集。
 - **源码目录与运行目录分离。** `vendor/`、`src/`、`local-skills/` 与 `docs/` 内部设计都只属于源码仓库；运行包只含 `dist/`、`skills/`、`licenses/`、`skill-manifest.json` 与入口文件。
 - 其余取舍见上文[设计原则](#设计原则总结)。

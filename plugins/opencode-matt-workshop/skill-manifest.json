@@ -7,7 +7,7 @@
   "skills": [
     {
       "name": "ask-matt",
-      "implicitInvocation": true
+      "implicitInvocation": false
     },
     {
       "name": "diagnosing-bugs",
@@ -15,19 +15,19 @@
     },
     {
       "name": "grill-with-docs",
-      "implicitInvocation": true
+      "implicitInvocation": false
     },
     {
       "name": "triage",
-      "implicitInvocation": true
+      "implicitInvocation": false
     },
     {
       "name": "improve-codebase-architecture",
-      "implicitInvocation": true
+      "implicitInvocation": false
     },
     {
       "name": "setup-matt-pocock-skills",
-      "implicitInvocation": true
+      "implicitInvocation": false
     },
     {
       "name": "tdd",
@@ -35,19 +35,19 @@
     },
     {
       "name": "to-spec",
-      "implicitInvocation": true
+      "implicitInvocation": false
     },
     {
       "name": "to-tickets",
-      "implicitInvocation": true
+      "implicitInvocation": false
     },
     {
       "name": "wayfinder",
-      "implicitInvocation": true
+      "implicitInvocation": false
     },
     {
       "name": "implement",
-      "implicitInvocation": true
+      "implicitInvocation": false
     },
     {
       "name": "prototype",
@@ -79,7 +79,7 @@
     },
     {
       "name": "grill-me",
-      "implicitInvocation": true
+      "implicitInvocation": false
     },
     {
       "name": "grilling",
@@ -87,19 +87,19 @@
     },
     {
       "name": "handoff",
-      "implicitInvocation": true
+      "implicitInvocation": false
     },
     {
       "name": "teach",
-      "implicitInvocation": true
+      "implicitInvocation": false
     },
     {
       "name": "to-questionnaire",
-      "implicitInvocation": true
+      "implicitInvocation": false
     },
     {
       "name": "wait-what",
-      "implicitInvocation": true
+      "implicitInvocation": false
     },
     {
       "name": "writing-for-agents",

@@ -14,14 +14,14 @@ export default Plugin.define({
                 editor.update(id, (agent) => {
                     agent.description = definition.description;
                     agent.mode = definition.mode;
-                    agent.hidden = definition.hidden ?? false;
                     agent.color = definition.color;
                     agent.steps = definition.steps;
                     agent.system = definition.prompt;
                     // 原生 v2 ruleset：保留 agent 现有规则（原生默认 + 用户显式配置）及其相对顺序，
-                    // 按 base → Workshop policy → 用户规则 → Workshop hard 分层合并；不整体覆盖，
-                    // policy 从不在用户规则之后，职责硬限制（禁递归 / 禁自行 Git 变更 / 只读不 edit、
-                    // 不通过 shell 写文件）始终位于最后，不被用户 allow 覆盖。
+                    // 按 base → Workshop policy → 用户规则 → Workshop hard 分层合并；不整体覆盖。
+                    // policy 从不在用户规则之后，不会静默收紧或放宽既有 ask / deny；职责硬限制
+                    // （禁递归委派 / 禁 Worker 提问用户 / 危险命令与自行 Git 变更拒绝、只读 Worker 不得 edit、
+                    // Drafter 不通过 shell 写文件）始终位于最后，不被用户 allow 覆盖。
                     agent.permissions = mergePermissions((agent.permissions ?? []), (definition.permissions ?? { policy: [], hard: [] }));
                     if (typeof definition.model === "string") {
                         const [providerID, ...model] = definition.model.split("/");

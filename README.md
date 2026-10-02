@@ -122,7 +122,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 | `/tokens_today` `/tokens_weekly` `/tokens_monthly` `/tokens_all` `/tokens_session` | 历史与当前会话 Token 用量 |
 | `/gpt-reset-credits` | 查询 ChatGPT 重置卡；带“兑换”参数表示确认兑换 |
 
-Workshop（`workshop` 组）不注册斜杠命令：上游 Matt Pocock Skills `v1.2.3` 的 25 个 Promoted Skills 适配为 OpenCode Skill，在 `drafter` / `tinker` / `foreman` 角色内按需加载；TDD、独立完整 review、多方案设计、spec / tickets 等重量级工作流按约定只在明确要求时启动——这是提示词层面的行为约定，不是 native 硬权限，不作绝对触发保证。角色说明见 [opencode-matt-workshop](plugins/opencode-matt-workshop/README.md)。
+Workshop（`workshop` 组）把上游 Matt Pocock Skills `v1.2.3` 的 25 个 Promoted Skills 适配为 OpenCode Skill：普通技能按需由模型发现，user-only 技能不向模型主动展示，并开放用户侧原生技能菜单入口；不注册自定义命令执行器。TDD、独立完整 review、多方案设计、spec / tickets 等重量级工作流按约定只在明确要求时启动。这是提示词层面的行为约定，不是硬权限；隐藏发现也不禁止已知 ID 的加载。角色说明见 [opencode-matt-workshop](plugins/opencode-matt-workshop/README.md)。
 
 费用口径：
 

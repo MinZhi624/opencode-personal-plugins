@@ -73,11 +73,12 @@ const workerHardRules = [
     rule("shell", "git add*", deny),
     rule("shell", "git revert*", deny),
 ];
-/** 只读 Worker 硬限制（纯 deny）：不通过 shell 写文件（含重定向），审查所需 diff 由 Parent 提供；不得 edit。 */
-const readOnlyHardRules = [
-    rule("shell", "*", deny),
-    rule("edit", "*", deny),
-];
+/**
+ * 只读 Worker 硬限制（纯 deny）：不得 edit（写入一律交给 Parent / 提示词约束）。
+ * shell 日常使用由 workerSharedPolicy 放行；危险命令与 Git 自主变更仍由 workerHardRules 拒绝，
+ * 合并顺序保证用户显式 deny 依然覆盖 policy 的 shell allow。
+ */
+const readOnlyHardRules = [rule("edit", "*", deny)];
 /** 不通过 shell 写文件的硬限制（纯 deny）。 */
 const noShellHardRule = rule("shell", "*", deny);
 /** Archivist 的编辑范围（默认策略，可被用户显式规则覆盖）：只放行 Markdown 报告。 */
@@ -95,13 +96,14 @@ const primarySharedPolicy = [
     skillPolicy,
     ...webPolicy,
 ];
-/** Worker 共享 policy：按职责开放 skill 与公开网络资料；不在此层放行 edit / question / subagent / shell。 */
+/** Worker 共享 policy：日常检索、敏感环境文件、外部目录、skill、公开网络资料与 shell（只读 Worker 同样需要 bash 跑统计/检索工具）；edit / question / subagent 不在此层放行。 */
 const workerSharedPolicy = [
     ...inspectPolicy,
     ...sensitiveReadPolicy,
     externalDirectoryPolicy,
     skillPolicy,
     ...webPolicy,
+    rule("shell", "*", allow),
 ];
 /**
  * OpenCode v2 原生 agent 默认规则（@opencode/schema Agent.Info.default，按原生顺序）。
@@ -135,9 +137,10 @@ function startsWithSequence(rules, sequence) {
  * - 无法可靠区分原生默认与用户规则时：Workshop policy → 现有规则(全部视为用户) → Workshop hard，
  *   此时 external_directory 等被原生默认收紧的能力退回 ask（保守，可接受）；
  * - Workshop policy 永不在用户规则之后，因此不会静默放宽任何现有 ask / deny；
- * - hard 只放纯 deny 的职责硬限制（禁递归 / 禁自行 Git 变更 / 只读不 edit / 不通过 shell 写文件），
- *   始终位于最后，优先于用户规则生效；格式范围（Drafter 的 md/html、Archivist 的 md）属于
- *   policy 默认策略，用户显式规则可按原生顺序覆盖，提示词继续约束行为，文档说明这不是 OS 隔离；
+ * - hard 只放纯 deny 的职责硬限制（禁递归委派 / 禁 Worker 提问用户 / 危险命令与自行 Git 变更 /
+ *   只读 Worker 不 edit / Drafter 不通过 shell 写文件），始终位于最后，优先于用户规则生效；
+ *   格式范围（Drafter 的 md/html、Archivist 的 md）属于 policy 默认策略，用户显式规则可按原生顺序覆盖，
+ *   提示词继续约束行为，文档说明这不是 OS 隔离；
  * - 原生 transform 每次以新 state 重放，幂等由重放保证；此处不追加权层。
  */
 export function mergePermissions(existing, layers) {
@@ -201,19 +204,17 @@ export function buildWorkshopAgents(options) {
         maker: withOverride({
             description: "在 Assigned Scope 内实施一个有界端到端单元。",
             mode: "subagent",
-            hidden: false,
             steps: 40,
             color: "#F97316",
             prompt: makerPrompt(),
             permissions: {
-                policy: [...workerSharedPolicy, rule("shell", "*", allow), editPolicy],
+                policy: [...workerSharedPolicy, editPolicy],
                 hard: workerHardRules,
             },
         }, options.agents.maker),
         inspector: withOverride({
             description: "只读独立审查一个 Standards、Spec 或设计维度。",
             mode: "subagent",
-            hidden: false,
             steps: 24,
             color: "#EF4444",
             prompt: inspectorPrompt(),
@@ -230,7 +231,7 @@ export function buildWorkshopAgents(options) {
             prompt: archivistPrompt(),
             permissions: {
                 policy: [...workerSharedPolicy, ...markdownOnlyEditPolicy],
-                hard: [...workerHardRules, noShellHardRule],
+                hard: workerHardRules,
             },
         }, options.agents.archivist),
         surveyor: withOverride({
