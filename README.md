@@ -21,6 +21,7 @@
 | `opencode-sidebar-host-zh` / `opencode-session-data` | TUI | 排序／显隐宿主和独立共享会话统计 | [README.md](plugins/opencode-sidebar-host-zh/README.md) |
 | `opencode-quota-card-zh` / `opencode-session-overview-zh` / `opencode-subagent-card-zh` / `opencode-skill-panel` | TUI | 可分别启停的额度、上下文、子代理、技能卡片 | [README.md](plugins/opencode-quota-card-zh/README.md) |
 | `opencode-matt-workshop` | Server | Drafter、Foreman、Tinker 与 Workflow Skill | [README.md](plugins/opencode-matt-workshop/README.md) |
+| `opencode-task-tracker-zh` | Server + TUI | 项目任务 footer、本地 Markdown / GitHub 只读追踪与可撤销本地修正 | [README.md](plugins/opencode-task-tracker-zh/README.md) |
 | `gpt-reset-credits` | Server | ChatGPT 重置卡查询与确认兑换 | [README.md](plugins/gpt-reset-credits/README.md) |
 
 ## 核心设计原则
@@ -80,12 +81,15 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 | 组 | 内容 | 说明 |
 | --- | --- | --- |
-| `workshop` | `opencode-matt-workshop` | 工作流：Drafter / Tinker / Foreman 与四个 Worker、25 个 Workflow Skill |
-| `sidebar` | `opencode-quota-zh`、`opencode-sidebar-host-zh`、`opencode-session-data` 与四张卡片 | 侧栏与额度：`/quota` 命令、卡片和共享会话统计都在此组 |
+| `workshop` | `opencode-matt-workshop`、`opencode-task-tracker-zh` | 工作流：Drafter / Tinker / Foreman、四个 Worker、25 个 Workflow Skill 与适配 Matt tickets 的任务追踪 footer |
+| `sidebar` | `opencode-quota-zh`、`opencode-sidebar-host-zh`、`opencode-session-data` 与四张卡片 | 侧栏与额度：`/quota` 命令、卡片和共享会话统计都在此组（任务追踪 footer 已移至 `workshop` 组） |
 | `alone` | `gpt-reset-credits` | 独立插件；需要 Python 3.10+ |
 
 组之间无依赖，可任意组合；组内依赖插件（含隐藏共享库 `opencode-enhanced-sidebar-zh`）随组整体安装。
-想要 `/quota` 命令需安装 `sidebar` 组。非交互环境（CI／重定向）请显式使用 `--all` 或 `--only` / `--without`，
+想要 `/quota` 命令需安装 `sidebar` 组。任务追踪 footer 随 `workshop` 组安装，但插件独立：不依赖
+Workshop 角色、Workflow Skill 或侧栏宿主，在 `opencode.jsonc`（server）与 `cli.json`（TUI）各加载
+一次即可单独启用；兼容格式见 [`opencode-task-tracker-zh`](plugins/opencode-task-tracker-zh/README.md)。
+非交互环境（CI／重定向）请显式使用 `--all` 或 `--only` / `--without`，
 不带参数会报错退出而不静默全装。
 交互终端安装结束后会显示结果并等待按 Enter 退出；非交互安装不会等待。
 
@@ -116,6 +120,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 | `/quota` | 查看当前 Provider 额度 |
 | `/sidebar-cards` | 统一管理卡片顺序／显隐，保存到 cli.json（不等于禁用插件） |
 | `/sidebar-host-import` `/sidebar-host-status` | 显式导入旧设置／查看文件配置与注册诊断 |
+| `/task-settings` `/task-list` `/task-refresh` | 设置项目任务来源／查看完整清单和撤销本地标记／刷新任务；不写回来源 |
 | `/quota_status` | 诊断认证、价格快照与未定价模型 |
 | `Ctrl+P` → `额度设置面板` | 单独打开额度设置面板，切换侧栏部分错误静默；默认在有有效数据时隐藏同一 Provider 的接口错误，`/quota_status` 仍保留诊断信息 |
 | `/pricing_refresh` | 从 models.dev 刷新共享价格快照 |

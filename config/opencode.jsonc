@@ -16,7 +16,8 @@
           "surveyor": { "model": "opencode-go/mimo-v2.5" }
         }
       }
-    }
+    },
+    "./opencode-zh-bundle/plugins/opencode-task-tracker-zh"
   ],
   "default_agent": "tinker",
   "agents": {

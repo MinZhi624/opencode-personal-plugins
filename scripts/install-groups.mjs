@@ -7,9 +7,9 @@ export const GROUPS = [
   {
     id: "workshop",
     title: "工作流（Matt Workshop）",
-    summary: "Drafter / Tinker / Foreman、四个 Worker 与 25 个 Workflow Skill（注册为 Skill，不注册斜杠命令）",
+    summary: "Drafter / Tinker / Foreman、四个 Worker、25 个 Workflow Skill 与适配 Matt tickets 的任务追踪 footer",
     requiresPython: false,
-    plugins: ["opencode-matt-workshop"],
+    plugins: ["opencode-matt-workshop", "opencode-task-tracker-zh"],
     opencodeEntries: `    {
       "package": "./opencode-zh-bundle/plugins/opencode-matt-workshop",
       "options": {
@@ -23,7 +23,8 @@ export const GROUPS = [
           "surveyor": { "model": "opencode-go/mimo-v2.5" }
         }
       }
-    }`,
+    },
+    "./opencode-zh-bundle/plugins/opencode-task-tracker-zh"`,
     opencodeExtras: `  "default_agent": "tinker",
   "agents": {
     "drafter": { "mode": "primary" },
@@ -38,10 +39,11 @@ export const GROUPS = [
     "general": { "disabled": true },
     "explore": { "disabled": true }
   }`,
-    cliEntries: "",
+    cliEntries: `    "./opencode-zh-bundle/plugins/opencode-task-tracker-zh"`,
     configNotes: [
       "opencode.jsonc：plugins 中的 opencode-matt-workshop 条目（含 options.agents）",
       "opencode.jsonc：default_agent 与 agents 块",
+      "opencode.jsonc 与 cli.json：opencode-task-tracker-zh 条目（任务追踪）",
     ],
   },
   {
@@ -129,7 +131,7 @@ export function renderOpencode(ids) {
 export function renderCli(ids) {
   const entries = GROUPS.filter((group) => ids.includes(group.id) && group.cliEntries).map((group) => group.cliEntries)
   let out = `{\n  "$schema": "https://opencode.ai/v2/cli.json",\n  "plugins": [`
-  if (entries.length) out += `\n${entries.join("\n")}\n`
+  if (entries.length) out += `\n${entries.join(",\n")}\n`
   out += `  ]\n}\n`
   return out
 }

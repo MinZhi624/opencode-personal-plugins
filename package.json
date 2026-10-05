@@ -29,7 +29,8 @@
     "build:quota-zh": "node plugins/opencode-quota-zh/scripts/build-dev.mjs",
     "build:quota-zh:runtime": "node plugins/opencode-quota-zh/scripts/build-runtime.mjs",
     "typecheck:quota-zh": "tsc --project plugins/opencode-quota-zh/tsconfig.json --noEmit",
-    "typecheck:sidebar": "tsc --noEmit --module nodenext --moduleResolution nodenext --target es2022 --jsx preserve --allowImportingTsExtensions --skipLibCheck --types node plugins/opencode-sidebar-host-zh/tui.ts plugins/opencode-session-data/tui.ts plugins/opencode-session-overview-zh/tui.ts plugins/opencode-subagent-card-zh/tui.ts plugins/opencode-quota-card-zh/tui.ts plugins/opencode-skill-panel/tui.ts",
+    "typecheck:sidebar": "tsc --noEmit --module nodenext --moduleResolution nodenext --target es2022 --jsx preserve --allowImportingTsExtensions --skipLibCheck --types node plugins/opencode-sidebar-host-zh/tui.ts plugins/opencode-session-data/tui.ts plugins/opencode-session-overview-zh/tui.ts plugins/opencode-subagent-card-zh/tui.ts plugins/opencode-quota-card-zh/tui.ts plugins/opencode-skill-panel/tui.ts plugins/opencode-task-tracker-zh/tui.ts",
+    "typecheck:tasks": "tsc --noEmit --module nodenext --moduleResolution nodenext --target es2022 --jsx preserve --allowImportingTsExtensions --skipLibCheck --types node plugins/opencode-task-tracker-zh/index.ts",
     "stage:runtime": "node scripts/stage-runtime.mjs"
   }
 }

@@ -1,0 +1,8 @@
+{
+  "name": "opencode-task-tracker-zh",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./index.ts", "./tui": "./tui.ts" },
+  "license": "MIT"
+}
