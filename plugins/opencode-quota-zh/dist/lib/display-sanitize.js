@@ -24,6 +24,23 @@ export function sanitizeDisplaySnippet(text, maxLength) {
 export function sanitizeSingleLineDisplaySnippet(text, maxLength) {
     return sanitizeSingleLineDisplayText(text).slice(0, maxLength);
 }
+// JWT-shaped strings and long opaque runs (API keys, refresh tokens, session
+// ids) are the only shapes a credential error can realistically leak.
+// eslint-disable-next-line no-control-regex
+const CREDENTIAL_JWT_RE = /eyJ[A-Za-z0-9_-]{10,}(?:\.[A-Za-z0-9_-]+)*/gu;
+const CREDENTIAL_OPAQUE_RE = /[A-Za-z0-9_-]{32,}/gu;
+/**
+ * Error text that is safe to show and to store: one sanitized line with
+ * token-shaped strings replaced by a placeholder, at most `maxLength`
+ * characters. Redaction runs before truncation so a token cut at the limit
+ * cannot leave a readable fragment.
+ */
+export function sanitizeCredentialErrorText(text, maxLength = 120) {
+    return sanitizeSingleLineDisplayText(text)
+        .replace(CREDENTIAL_JWT_RE, "[redacted]")
+        .replace(CREDENTIAL_OPAQUE_RE, "[redacted]")
+        .slice(0, maxLength);
+}
 export function sanitizeOptionalDisplayText(value) {
     return typeof value === "string" ? sanitizeDisplayText(value) : undefined;
 }

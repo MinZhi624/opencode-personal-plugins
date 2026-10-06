@@ -6,6 +6,8 @@
  * @packageDocumentation
  */
 import { Plugin } from "@opencode/plugin";
+import { sanitizeCredentialErrorText } from "./lib/display-sanitize.js";
+import { HOST_CREDENTIAL_FAILURE_REASON, } from "./lib/entries.js";
 import { buildQuotaDialogCommandOutput } from "./lib/quota-dialog-commands.js";
 import { buildQuotaSnapshotResponse } from "./lib/quota-sidebar-cards.js";
 import { collectQuotaRenderData } from "./lib/quota-render-data.js";
@@ -13,6 +15,11 @@ import { createQuotaRuntimeRequestContext, resolveQuotaRuntimeContext, } from ".
 import { quotaRpc } from "./quota-rpc.js";
 // The upstream core only needs provider enumeration and the active config;
 // both are available from the V2 server context domains.
+//
+// A resolution that cannot be completed is reported as a visible failure
+// carrying one sanitized line, so the quota credential chain can show why the
+// preferred credential source produced nothing. Throwing here would abort the
+// whole quota query instead.
 async function resolveHostOAuthCredential(context, integrationID) {
     try {
         const connection = await context.integration.connection.active(integrationID);
@@ -27,8 +34,12 @@ async function resolveHostOAuthCredential(context, integrationID) {
             ...(typeof value.expires === "number" ? { expiresAt: value.expires } : {}),
         };
     }
-    catch {
-        return null;
+    catch (error) {
+        const reason = sanitizeCredentialErrorText(error instanceof Error ? error.message : String(error));
+        return {
+            failed: true,
+            reason: reason || HOST_CREDENTIAL_FAILURE_REASON,
+        };
     }
 }
 function createQuotaCoreClient(context) {
@@ -42,7 +53,8 @@ function createQuotaCoreClient(context) {
         },
         // OpenCode V2 keeps saved credentials in the host database and owns OAuth
         // token refresh. Expose the active connection so providers can prefer it
-        // over legacy auth.json entries.
+        // over legacy auth.json entries; a lookup that cannot be completed
+        // answers with a sanitized failure instead of throwing.
         integration: {
             resolveOAuthCredential: (integrationID) => resolveHostOAuthCredential(context, integrationID),
         },

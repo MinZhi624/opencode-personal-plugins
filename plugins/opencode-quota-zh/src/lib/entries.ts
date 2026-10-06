@@ -364,6 +364,36 @@ export interface HostOAuthCredential {
   expiresAt?: number;
 }
 
+/**
+ * A host credential lookup that could not be completed.
+ *
+ * The host owns the credential store and token refresh, so a lookup can fail
+ * for reasons this plugin cannot repair. Reporting the failure keeps it
+ * distinguishable from "this integration holds no connection": the reason is
+ * one sanitized line that never contains token, key or Authorization content.
+ */
+export interface HostOAuthCredentialFailure {
+  readonly failed: true;
+  readonly reason: string;
+}
+
+/**
+ * Host credential resolution outcome. `null` still means "no connection here";
+ * a failure object means the connection exists but could not be read.
+ */
+export type HostOAuthCredentialResolution =
+  | HostOAuthCredential
+  | HostOAuthCredentialFailure;
+
+export function isHostOAuthCredentialFailure(
+  resolved: HostOAuthCredentialResolution | null,
+): resolved is HostOAuthCredentialFailure {
+  return resolved !== null && "failed" in resolved;
+}
+
+/** Fallback reason when a host credential failure carries no usable message. */
+export const HOST_CREDENTIAL_FAILURE_REASON = "宿主连接凭据解析失败";
+
 export interface QuotaProviderContext {
   client: {
     config: {
@@ -374,9 +404,15 @@ export interface QuotaProviderContext {
      * Optional host integration-credential lookup (OpenCode V2). When present it
      * is authoritative over legacy `auth.json` entries: the host owns token
      * refresh, so callers must not reject its credential on local expiry alone.
+     *
+     * A lookup that cannot be completed answers with a failure carrying one
+     * sanitized line, so the credential chain can report it instead of
+     * silently degrading to "no credential".
      */
     integration?: {
-      resolveOAuthCredential: (integrationID: string) => Promise<HostOAuthCredential | null>;
+      resolveOAuthCredential: (
+        integrationID: string,
+      ) => Promise<HostOAuthCredentialResolution | null>;
     };
   };
   resolveRuntimeProviderIds: RuntimeProviderIdResolver;

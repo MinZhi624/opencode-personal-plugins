@@ -44,3 +44,8 @@ export function cloneQuotaToastEntry(entry) {
         ...(isQuantityEntry(entry) ? { quantity: cloneAccountingQuantity(entry.quantity) } : {}),
     };
 }
+export function isHostOAuthCredentialFailure(resolved) {
+    return resolved !== null && "failed" in resolved;
+}
+/** Fallback reason when a host credential failure carries no usable message. */
+export const HOST_CREDENTIAL_FAILURE_REASON = "宿主连接凭据解析失败";

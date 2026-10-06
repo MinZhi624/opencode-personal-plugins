@@ -5,10 +5,14 @@
  * https://chatgpt.com/backend-api/wham/usage
  */
 
-import { sanitizeDisplayText } from "./display-sanitize.js";
+import { sanitizeCredentialErrorText } from "./display-sanitize.js";
+import {
+  HOST_CREDENTIAL_FAILURE_REASON,
+  type HostOAuthCredentialResolution,
+  isHostOAuthCredentialFailure,
+} from "./entries.js";
 import type {
   FixedWindowProjectionEvidence,
-  HostOAuthCredential,
   QuotaProviderContext,
 } from "./entries.js";
 import { clampPercent } from "./format-utils.js";
@@ -44,6 +48,11 @@ interface JwtPayload {
   "https://api.openai.com/auth"?: {
     chatgpt_account_id?: string;
   };
+  /**
+   * OAuth scope claim. Issuers encode it either as a space-delimited string
+   * or as an array of scope strings; both forms are accepted downstream.
+   */
+  scope?: string | string[];
 }
 
 function base64UrlDecode(input: string): string {
@@ -63,12 +72,53 @@ function parseJwt(token: string): JwtPayload | null {
   }
 }
 
-function getEmailFromJwt(token: string): string | null {
+export function getEmailFromJwt(token: string): string | null {
   return parseJwt(token)?.["https://api.openai.com/profile"]?.email ?? null;
 }
 
-function getAccountIdFromJwt(token: string): string | null {
+export function getAccountIdFromJwt(token: string): string | null {
   return parseJwt(token)?.["https://api.openai.com/auth"]?.chatgpt_account_id ?? null;
+}
+
+/**
+ * Scope marker of ChatGPT subscription-sharing tokens (the "Sign in with
+ * ChatGPT" connection). Such tokens only authorize model calls; the usage
+ * endpoint rejects them with 401 with or without an account header.
+ */
+const MODEL_ONLY_TOKEN_SCOPE = "chatgpt.tokens.use.direct";
+
+function tokenScopes(token: string): string[] | null {
+  const scope = parseJwt(token)?.scope;
+  if (typeof scope === "string") {
+    const scopes = scope.split(/[\s,]+/).filter(Boolean);
+    return scopes.length > 0 ? scopes : null;
+  }
+  if (Array.isArray(scope)) {
+    return scope.filter((entry): entry is string => typeof entry === "string" && entry.length > 0);
+  }
+  return null;
+}
+
+/**
+ * True when the access token can only call models and cannot read usage.
+ *
+ * Only an explicit subscription-sharing scope marks a token as model-only.
+ * A token without any scope declaration stays eligible: the Codex CLI login
+ * token carries no scope and is currently the only credential that can read
+ * usage, so "no scope" must never be treated as "no capability".
+ */
+export function isModelOnlyOpenAIToken(accessToken: string): boolean {
+  const scopes = tokenScopes(accessToken);
+  if (!scopes) return false;
+  return scopes.includes(MODEL_ONLY_TOKEN_SCOPE);
+}
+
+/** True when a locally known token expiry is already in the past. */
+export function isOpenAITokenLocallyExpired(
+  expiresAt: number | undefined,
+  nowMs: number = Date.now(),
+): boolean {
+  return typeof expiresAt === "number" && expiresAt < nowMs;
 }
 
 type OpenAIWindowKind = "hourly" | "weekly" | "monthly";
@@ -187,6 +237,18 @@ export const OPENAI_AUTH_SOURCE_KEYS = ["openai", "codex", "chatgpt", "opencode"
 
 export type OpenAIAuthSourceKey = (typeof OPENAI_AUTH_SOURCE_KEYS)[number];
 
+/** Host-managed connection resolved through the OpenCode V2 integration API. */
+export const OPENAI_INTEGRATION_SOURCE_KEY = "opencode-integration";
+
+/** Codex CLI login file (`~/.codex/auth.json`). */
+export const OPENAI_CODEX_AUTH_SOURCE_KEY = "codex-auth-json";
+
+/** Where a resolved OpenAI credential came from. */
+export type ResolvedOpenAIAuthSource =
+  | OpenAIAuthSourceKey
+  | typeof OPENAI_INTEGRATION_SOURCE_KEY
+  | typeof OPENAI_CODEX_AUTH_SOURCE_KEY;
+
 export type OpenAIResult =
   | {
       success: true;
@@ -204,14 +266,32 @@ export type OpenAIResult =
         balance: string | null;
       };
     }
-  | QuotaError
+  | (QuotaError & { status?: number })
   | null;
+
+/** Credential for a single quota query attempt. */
+export interface OpenAIQuotaCredential {
+  access: string;
+  refresh?: string;
+  expires?: number;
+  /** Account id sent as `ChatGPT-Account-Id`; falls back to the token claim. */
+  accountId?: string;
+  /** Display email; falls back to the token claim. */
+  email?: string;
+  /**
+   * Reject locally when `expires` is in the past. Only set for credentials
+   * this plugin cannot refresh (legacy auth.json entries): the host and the
+   * Codex CLI both own token refresh, so their expiry is not authoritative.
+   */
+  rejectOnLocalExpiry?: boolean;
+}
 
 export type ResolvedOpenAIOAuth =
   | { state: "none" }
+  | { state: "failed"; reason: string }
   | {
       state: "configured";
-      sourceKey: OpenAIAuthSourceKey | "opencode-integration";
+      sourceKey: ResolvedOpenAIAuthSource;
       accessToken: string;
       refreshToken?: string;
       expiresAt?: number;
@@ -223,33 +303,54 @@ export type ResolvedOpenAIOAuth =
  * Resolve the active OpenAI OAuth credential from the host (OpenCode V2
  * integration connection). The host owns token refresh, so the returned
  * credential is authoritative and must not be rejected on local expiry alone.
+ *
+ * A lookup failure is reported as `{ state: "failed" }` with one sanitized
+ * line, never as `{ state: "none" }`: "no connection" and "the connection
+ * could not be read" are different problems, and only the first one is
+ * something the user can fix by logging in.
  */
 export async function resolveOpenAIHostCredential(
   integration: QuotaProviderContext["client"]["integration"],
-): Promise<Extract<ResolvedOpenAIOAuth, { state: "configured" }> | null> {
-  if (!integration?.resolveOAuthCredential) return null;
+): Promise<ResolvedOpenAIOAuth> {
+  if (!integration?.resolveOAuthCredential) return { state: "none" };
 
+  let failure: string | undefined;
   for (const integrationID of ["openai", "chatgpt", "codex"]) {
-    let credential: HostOAuthCredential | null = null;
+    let resolved: HostOAuthCredentialResolution | null = null;
     try {
-      credential = await integration.resolveOAuthCredential(integrationID);
-    } catch {
-      credential = null;
+      resolved = await integration.resolveOAuthCredential(integrationID);
+    } catch (error) {
+      // Defensive: the integration contract reports a failed lookup as a value,
+      // but a host error must still surface instead of ending the query.
+      resolved = {
+        failed: true,
+        reason: sanitizeCredentialErrorText(
+          error instanceof Error ? error.message : String(error),
+        ),
+      };
     }
-    if (!credential?.access) continue;
+
+    if (!resolved) continue;
+
+    if (isHostOAuthCredentialFailure(resolved)) {
+      failure ??= resolved.reason || HOST_CREDENTIAL_FAILURE_REASON;
+      continue;
+    }
+
+    if (!resolved.access) continue;
 
     return {
       state: "configured",
       sourceKey: "opencode-integration",
-      accessToken: credential.access,
-      refreshToken: credential.refresh,
-      expiresAt: credential.expiresAt,
-      email: getEmailFromJwt(credential.access) ?? undefined,
-      accountId: getAccountIdFromJwt(credential.access) ?? undefined,
+      accessToken: resolved.access,
+      refreshToken: resolved.refresh,
+      expiresAt: resolved.expiresAt,
+      email: getEmailFromJwt(resolved.access) ?? undefined,
+      accountId: getAccountIdFromJwt(resolved.access) ?? undefined,
     };
   }
 
-  return null;
+  return failure === undefined ? { state: "none" } : { state: "failed", reason: failure };
 }
 
 function getOpenAIOAuthEntry(
@@ -335,43 +436,47 @@ export async function hasOpenAIOAuthCached(params?: { maxAgeMs?: number }): Prom
 export async function queryOpenAIQuota(
   options: {
     requestTimeoutMs?: number;
-    credential?: { access: string; refresh?: string; expires?: number };
+    credential?: OpenAIQuotaCredential;
   } = {},
 ): Promise<OpenAIResult> {
-  const resolvedAuth: ResolvedOpenAIOAuth = options.credential
-    ? {
-        state: "configured",
-        sourceKey: "openai",
-        accessToken: options.credential.access,
-        refreshToken: options.credential.refresh,
-        expiresAt: options.credential.expires,
-        email: getEmailFromJwt(options.credential.access) ?? undefined,
-        accountId: getAccountIdFromJwt(options.credential.access) ?? undefined,
-      }
-    : resolveOpenAIOAuth(
-        await readAuthFileCached({ maxAgeMs: DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS }),
-      );
-  if (resolvedAuth.state !== "configured") return null;
+  const credential = options.credential;
+  let accessToken: string;
+  let email: string | undefined;
+  let accountId: string | undefined;
+  let expiresAt: number | undefined;
+  // Legacy auth.json credentials are rejected locally on expiry: the plugin
+  // cannot refresh them. A caller-supplied credential comes from the host
+  // (OpenCode V2) or the Codex CLI, which both own token refresh, so its
+  // expiry is not authoritative here unless the caller opts in.
+  let rejectOnLocalExpiry = true;
 
-  // Only legacy auth.json credentials are rejected locally on expiry: the
-  // plugin cannot refresh them. A caller-supplied credential comes from the
-  // host (OpenCode V2), which owns token refresh, so its expiry is not
-  // authoritative here and the request is attempted instead.
-  if (
-    !options.credential &&
-    resolvedAuth.expiresAt &&
-    resolvedAuth.expiresAt < Date.now()
-  ) {
-    return { success: false, error: "Token expired" };
+  if (credential) {
+    accessToken = credential.access;
+    email = credential.email ?? getEmailFromJwt(credential.access) ?? undefined;
+    accountId = credential.accountId ?? getAccountIdFromJwt(credential.access) ?? undefined;
+    expiresAt = credential.expires;
+    rejectOnLocalExpiry = credential.rejectOnLocalExpiry === true;
+  } else {
+    const resolved = resolveOpenAIOAuth(
+      await readAuthFileCached({ maxAgeMs: DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS }),
+    );
+    if (resolved.state !== "configured") return null;
+    accessToken = resolved.accessToken;
+    email = resolved.email;
+    accountId = resolved.accountId;
+    expiresAt = resolved.expiresAt;
+  }
+
+  if (rejectOnLocalExpiry && isOpenAITokenLocallyExpired(expiresAt)) {
+    return { success: false, error: "登录令牌已过期" };
   }
 
   try {
     const headers: Record<string, string> = {
-      Authorization: `Bearer ${resolvedAuth.accessToken}`,
+      Authorization: `Bearer ${accessToken}`,
       "User-Agent": "OpenCode-Quota-Toast/1.0",
     };
 
-    const accountId = resolvedAuth.accountId;
     if (accountId) {
       headers["ChatGPT-Account-Id"] = accountId;
     }
@@ -381,9 +486,13 @@ export async function queryOpenAIQuota(
       timeoutMs: options.requestTimeoutMs,
       consume: async (resp) => {
         if (!resp.ok) {
+          const reason = await readHttpErrorReason(resp);
           return {
             success: false,
-            error: `OpenAI API error ${resp.status}`,
+            error: reason
+              ? `OpenAI API error ${resp.status}: ${reason}`
+              : `OpenAI API error ${resp.status}`,
+            status: resp.status,
           };
         }
 
@@ -426,13 +535,13 @@ export async function queryOpenAIQuota(
         if (codeReview) windows.codeReview = codeReview;
 
         if (Object.keys(windows).length === 0) {
-          return { success: false, error: "No quota data" };
+          return { success: false, error: "接口未返回额度数据" };
         }
 
         return {
           success: true,
           label: derivePlanLabel(data.plan_type),
-          email: resolvedAuth.email,
+          email,
           windows,
           credits: credits
             ? {
@@ -447,7 +556,34 @@ export async function queryOpenAIQuota(
   } catch (err) {
     return {
       success: false,
-      error: sanitizeDisplayText(err instanceof Error ? err.message : String(err)),
+      error: sanitizeCredentialErrorText(err instanceof Error ? err.message : String(err)),
     };
+  }
+}
+
+/**
+ * Short, sanitized reason from a non-2xx usage-endpoint response. Provider
+ * error bodies can name the rejection cause; they can also echo request
+ * data, so the text is redacted and capped before it reaches any surface.
+ */
+async function readHttpErrorReason(resp: Response): Promise<string> {
+  try {
+    const raw = (await resp.text()).slice(0, 1024);
+    if (!raw.trim()) return "";
+
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") {
+      const record = parsed as Record<string, unknown>;
+      for (const key of ["detail", "message", "error"]) {
+        const value = record[key];
+        if (typeof value === "string" && value.trim()) {
+          return sanitizeCredentialErrorText(value, 60);
+        }
+      }
+    }
+
+    return sanitizeCredentialErrorText(raw, 60);
+  } catch {
+    return "";
   }
 }

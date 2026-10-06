@@ -130,7 +130,12 @@ export const PROVIDER_CACHE_POLICIES = {
     kind: "resolved-auth",
     resolveIdentity: async (ctx) => {
       const hostAuth = await resolveOpenAIHostCredential(ctx.client.integration);
-      return resolveOpenAIAuthIdentity(hostAuth ? { auth: hostAuth } : {});
+      // Only a `configured` host credential may feed the cache identity; a
+      // `failed`/`none` lookup must fall through to the auth-file branch, the
+      // same way the query path chains host → Codex `codex login`.
+      return resolveOpenAIAuthIdentity(
+        hostAuth.state === "configured" ? { auth: hostAuth } : {},
+      );
     },
   },
   openrouter: {
