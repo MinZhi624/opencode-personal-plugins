@@ -7,9 +7,9 @@ export const GROUPS = [
   {
     id: "workshop",
     title: "工作流（Matt Workshop）",
-    summary: "Drafter / Tinker / Foreman、四个 Worker、25 个 Workflow Skill 与适配 Matt tickets 的任务追踪 footer",
+    summary: "Drafter / Tinker / Foreman、四个 Worker、25 个 Workflow Skill",
     requiresPython: false,
-    plugins: ["opencode-matt-workshop", "opencode-task-tracker-zh"],
+    plugins: ["opencode-matt-workshop"],
     opencodeEntries: `    {
       "package": "./opencode-zh-bundle/plugins/opencode-matt-workshop",
       "options": {
@@ -23,8 +23,7 @@ export const GROUPS = [
           "surveyor": { "model": "opencode-go/mimo-v2.5" }
         }
       }
-    },
-    "./opencode-zh-bundle/plugins/opencode-task-tracker-zh"`,
+    }`,
     opencodeExtras: `  "default_agent": "tinker",
   "agents": {
     "drafter": { "mode": "primary" },
@@ -39,11 +38,10 @@ export const GROUPS = [
     "general": { "disabled": true },
     "explore": { "disabled": true }
   }`,
-    cliEntries: `    "./opencode-zh-bundle/plugins/opencode-task-tracker-zh"`,
+    cliEntries: "",
     configNotes: [
       "opencode.jsonc：plugins 中的 opencode-matt-workshop 条目（含 options.agents）",
       "opencode.jsonc：default_agent 与 agents 块",
-      "opencode.jsonc 与 cli.json：opencode-task-tracker-zh 条目（任务追踪）",
     ],
   },
   {
