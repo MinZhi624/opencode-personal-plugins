@@ -10,6 +10,7 @@ import type { SessionCostSummary } from "./metrics/session-cost-summary.ts"
 import { formatTokenCount, totalTokenBuckets } from "./metrics/token-buckets.ts"
 import { formatCostUsd } from "./metrics/token-cost.ts"
 import { createV2Metrics } from "./v2-runtime.ts"
+import { useCardControlPreview } from "../../opencode-sidebar-host-zh/src/card-controls.ts"
 
 export type SubagentSortOrder = "desc" | "asc"
 
@@ -28,7 +29,10 @@ export type SubagentPluginOptions = {
   subagentsTtlDays?: number
 }
 
-const SUBAGENT_SETTINGS_KEY = "subagent-magazine-settings-v2"
+/** 卡片 ID：与宿主注册、控制窗口字段使用同一个稳定身份。 */
+export const SUBAGENT_CARD_ID = "subagents"
+
+export const SUBAGENT_SETTINGS_KEY = "subagent-magazine-settings-v2"
 
 const DEFAULT_SORT_ORDER: SubagentSortOrder = "desc"
 const DEFAULT_MAX_ENTRIES = 10
@@ -138,13 +142,21 @@ export function SubAgentPanel(props: {
   const [view, updateView] = props.context.storage.store("subagent-magazine-view-v2", {
     initial: { version: 2, open: true },
   })
-  const [settings] = props.context.storage.store("subagent-magazine-settings-v2", {
+  const [settings] = props.context.storage.store(SUBAGENT_SETTINGS_KEY, {
     initial: { version: 2 } as SubagentSettings,
   })
   // 侧边栏只负责显示，改设置请去 cli.json 插件选项或命令面板，不要在侧边栏里加按钮
+  // 统一窗口的预览只覆盖显示，不写存档；排序／条数的保存仍归子代理设置所有者。
+  const preview = useCardControlPreview(SUBAGENT_CARD_ID)
   const effective = () => resolveSubagentSettings(settings as SubagentSettings, props.context.options as SubagentPluginOptions | undefined)
-  const sortOrder = () => effective().sortOrder
-  const maxEntries = () => effective().maxEntries
+  const sortOrder = () => {
+    const value = preview()?.sortOrder
+    return value === "asc" || value === "desc" ? value : effective().sortOrder
+  }
+  const maxEntries = () => {
+    const value = preview()?.maxEntries
+    return typeof value === "number" ? clampMaxEntries(value) : effective().maxEntries
+  }
   const ttlDays = () => effective().ttlDays
   const [expanded, setExpanded] = createSignal("")
   const timer = setInterval(() => setTick((value) => value + 1), 1000)
@@ -256,7 +268,7 @@ export function SubAgentPanel(props: {
   }
   return (
     <box flexDirection="column">
-      <box flexDirection="row" gap={1} onMouseDown={() => void updateView((draft) => { draft.open = !draft.open })}>
+      <box flexDirection="row" flexWrap="wrap" gap={1} onMouseDown={() => void updateView((draft) => { draft.open = !draft.open })}>
         <text fg={theme.text.action.primary.base}>{view.open ? "▼" : "▶"}</text>
         <text fg={theme.text.action.primary.base}><b>子代理</b></text>
         <Show when={doneCount() > 0 || runningCount() > 0 || errorCount() > 0}>
@@ -280,21 +292,21 @@ export function SubAgentPanel(props: {
             const entryTokens = () => result()?.complete && result()?.hasUsage ? totalTokenBuckets(result()!.tokens) : null
             return (
               <box flexDirection="column">
-                <box flexDirection="row" gap={1} onMouseDown={() => setExpanded((value) => value === entry.id ? "" : entry.id)}>
+                <box flexDirection="row" flexWrap="wrap" gap={1} onMouseDown={() => setExpanded((value) => value === entry.id ? "" : entry.id)}>
                   <text fg={color(entry.status)}>{dot(entry.status)}</text>
                   <text fg={theme.text.base}>{entry.title || entry.agent}</text>
                   <text fg={theme.text.muted}>{duration(entry)}</text>
                   <Show when={expanded() !== entry.id && entryTokens() !== null && entryTokens()! > 0}><text fg={theme.text.muted}>{formatTokenCount(entryTokens()!)}</text></Show>
                 </box>
                 <Show when={expanded() === entry.id}>
-                <box flexDirection="row" justifyContent="space-between"><text fg={theme.text.muted}>代理</text><text fg={theme.text.base}>{entry.agent}</text></box>
-                <Show when={entry.childID && props.context.data.session.get(entry.childID)?.model}><box flexDirection="row" justifyContent="space-between"><text fg={theme.text.muted}>模型</text><text fg={theme.text.base}>{(() => { const model = props.context.data.session.get(entry.childID!)!.model!; return `${model.providerID}/${model.id}` })()}</text></box></Show>
-                <box flexDirection="row" justifyContent="space-between"><text fg={theme.text.muted}>状态</text><text fg={color(entry.status)}>{statusText(entry.status)}</text></box>
-                <Show when={entry.childID}><box flexDirection="row" justifyContent="space-between" onMouseDown={() => void copyText(entry.childID!)}><text fg={theme.text.muted}>会话 ID</text><text fg={theme.text.base}>{entry.childID!.slice(0, 18)}… ⎘</text></box></Show>
-                <Show when={entryTokens() !== null}><box flexDirection="row" justifyContent="space-between"><text fg={theme.text.muted}>Token 用量</text><text fg={theme.text.base}>{formatTokenCount(entryTokens()!)}</text></box></Show>
-                <Show when={result()?.complete && result()?.hasUsage}><box flexDirection="row" justifyContent="space-between"><text fg={theme.text.muted}>费用</text><text fg={theme.text.base}>{formatCostUsd(result()!.usd, result()!)}</text></box></Show>
-                <Show when={entry.childID}><box flexDirection="row" gap={2}><text fg={theme.text.action.primary.base} onMouseDown={() => props.context.ui.router.navigate({ type: "session", sessionID: entry.childID! })}>→ 进入会话</text><Show when={entry.status === "running"}><text fg={theme.text.feedback.warning.base} onMouseDown={() => void cancel(entry)}>取消任务</text></Show></box></Show>
-                <box flexDirection="row" gap={2}>
+                <box flexDirection="row" flexWrap="wrap" justifyContent="space-between"><text fg={theme.text.muted}>代理</text><text fg={theme.text.base}>{entry.agent}</text></box>
+                <Show when={entry.childID && props.context.data.session.get(entry.childID)?.model}><box flexDirection="row" flexWrap="wrap" justifyContent="space-between"><text fg={theme.text.muted}>模型</text><text fg={theme.text.base}>{(() => { const model = props.context.data.session.get(entry.childID!)!.model!; return `${model.providerID}/${model.id}` })()}</text></box></Show>
+                <box flexDirection="row" flexWrap="wrap" justifyContent="space-between"><text fg={theme.text.muted}>状态</text><text fg={color(entry.status)}>{statusText(entry.status)}</text></box>
+                <Show when={entry.childID}><box flexDirection="row" flexWrap="wrap" justifyContent="space-between" onMouseDown={() => void copyText(entry.childID!)}><text fg={theme.text.muted}>会话 ID</text><text fg={theme.text.base}>{entry.childID!.slice(0, 18)}… ⎘</text></box></Show>
+                <Show when={entryTokens() !== null}><box flexDirection="row" flexWrap="wrap" justifyContent="space-between"><text fg={theme.text.muted}>Token 用量</text><text fg={theme.text.base}>{formatTokenCount(entryTokens()!)}</text></box></Show>
+                <Show when={result()?.complete && result()?.hasUsage}><box flexDirection="row" flexWrap="wrap" justifyContent="space-between"><text fg={theme.text.muted}>费用</text><text fg={theme.text.base}>{formatCostUsd(result()!.usd, result()!)}</text></box></Show>
+                <Show when={entry.childID}><box flexDirection="row" flexWrap="wrap" gap={2}><text fg={theme.text.action.primary.base} onMouseDown={() => props.context.ui.router.navigate({ type: "session", sessionID: entry.childID! })}>→ 进入会话</text><Show when={entry.status === "running"}><text fg={theme.text.feedback.warning.base} onMouseDown={() => void cancel(entry)}>取消任务</text></Show></box></Show>
+                <box flexDirection="row" flexWrap="wrap" gap={2}>
                   <Show when={entry.status === "running" || entry.status === "cancel_requested"}><text fg={theme.text.muted} onMouseDown={() => void dismissEntry(entry)}>标记完成</text></Show>
                   <text fg={theme.text.muted} onMouseDown={() => void deleteEntry(entry)}>删除这条</text>
                 </box>

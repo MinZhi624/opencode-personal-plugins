@@ -594,12 +594,13 @@ export function QuotaPanel(props: { context: Context; sessionID: string }) {
 // The stable local TUI plugin id — this stays the only TUI plugin registration
 // for the quota surfaces. Its setup delegates to the native v6 TUI plugin,
 // which registers the app, status-line, Home-footer and quota-window slots,
-// publishes the bridge host the local QuotaPanel reads, and returns their
+// publishes the bridge host the local quota card reads, and returns their
 // cleanup; the session sidebar panel is not registered by the native plugin —
-// the local QuotaPanel above is the one sidebar quota card, consuming the
-// host's snapshot and display settings. The delegation runs inside the
-// caller's Solid owner — no new root is created — so the native slots keep
-// OpenCode's own ownership.
+// the local quota card plugin (`opencode-quota-card-zh`, stable card id
+// `quota`) renders the native `SidebarPanel` from the published host, so the
+// sidebar shows the native layout once, ordered and hidden by the sidebar
+// host. The delegation runs inside the caller's Solid owner — no new root is
+// created — so the native slots keep OpenCode's own ownership.
 export default Plugin.define({
   id: "opencode-quota-zh",
   setup(context) {

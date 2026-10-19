@@ -38,7 +38,8 @@ session hooks 与报表全部来自 `src/v6/**`。本地只做接入与展示，
 | `src/index.ts` | 服务器入口 wrapper：以本地插件 id `opencode-quota-zh` 调用真实的 v6 `QuotaToastPlugin.setup`，并在其上叠加一个本地 RPC |
 | `src/quota-rpc.ts` | 本地 `opencode-quota-zh` RPC 定义（`snapshot`、`pricing`、`sessionUsage` 及 `pricingChanged` 事件） |
 | `src/lib/quota-sidebar-cards.ts` | 将 v6 结构化 snapshot 转换为中文侧边栏卡片（4.9 时代本地核心树移除后仅剩此文件） |
-| `src/tui-v2.tsx` | TUI 入口（raw TSX）：只渲染结构化卡片，不再从展示文本反推数值 |
+| `src/tui-v2.tsx` | TUI 入口（raw TSX）：委托原生 v6 TUI，旧 `QuotaPanel` 展示实现不再注册为侧栏 |
+| `../opencode-quota-card-zh/src/native-quota-card.tsx` | 原生 `SidebarPanel` 的本地 Adapter：经桥接读取原生 host，由侧栏宿主排列与显隐，不从展示文本反推数值 |
 
 本地适配与事件：本地 `opencode-quota-zh` RPC 在 `snapshot` 之外还扩展到
 `pricing` 与 `sessionUsage`，并在价格来源或选择变化时向消费者发出 `pricingChanged`
@@ -50,6 +51,32 @@ RPC 错误原样上报，卡片显示失败态而非编造数据，凭据不跨�
 
 中文展示保持既有形态：多行卡片、20 格剩余条（`█`）、"已用 x% / 剩余 y%"双百分比、
 以及"剩余时长（绝对时间）"的中文＋绝对重置时间。
+
+## 本轮适配：原生侧栏额度纳入侧栏宿主（ticket01）
+
+侧栏挂载点从「原生 TUI 独立 `sidebar.content` 槽位」迁到「本地额度卡片在宿主导管下
+渲染原生面板」：
+
+- `src/v6/tui/index.tsx` 不再注册 `sidebar.content` 槽位，只发布桥接宿主并保留
+  app／prompt.footer／home.footer.status／session.composer.top 四个槽位及其 cleanup；
+  文件头注释与 `TuiContext` 的槽位联合类型同步收敛。
+- 本地额度卡片 `../opencode-quota-card-zh`（稳定卡片身份 `quota`）经
+  `src/local-tui-bridge.ts` 读取该宿主，渲染上游 `SidebarPanel`（字节复制的
+  `dist/v6/tui/sidebar.tsx`），沿用原生行布局与中文化，不恢复旧定制额度卡片。
+  卡片 Adapter 集中在 `../opencode-quota-card-zh/src/native-quota-card.tsx`：桥接
+  发布／撤销订阅、无宿主的明确不可用态、用既有本地 `snapshot` RPC 分辨后台未启用与
+  查询失败、宽限上限与「重试」（复用原生 `refresh("manual", sessionID)`）、按
+  host/session 保持一份 `quota.watch` 使中止态可自然恢复。
+- 侧栏专属进度条形状只作用于本套侧栏：卡片调用宿主
+  `../opencode-sidebar-host-zh/src/presentation.ts` 的 `useSidebarBarShape("quota")`，
+  仅派生本卡片传给 `SidebarPanel` 的 `host.display()`
+  （`{...display, layout: {...display.layout, bar: override ?? display.layout.bar}}`），
+  不改写宿主对象、不改 `layout.bar` 等 Quota 跨展示位置共享设置，因此 `/quota` 报表、
+  状态栏、Home footer 与通知的外观不受影响。该偏好由统一展示控制窗口发布，本插件只消费。
+- `src/tui-v2.tsx` 仅更新尾部原生委托注释；其中的 `QuotaPanel` 不再被卡片引用，
+  保留原状待后续清理，不在本轮改动。
+- 构建注意：卡片运行期从 `dist` 导入桥接与原生侧栏模块，改 `src` 后必须执行
+  `npm run build:quota-zh:runtime` 才会改变运行行为。
 
 ## 构建与分发
 

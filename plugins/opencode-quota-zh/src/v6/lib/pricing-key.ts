@@ -401,7 +401,7 @@ export function resolveModelPricing(source: {
   modelID?: string;
 }): ModelPricing {
   const mapping = resolvePricingKey(source);
-  if (!mapping.ok) return { kind: "unknown", unknown: mapping.unknown };
+  if (mapping.ok === false) return { kind: "unknown", unknown: mapping.unknown };
 
   const rates =
     mapping.key.provider === "cursor"

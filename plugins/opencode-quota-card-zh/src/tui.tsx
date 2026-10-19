@@ -4,32 +4,32 @@ import "@opentui/solid/preload"
 import { Plugin } from "@opencode/plugin/tui"
 import type { Context } from "@opencode/plugin/tui/context"
 import { registerSidebarCard } from "../../opencode-sidebar-host-zh/src/register-card.ts"
-import { QuotaCard } from "./quota-card.tsx"
+import { registerCardControls } from "../../opencode-sidebar-host-zh/src/card-controls.ts"
+import { NativeQuotaCard, QUOTA_CARD_ID } from "./native-quota-card.tsx"
 
 /** 所有者＝本插件 id：卸载／撤销只影响自己的注册。 */
 const OWNER = "opencode-quota-card-zh"
-/** 稳定卡片身份（宿主按它保存排序／显隐，跨重启不变）。 */
-const CARD_ID = "quota"
 const CARD_TITLE = "额度"
-// Temporarily archive the local presentation while previewing upstream v6.
-// Keep the stable card id and implementation intact for a later switch back.
-const LOCAL_QUOTA_CARD_ENABLED = false
+/** opencode-quota-zh TUI 注册的额度设置命令（`/quota_settings` 打开同一窗口）。 */
+const QUOTA_SETTINGS_COMMAND_ID = "quota.settings"
 
 /** 「额度」卡片插件：可独立启停的 TUI 入口。
  *
- * 只做三件事：向侧栏宿主注册卡片、宿主缺席时安全排队、禁用时干净撤回。
+ * 只做三件事：向侧栏宿主注册稳定身份 `quota` 的卡片、宿主缺席时安全排队、
+ * 禁用时干净撤回。卡片内容是 Quota 原生侧栏面板的本地 Adapter
+ * （`native-quota-card.tsx`）：经本地桥接复用原生 TUI 已发布的宿主，
+ * 不恢复旧定制 QuotaPanel。
  * 明确不做：不自绘侧栏、不回退 replace、不注册命令或槽位（/quota 等命令归
  * opencode-quota-zh 后台插件所有，卡片显隐不影响它们）、不接触任何凭据。
  */
 export default Plugin.define({
   id: OWNER,
   setup(context: Context) {
-    if (!LOCAL_QUOTA_CARD_ENABLED) return
     const registration = registerSidebarCard({
-      id: CARD_ID,
+      id: QUOTA_CARD_ID,
       owner: OWNER,
       title: CARD_TITLE,
-      render: ({ sessionID }) => <QuotaCard context={context} sessionID={sessionID} />,
+      render: ({ sessionID }) => <NativeQuotaCard context={context} sessionID={sessionID} />,
       onStatus(status) {
         if (status.state === "registered") return
         context.ui.toast.show({
@@ -39,6 +39,38 @@ export default Plugin.define({
         })
       },
     })
-    return () => registration.dispose()
+    // 统一展示控制窗口里的「额度」卡片设置入口（宿主 card seam）：字段为空——
+    // 额度业务设置仍由原生额度窗口拥有，本插件不建立第二份同义设置；动作直接
+    // 派发 opencode-quota-zh TUI 已注册的 quota.settings 命令（/quota_settings）。
+    const disposeControls = registerCardControls({
+      id: QUOTA_CARD_ID,
+      title: CARD_TITLE,
+      fields: [],
+      read: () => ({}),
+      save: async () => {},
+      actions: [
+        {
+          title: "打开原生额度设置（/quota_settings）",
+          run: () => {
+            // 先确认命令可达再派发：opencode-quota-zh 的 TUI 插件未启用时该命令
+            // 不在可达列表里，明确报错，不静默 dispatch 造成假成功。
+            const reachable = context.keymap
+              .commands()
+              .some((command) => command.id === QUOTA_SETTINGS_COMMAND_ID);
+            if (!reachable) {
+              throw new Error(
+                `未找到额度设置命令 ${QUOTA_SETTINGS_COMMAND_ID}：请确认 opencode-quota-zh 的 TUI 插件已启用。`,
+              );
+            }
+            context.keymap.dispatch(QUOTA_SETTINGS_COMMAND_ID);
+          },
+        },
+      ],
+      note: "额度业务设置由原生额度窗口拥有（/quota_settings，需 opencode-quota-zh 启用）；侧栏进度条形状是本套侧栏专属展示偏好，与原生跨展示位置的形状设置作用域不同。",
+    })
+    return () => {
+      disposeControls()
+      registration.dispose()
+    }
   },
 })

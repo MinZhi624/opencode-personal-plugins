@@ -5,7 +5,13 @@ import type { Context } from "@opencode/plugin/tui/context"
 import { Show } from "solid-js"
 import { registerSidebarCard } from "../../opencode-sidebar-host-zh/src/register-card.ts"
 import { useSharedSessionData } from "../../opencode-session-data/src/use-session-data.ts"
-import { createSubagentController, registerSubagentCommands, SubAgentPanel } from "../../opencode-enhanced-sidebar-zh/src/tui-v2-subagent-magazine.tsx"
+import {
+  createSubagentController,
+  registerSubagentCommands,
+  SubAgentPanel,
+  SUBAGENT_CARD_ID,
+} from "../../opencode-enhanced-sidebar-zh/src/tui-v2-subagent-magazine.tsx"
+import { registerSubagentCardControls } from "./card-controls.ts"
 
 function MagazineCard(props: { context: Context; sessionID: string; controller: ReturnType<typeof createSubagentController> }) {
   const data = useSharedSessionData(props.context, "opencode-subagent-card-zh", props.sessionID)
@@ -21,7 +27,7 @@ export default Plugin.define({
     const controller = createSubagentController(context)
     let activeSessionID: string | undefined
     const registration = registerSidebarCard({
-      id: "subagents", owner: "opencode-subagent-card-zh", title: "子代理",
+      id: SUBAGENT_CARD_ID, owner: "opencode-subagent-card-zh", title: "子代理",
       render: ({ sessionID }) => {
         activeSessionID = sessionID
         return <MagazineCard context={context} sessionID={sessionID} controller={controller} />
@@ -31,6 +37,9 @@ export default Plugin.define({
       },
     })
     const disposeCommands = registerSubagentCommands(context, () => activeSessionID)
-    return () => { registration.dispose(); disposeCommands(); controller.dispose() }
+    // 展示设置随本插件 setup 注册、cleanup 撤销：本插件已加载而卡片被隐藏时，
+    // 统一窗口仍可设置；插件未加载则不注册 provider，窗口里不会出现可用入口。
+    const disposeControls = registerSubagentCardControls(context)
+    return () => { disposeControls(); disposeCommands(); registration.dispose(); controller.dispose() }
   },
 })

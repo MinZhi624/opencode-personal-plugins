@@ -2,7 +2,7 @@
 
 OpenCode V2 TUI 插件，仅负责 `sidebar.content` 追加、注册、排序和显隐，不读取会话统计或 Provider 凭据。跨插件 JSX 注册是针对 OpenCode 2.0.18 验证的自有同进程接合处，并非官方跨插件 UI API；升级须复验。
 
-完整对接方式见 [下游侧栏卡片对接指南](./INTEGRATION.md)。排序／显隐以全局 `cli.json` 的 `options.sidebarCards` 为准，菜单写回同一位置，不再用旧 storage 覆盖文件。未适配插件由作者或适配器维护者完成接入，不提供通用自动适配器。本次文件配置改动仅作静态检查，运行验收由使用者完成。
+完整对接方式见 [下游侧栏卡片对接指南](./INTEGRATION.md)。排序／显隐与侧栏进度条形状以全局 `cli.json` 的 `options.sidebarCards` 为准，写回同一位置，不再用旧 storage 覆盖文件。未适配插件由作者或适配器维护者完成接入，不提供通用自动适配器。本次文档与配置改动仅作静态检查，运行验收由使用者完成。
 
 第三方卡片在自己的 TUI 插件 `setup` 中导入 `opencode-sidebar-host-zh/card`（本地发行包可按相对路径导入 `../opencode-sidebar-host-zh/src/register-card.ts`），调用：
 
@@ -15,7 +15,7 @@ const registration = registerSidebarCard({
 return () => registration.dispose()
 ```
 
-`render` 由卡片拥有，宿主只传 `sessionID`。缺少宿主时排队而不另行插槽；卸载卡片时 `dispose()` 撤回排队并撤销按所有者注册的记录。相同 ID 的不同 owner 和不兼容版本确定性拒绝，卡片渲染错误单卡隔离。`/sidebar-cards` 提供排序／显隐菜单，`/sidebar-host-status` 显示脱敏诊断。
+`render` 由卡片拥有，宿主只传 `sessionID`。缺少宿主时排队而不另行插槽；卸载卡片时 `dispose()` 撤回排队并撤销按所有者注册的记录。相同 ID 的不同 owner 和不兼容版本确定性拒绝，卡片渲染错误单卡隔离。`/sidebar-cards` 打开统一展示控制窗口（左侧导航、逐页草稿、预览后显式保存）；`/sidebar-host-show|hide|up|down` 等直接命令仍即时保存；`/sidebar-host-status` 显示脱敏诊断。
 
 ## 文件配置
 
@@ -27,7 +27,9 @@ return () => registration.dispose()
   "options": {
     "sidebarCards": {
       "order": ["sessionOverview", "quota", "subagents", "skill"],
-      "hidden": []
+      "hidden": [],
+      "bar": "blocks",
+      "bars": { "quota": "line" }
     }
   }
 }
@@ -35,9 +37,15 @@ return () => registration.dispose()
 
 `order`／`hidden` 使用卡片 ID，不是目录名；隐藏和未加载项保留位置，新注册卡片在内存追加到尾，不自动改文件。对新卡执行菜单操作时才把完整序列保存。`hidden` 中未列入 `order` 的 ID 也会追加占位。卡片私有业务参数仍放在各自插件的 `options`。
 
-`/sidebar-cards` 或 `/sidebar-host-show|hide|up|down <卡片ID>` 安全写回文件并重新读取确认，本窗口立即应用；其他窗口未同步时重启 TUI。`/sidebar-host-status` 展示文件路径、来源、可写状态、实际顺序与脱敏诊断。直接编辑文件依赖 CLI 重载；未同步时重启 TUI，或打开 `/sidebar-cards` 重新读取。
+### 侧栏进度条形状
 
-写入只定位当前宿主实际目录或已知宿主包名，保留其他插件／选项／注释，不重新序列化整份文件。多 TUI 写入使用同目录短期独占锁，重新读取并检查外部修改，再以保留权限的临时文件原子替换；外部编辑器不遵守锁，仍存在最后检查和替换间的竞争窗口，不承诺任意外部写入的绝对事务。
+`bar` 是本套侧栏的整体进度条形状，`bars` 是单卡覆盖；两者均可选，缺省即不强制。可选形状为 `blocks`、`shades`、`line`、`squares`、`dots` 和 `none` 六种，`none` 只去掉图形、数值照常显示。优先级为**明确的卡片覆盖 > 明确的整体形状 > 卡片自身设置或默认形状**：删掉 `bars` 里某张卡的条目即恢复跟随整体，删掉 `bar` 即交还各卡片自身设置。界面按此优先级标明当前继承来源。
+
+这些是本套侧栏专属的展示偏好，只改变侧栏内进度条的图形，不改写 Quota 跨展示位置（`/quota` 报表、状态栏、Home footer、通知）共用的形状设置，也不改变百分比含义：额度条仍表示剩余比例，上下文条仍表示已用比例，未知值与异常值沿用既有处理。子代理和技能没有真实进度百分比，不添加虚构进度条。首次打开不批量重写已有配置；未设置的形状字段在写回时从文件中删除，不会留下空的 `bars`。非法形状值在读取时忽略并在 `/sidebar-host-status` 诊断中提示，不会写入文件。卡片 ID 是任意非空稳定字符串（含 `__proto__` 这类特殊键），覆盖表按自有属性存取，不因键名特殊丢弃偏好。
+
+统一窗口按设置页维护草稿：编辑时侧栏即时预览，显式保存才写回文件并重新读取确认，放弃恢复已保存状态；有未保存修改时关闭或切页会询问保存／放弃／继续编辑，不静默保存或静默丢弃。`/sidebar-host-show|hide|up|down <卡片ID>` 等直接命令保持即时保存语义，与窗口草稿相互独立。保存以文件当前内容为基线比较，检测到外部修改会明确提示冲突，不会静默覆盖别处的修改。`/sidebar-host-status` 展示文件路径、来源、可写状态、实际顺序与脱敏诊断。直接编辑文件依赖 CLI 重载；未同步时重启 TUI，或打开 `/sidebar-cards` 重新读取。
+
+写入只定位当前宿主实际目录或已知宿主包名，保留其他插件／选项／注释，不重新序列化整份文件。`order`／`hidden`／`bar`／`bars` 逐字段定位写入，形状字段缺省时删除对应键。多 TUI 写入使用同目录短期独占锁，重新读取并检查外部修改，再以保留权限的临时文件原子替换；外部编辑器不遵守锁，仍存在最后检查和替换间的竞争窗口，不承诺任意外部写入的绝对事务。
 
 缺文件、不可解析、宿主条目不唯一、符号链接、权限不足、文件占用或 `OPENCODE_CLI_CONFIG_CONTENT` 已设置时拒写并提供手动片段，不回退写 storage。异常退出若遗留 `cli.json.sidebar-host.lock`，关闭全部 TUI 并确认没有写入进程后再手动删除该锁；不要删除 `cli.json`。菜单改过的配置视为用户自定义，安装器默认保留。
 

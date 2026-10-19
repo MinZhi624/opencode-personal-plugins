@@ -4,14 +4,20 @@ import "@opentui/solid/preload"
 import type { Context } from "@opencode/plugin/tui/context"
 import { Plugin } from "@opencode/plugin/tui"
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js"
+import type { JSX } from "@opentui/solid"
 import { registerSidebarCard } from "../../opencode-sidebar-host-zh/src/register-card.ts"
+import { useCardControlPreview } from "../../opencode-sidebar-host-zh/src/card-controls.ts"
 import { collectSkillUsage, sortUsage, type SkillUsage } from "./skill-tracker.ts"
+import { readSkillPanelOptions, SKILL_PANEL_MAX_USED_DEFAULT, type SkillPanelDisplayOptions } from "./skill-options.ts"
+import { registerSkillCardControls } from "./card-controls.ts"
 
 /** V2 消息分页契约：limit 1..200，order 仅第一页且不与 cursor 同用。
  * 不按 type 过滤——skill 注入在用户消息的 skills 字段，工具调用在
  * assistant 消息的 content 里，两类都要扫。 */
 const MESSAGE_PAGE_SIZE = 200
 const MESSAGE_MAX_PAGES = 10
+
+const CARD_ID = "skill"
 
 async function fetchSkillUsage(context: Context, sessionID: string): Promise<SkillUsage[]> {
   const usage = collectSkillUsage([])
@@ -45,22 +51,51 @@ export interface SkillPanelProps {
   defaultOpen?: boolean
 }
 
+/** 统一卡片标题行：箭头 + 粗体标题同一行、间距 1，颜色取主题动作色。
+ *  与额度／上下文／子代理三张卡片保持同一视觉语言。 */
+function CardTitle(props: { context: Context; open: boolean; title: string; toggle: () => void; children?: JSX.Element }) {
+  const theme = () => props.context.theme
+  return (
+    <box flexDirection="row" gap={1} onMouseDown={props.toggle}>
+      <text fg={theme().text.action.primary.base}>{props.open ? "▼" : "▶"}</text>
+      <text fg={theme().text.action.primary.base}><b>{props.title}</b></text>
+      {props.children}
+    </box>
+  )
+}
+
 /** 「技能」面板：显示本会话已加载的 skill，由独立插件接入排序宿主。 */
 export function SkillPanel(props: SkillPanelProps) {
-  const maxUsed = () => props.maxUsed ?? 8
-  const defaultOpen = () => props.defaultOpen !== false
+  // 统一窗口的预览只覆盖显示，不写 cli.json；保存或放弃后回到已保存选项。
+  const preview = useCardControlPreview(CARD_ID)
+  const maxUsed = () => {
+    const value = preview()?.skillPanelMaxUsed
+    return typeof value === "number" && Number.isFinite(value) ? value : props.maxUsed ?? SKILL_PANEL_MAX_USED_DEFAULT
+  }
+  const defaultOpen = () => {
+    const value = preview()?.skillPanelDefaultOpen
+    return typeof value === "boolean" ? value : props.defaultOpen !== false
+  }
   const [used, setUsed] = createSignal<SkillUsage[]>([])
   const [loaded, setLoaded] = createSignal(false)
-  const [open, setOpen] = createSignal(defaultOpen())
+  const [failed, setFailed] = createSignal(false)
+  // 开合状态本就不是长期选择：有效默认值变化（预览／保存）时回到它，手动点击仍可临时改。
+  const [toggled, setToggled] = createSignal<boolean | undefined>(undefined)
+  createEffect(() => {
+    defaultOpen()
+    setToggled(undefined)
+  })
+  const open = () => toggled() ?? defaultOpen()
   let generation = 0
 
   const refresh = async (sessionID: string) => {
     const current = ++generation
     try {
       const result = await fetchSkillUsage(props.context, sessionID)
-      if (current === generation) setUsed(result)
+      if (current === generation) { setUsed(result); setFailed(false) }
     } catch {
-      if (current === generation) setUsed([])
+      // 读取失败不是“没有技能”：保留上一次成功结果并显示错误态，不伪装成空列表。
+      if (current === generation) setFailed(true)
     } finally {
       if (current === generation) setLoaded(true)
     }
@@ -68,7 +103,10 @@ export function SkillPanel(props: SkillPanelProps) {
 
   createEffect(() => {
     const sessionID = props.sessionID
+    // 换会话先清空：失败时保留的“上次结果”不能串到别的会话上。
+    setUsed([])
     setLoaded(false)
+    setFailed(false)
     void refresh(sessionID)
   })
 
@@ -95,22 +133,19 @@ export function SkillPanel(props: SkillPanelProps) {
   const theme = () => props.context.theme
   return (
     <box flexDirection="column">
-      <box
-        flexDirection="row"
-        gap={1}
-        onMouseDown={() => setOpen((value) => !value)}
-      >
-        <text fg={theme().text.action.primary.base}>{open() ? "▼" : "▶"}</text>
-        <text fg={theme().text.action.primary.base}><b>技能</b></text>
+      <CardTitle context={props.context} open={open()} title="技能" toggle={() => setToggled((value) => !(value ?? defaultOpen()))}>
         <Show when={!open()}>
           <text fg={theme().text.muted}>（已加载 {used().length}）</text>
         </Show>
-      </box>
+      </CardTitle>
       <Show when={open()}>
         <Show when={!loaded()}>
           <text fg={theme().text.muted}>加载中…</text>
         </Show>
-        <Show when={loaded() && used().length === 0}>
+        <Show when={loaded() && failed()}>
+          <text fg={theme().text.feedback.error.base}>{used().length > 0 ? "技能用量读取失败，以下为上次结果" : "技能用量读取失败"}</text>
+        </Show>
+        <Show when={loaded() && !failed() && used().length === 0}>
           <text fg={theme().text.muted}>本会话尚未加载 skill</text>
         </Show>
         <Show when={loaded() && used().length > 0}>
@@ -137,15 +172,27 @@ export function SkillPanel(props: SkillPanelProps) {
 export default Plugin.define({
   id: "opencode-skill-panel",
   setup(context) {
+    // cli.json 选项经安全写回 helper 保存后，本窗口立即按写回结果更新；其他窗口重启 TUI。
+    const [display, setDisplay] = createSignal<SkillPanelDisplayOptions>(readSkillPanelOptions(context.options))
     const registration = registerSidebarCard({
-      id: "skill",
+      id: CARD_ID,
       owner: "opencode-skill-panel",
       title: "技能",
-      render: ({ sessionID }) => <SkillPanel context={context} sessionID={sessionID} maxUsed={context.options.skillPanelMaxUsed} defaultOpen={context.options.skillPanelDefaultOpen} />,
+      render: ({ sessionID }) => (
+        <SkillPanel
+          context={context}
+          sessionID={sessionID}
+          maxUsed={display().skillPanelMaxUsed}
+          defaultOpen={display().skillPanelDefaultOpen}
+        />
+      ),
       onStatus(status) {
         if (status.state === "rejected") context.ui.toast.show({ title: "技能", message: `侧栏注册被拒：${status.code}`, variant: "error" })
       },
     })
-    return () => registration.dispose()
+    // 展示设置随本插件 setup 注册、cleanup 撤销：本插件已加载而卡片被隐藏时，
+    // 统一窗口仍可设置；插件未加载则不注册 provider，窗口里不会出现可用入口。
+    const disposeControls = registerSkillCardControls(context, setDisplay)
+    return () => { disposeControls(); registration.dispose() }
   },
 })

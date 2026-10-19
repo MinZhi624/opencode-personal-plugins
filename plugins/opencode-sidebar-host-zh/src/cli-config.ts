@@ -18,11 +18,13 @@ export interface CliCardConfigStatus {
   writable: boolean
   reason: string
   hasSettings: boolean
+  /** 从唯一条目读出的排序／显隐与可选形状（bar／bars）；读失败时为空缺省值。 */
   settings: SidebarCardSettings
   issues: string[]
 }
 
 export interface CliCardChange<T> {
+  /** 待写入的完整偏好；形状字段缺省＝删除文件中对应键。 */
   settings: SidebarCardSettings
   result: T
   save: boolean
@@ -60,12 +62,47 @@ function assertUniqueKeys(node: Node): void {
   for (const child of node.children ?? []) assertUniqueKeys(child)
 }
 
-function document(text: string): Record<string, unknown> {
+function document(text: string): { config: Record<string, unknown>; tree: Node } {
   const errors: ParseError[] = []
   const root = parseTree(text, errors, { allowTrailingComma: true })
   if (!root || errors.length || root.type !== "object") fail("cli.json 不可解析为配置对象；请先修复格式")
   assertUniqueKeys(root)
-  return parse(text, [], { allowTrailingComma: true }) as Record<string, unknown>
+  return { config: parse(text, [], { allowTrailingComma: true }) as Record<string, unknown>, tree: root }
+}
+
+/**
+ * AST → 值：对象键一律建成自有数据属性。jsonc-parser 的 `parse()` 用赋值建对象，
+ * `__proto__` 键会被 Object.prototype 的 setter 吞掉；卡片 ID 是任意非空稳定字符串，
+ * sidebarCards 因此从 AST 读，保证写出去的键读得回来。
+ */
+function ownValue(node: Node | undefined): unknown {
+  if (node === undefined) return undefined
+  if (node.type === "object") {
+    const value: Record<string, unknown> = {}
+    for (const property of node.children ?? []) {
+      const key = property.children?.[0]?.value
+      if (typeof key !== "string") continue
+      Object.defineProperty(value, key, { value: ownValue(property.children?.[1]), enumerable: true, writable: true, configurable: true })
+    }
+    return value
+  }
+  if (node.type === "array") return (node.children ?? []).map((item) => ownValue(item))
+  return node.value
+}
+
+function objectField(node: Node | undefined, key: string): Node | undefined {
+  if (node === undefined || node.type !== "object") return undefined
+  for (const property of node.children ?? []) {
+    if (property.children?.[0]?.value === key) return property.children?.[1]
+  }
+  return undefined
+}
+
+/** 唯一宿主条目的 `options.sidebarCards` 自有权值；字符串条目或缺字段时为 undefined。 */
+function sidebarCardsOf(root: Node, index: number): unknown {
+  const plugins = objectField(root, "plugins")
+  const entry = plugins?.type === "array" ? plugins.children?.[index] : undefined
+  return ownValue(objectField(objectField(entry, "options"), "sidebarCards"))
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -88,7 +125,7 @@ async function hostEntry(packageName: unknown, path: string): Promise<boolean> {
 }
 
 async function locate(text: string, path: string) {
-  const config = document(text)
+  const { config, tree } = document(text)
   if (!Array.isArray(config.plugins)) fail("cli.json 缺少 plugins 数组；请手动配置宿主")
   const matches: number[] = []
   for (let index = 0; index < config.plugins.length; index++) {
@@ -101,7 +138,7 @@ async function locate(text: string, path: string) {
   const options = record(entry) ? entry.options : undefined
   if (options !== undefined && !record(options)) fail("宿主 options 不是对象，已拒绝写入")
   const hasSettings = record(options) && Object.hasOwn(options, "sidebarCards")
-  const parsed = parseSidebarCards(record(options) ? options.sidebarCards : undefined)
+  const parsed = parseSidebarCards(sidebarCardsOf(tree, index))
   return { index, entry, hasSettings, ...parsed }
 }
 
@@ -173,8 +210,16 @@ export function createCliCardConfig(path = cliConfigPath()) {
       if (typeof current.located.entry === "string") {
         text = applyEdits(text, modify(text, base, { package: current.located.entry, options: {} }, { formattingOptions }))
       }
-      for (const field of ["order", "hidden"] as const) {
-        text = applyEdits(text, modify(text, [...base, "options", "sidebarCards", field], next.settings[field], { formattingOptions }))
+      // 逐字段定位写回（用校验后的规范值）：不整份重写 sidebarCards，
+      // 文件里其余字段、注释与格式原样保留；形状字段为 undefined 时
+      // jsonc-parser 删除对应键（未设置即删除，不留下空的 bars）。
+      for (const [field, value] of [
+        ["order", parsed.settings.order],
+        ["hidden", parsed.settings.hidden],
+        ["bar", parsed.settings.bar],
+        ["bars", parsed.settings.bars],
+      ] as const) {
+        text = applyEdits(text, modify(text, [...base, "options", "sidebarCards", field], value, { formattingOptions }))
       }
       const validated = await locate(text, path)
       if (!validated.hasSettings || validated.issues.length || !sameSidebarCards(validated.settings, next.settings)) fail("生成的配置未通过校验，原文件不变")

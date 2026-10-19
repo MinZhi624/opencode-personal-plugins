@@ -3,8 +3,10 @@
  * OpenCode Quota's TUI plugin. It draws the server's quota snapshot: the status line under
  * the message box (and on Home when turned on), the toasts, and the quota window that
  * `/quota`, `/quota_usage`, `/quota_status` and `/quota_settings` open above the message box
- * (`window/`). It reads all settings through the quota RPC. The upstream session sidebar
- * panel is registered here for preview; the local quota card is temporarily paused.
+ * (`window/`). It reads all settings through the quota RPC. The session sidebar panel is
+ * not mounted here: the local quota card (`opencode-quota-card-zh`, stable card id `quota`)
+ * renders the native `SidebarPanel` from the host this plugin publishes, so the sidebar
+ * shows the native layout once, under the sidebar host's order and visibility.
  *
  * The quota slash commands typed in the prompt run in the TUI: on Enter, before OpenCode submits
  * the prompt, a prompt that starts with /quota, /quota_usage, /quota_status or /quota_settings is
@@ -17,14 +19,14 @@
  */
 import { Plugin } from "@opencode/plugin/tui";
 import type { JSX } from "@opentui/solid";
-import { createSignal, getOwner, type Owner, onCleanup, Show } from "solid-js";
+import { getOwner, type Owner, onCleanup, Show } from "solid-js";
 import { OLD_USAGE_COMMANDS, parseUsageArguments, type UsageRange } from "../core/usage-ranges.js";
 import { QuotaRpc } from "../rpc.js";
 import { type ClientHost, createQuotaClient, quotaCallOptions, reportFailure } from "./client.js";
 import { createFileDisplay } from "./display.js";
 import { createServerSettings } from "./server-settings.js";
 import { publishLocalQuotaHost } from "../../local-tui-bridge.js";
-import { SidebarPanel, type SurfaceHost } from "./sidebar.js";
+import type { SurfaceHost } from "./sidebar.js";
 import { HomeFooter, StatusLine } from "./status-line.js";
 import type { Theme } from "./theme.js";
 import { createToastShow } from "./toast-colors.js";
@@ -46,7 +48,6 @@ type TuiContext = WindowHost &
       slot: (
         claim:
           | { append: "app"; render: () => null }
-          | { append: "sidebar.content"; render: (props: { sessionID: string }) => JSX.Element }
           | { append: "prompt.footer"; render: (props: { sessionID?: string }) => JSX.Element }
           | { append: "home.footer.status"; render: () => JSX.Element }
           | {
@@ -130,14 +131,6 @@ const plugin = Plugin.define({
     // quota and the settings editor's display — from 03 on, instead of keeping a
     // second copy of the quota settings.
     const revokeLocalHost = publishLocalQuotaHost(host);
-    // Preview the upstream sidebar; the local quota-card registration is paused.
-    const disposeSidebar = api.ui.slot({
-      append: "sidebar.content",
-      render: (props) => {
-        const [open, setOpen] = createSignal(true);
-        return <SidebarPanel host={host} sessionID={props.sessionID} open={open} setOpen={setOpen} />;
-      },
-    });
     const quotaWindow = createQuotaWindow(api, host, settings);
     /** `/quota_usage [range]`: the Usage tab, on the typed range or Today; a wrong range says why. */
     const openUsage = (argumentsText: string) => {
@@ -312,7 +305,6 @@ const plugin = Plugin.define({
       revokeLocalHost();
       disposeMount?.();
       disposeApp();
-      disposeSidebar();
       disposePrompt();
       disposeHome();
       disposeWindow();

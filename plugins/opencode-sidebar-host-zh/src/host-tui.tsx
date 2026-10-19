@@ -1,5 +1,5 @@
 /** @jsxImportSource @opentui/solid */
-// 宿主只管理注册、排列和显隐；cli.json 是唯一设置来源，storage 仅供显式导入。
+// 宿主编排卡片展示；宿主偏好归 cli.json，卡片私有设置仍由其所有者管理。
 import "@opentui/solid/preload"
 import { Plugin } from "@opencode/plugin/tui"
 import type { Context } from "@opencode/plugin/tui/context"
@@ -7,6 +7,10 @@ import { createEffect, createSignal, ErrorBoundary, For } from "solid-js"
 import { SEAM_VERSION, pendingQueue, type RegisteredCard } from "./seam.ts"
 import { createOrAdoptSeam } from "./seam-registry.ts"
 import { createCliCardConfig, cliConfigError, inlineCliConfigActive, type CliCardConfigStatus } from "./cli-config.ts"
+import { createControlWindow } from "./control-window.tsx"
+import { appearanceOf } from "./ui/appearance.ts"
+import type { ControlFileState, ControlWindowHost, SaveResult } from "./ui/types.ts"
+import { createSidebarAppearancePublisher, type SidebarAppearance } from "./presentation.ts"
 import {
   HOST_SETTINGS_KEY,
   LEGACY_SIDEBAR_CARD_LABELS,
@@ -16,6 +20,8 @@ import {
   parseSidebarCards,
   readLegacyCandidate,
   sameSidebarCards,
+  setSidebarCardBar,
+  setSidebarSharedBar,
   uninitializedHostCardSettings,
   type HostCardSettings,
   type LegacySidebarCardID,
@@ -43,6 +49,11 @@ export default Plugin.define({
     const [fileStatus, setFileStatus] = createSignal<CliCardConfigStatus>()
     const [lastError, setLastError] = createSignal("")
     const [registrations, setRegistrations] = createSignal<readonly RegisteredCard[]>(handle.seam.list())
+    // 排列／显隐草稿的内存预览：只影响本进程侧栏渲染，保存前不落盘；undefined = 已保存状态。
+    const [preview, setPreview] = createSignal<SidebarCardSettings | undefined>(undefined)
+    // 外观草稿：宿主 effect 发布给侧栏卡片（useSidebarBarShape）；undefined = 发布已保存值。
+    const [appearanceDraft, setAppearanceDraft] = createSignal<SidebarAppearance | undefined>(undefined)
+    const appearancePublisher = createSidebarAppearancePublisher()
     let disposed = false
     let writes = 0
     let failures = 0
@@ -56,6 +67,10 @@ export default Plugin.define({
       setIssues(parsed.issues)
       setConfigured(Object.hasOwn(context.options, "sidebarCards"))
     })
+    // 侧栏外观的唯一发布点：窗口编辑中发布有效草稿，否则发布已保存值（含空值＝卡片自己的设置）。
+    createEffect(() => {
+      appearancePublisher.publish(appearanceDraft() ?? savedAppearance())
+    })
     if (initial.issues.length) context.ui.toast.show({ title: "侧栏配置", message: initial.issues.join("；"), variant: "warning" })
 
     for (const spec of [...pendingQueue(globalThis)]) {
@@ -66,15 +81,27 @@ export default Plugin.define({
     setRegistrations(handle.seam.list())
 
     function fullSettings(base = settings()): SidebarCardSettings {
+      return effectiveSettings(base)
+    }
+    /** 当前生效的完整序列：草稿预览优先，否则已保存值；再补齐新注册卡片。 */
+    function effectiveSettings(base = preview() ?? settings()): SidebarCardSettings {
       return completeSidebarCards(base, registrations().map((record) => record.id))
+    }
+    /** 原始基线：cli.json／options 里已持久化的值（不含内存补齐的新注册卡片）。 */
+    function rawSettings(): SidebarCardSettings {
+      return settings()
+    }
+    /** 已保存的外观（原始基线里的 bar/bars，无效形状一律丢弃）。 */
+    function savedAppearance(): SidebarAppearance {
+      return appearanceOf(rawSettings())
     }
     function findRecord(id: string) { return registrations().find((record) => record.id === id) }
     function labelFor(id: string): string {
-      return findRecord(id)?.title || LEGACY_SIDEBAR_CARD_LABELS[id as LegacySidebarCardID] || id
+      return findRecord(id)?.title || (Object.hasOwn(LEGACY_SIDEBAR_CARD_LABELS, id) ? LEGACY_SIDEBAR_CARD_LABELS[id as LegacySidebarCardID] : id)
     }
     function displayRecords(): RegisteredCard[] {
       const byID = new Map(registrations().map((record) => [record.id, record]))
-      const current = fullSettings()
+      const current = effectiveSettings()
       return current.order.flatMap((id) => {
         const entry = byID.get(id)
         return entry && !current.hidden.includes(id) ? [entry] : []
@@ -114,6 +141,83 @@ export default Plugin.define({
       if (!disposed) context.ui.toast.show({ title: "侧栏宿主", message: `${message}，已保存到 cli.json；若其他窗口未同步，请重启其 TUI。`, variant: "success", duration: 6000 })
     }
 
+    /** 写后确认读到的状态：一次性应用到四个信号，避免各写入路径各写一份。 */
+    function applyWriteStatus(status: CliCardConfigStatus) {
+      if (disposed) return
+      setFileStatus(status)
+      setSettings(status.settings)
+      setIssues(status.issues)
+      setConfigured(status.hasSettings)
+    }
+
+    /** 文件被其他窗口或 /sidebar-host-* 命令改过时，写入必须让位。 */
+    const FILE_CHANGED = "cli.json 的 sidebarCards 已被其他窗口或命令修改；为避免覆盖外部修改，本次保存已取消。请重新打开 /sidebar-cards 读取最新设置。"
+
+    /**
+     * 保存排列草稿：基线用**原始**设置（raw，不含内存补齐的新注册卡片），
+     * 与 config.update 回调里的磁盘当前值比对，相等才写。
+     */
+    async function saveCards(draft: SidebarCardSettings, baseline: SidebarCardSettings): Promise<SaveResult> {
+      if (disposed) return { ok: false, message: "宿主已卸载" }
+      activeWrites++
+      try {
+        const outcome = await config.update((current) => {
+          if (!sameSidebarCards(current, baseline)) throw new Error(FILE_CHANGED)
+          return { settings: draft, result: "window-cards" as const, save: true }
+        })
+        applyWriteStatus(outcome.status)
+        setPreview(undefined)
+        if (outcome.saved) writes++
+        return { ok: true, baseline: outcome.status.settings as SidebarCardSettings }
+      } catch (error) {
+        failures++
+        setLastError(cliConfigError(error))
+        return { ok: false, message: cliConfigError(error) }
+      } finally {
+        activeWrites--
+      }
+    }
+
+    /**
+     * 保存外观草稿：只写 bar/bars，order/hidden 原样取自磁盘当前值，
+     * 因此绝不会把排列草稿或外部顺序改动一起写进去。
+     * 用 host-settings 的 setSidebarSharedBar/setSidebarCardBar 构造：
+     * 未设置的键整个省略（= 删除），空覆盖等同未设置。
+     */
+    async function saveAppearance(appearance: SidebarAppearance, baseline: SidebarCardSettings): Promise<SaveResult> {
+      if (disposed) return { ok: false, message: "宿主已卸载" }
+      if (inlineCliConfigActive()) {
+        return { ok: false, message: "OPENCODE_CLI_CONFIG_CONTENT 已设置；文件写入已只读降级，请先移除环境变量覆盖" }
+      }
+      activeWrites++
+      try {
+        const outcome = await config.update((current) => {
+          if (!sameSidebarCards(current, baseline)) throw new Error(FILE_CHANGED)
+          let next = setSidebarSharedBar(current, appearance.bar)
+          for (const [cardID, shape] of Object.entries(appearance.bars ?? {})) {
+            next = setSidebarCardBar(next, cardID, shape)
+          }
+          return { settings: next, result: "window-appearance" as const, save: true }
+        })
+        applyWriteStatus(outcome.status)
+        setPreview(undefined)
+        if (outcome.saved) writes++
+        return { ok: true, baseline: outcome.status.settings as SidebarCardSettings }
+      } catch (error) {
+        failures++
+        setLastError(cliConfigError(error))
+        return { ok: false, message: cliConfigError(error) }
+      } finally {
+        activeWrites--
+      }
+    }
+
+    /** 重新读取 cli.json 并应用；随后由调用方重建基线（预览一并回到已保存状态）。 */
+    async function refreshFromDisk(): Promise<void> {
+      await refreshStatus(true)
+      if (!disposed) setPreview(undefined)
+    }
+
     async function act(id: string, action: CardAction) {
       if (disposed) return
       const proposed = changeSidebarCard(fullSettings(), id, action).settings
@@ -124,10 +228,7 @@ export default Plugin.define({
           return { settings: next.settings, result: next.result, save: next.result === "ok" || (next.result === "boundary" && !sameSidebarCards(current, next.settings)) }
         })
         if (disposed) return
-        setFileStatus(outcome.status)
-        setSettings(outcome.status.settings)
-        setIssues(outcome.status.issues)
-        setConfigured(outcome.status.hasSettings)
+        applyWriteStatus(outcome.status)
         setLastError("")
         if (outcome.saved) {
           writes++
@@ -180,48 +281,16 @@ export default Plugin.define({
         })
         if (disposed) return
         writes++
-        setSettings(outcome.status.settings)
-        setIssues(outcome.status.issues)
-        setConfigured(true)
-        setFileStatus(outcome.status)
+        applyWriteStatus({ ...outcome.status, hasSettings: true })
         setLastError("")
         savedToast(`已从${candidate.source}导入`)
       } catch (error) { await writeFailure(error, next) }
       finally { activeWrites-- }
     }
 
-    async function manageCards() {
-      await refreshStatus(true)
-      while (!disposed) {
-        const current = fullSettings()
-        const options = current.order.map((id, index) => ({
-          title: `${index + 1}. ${labelFor(id)}${findRecord(id) ? "" : "（未加载）"}`,
-          value: `card:${id}`,
-          description: current.hidden.includes(id) ? "已隐藏" : findRecord(id) ? "显示中" : "未加载（偏好已保留）",
-        }))
-        options.push({ title: "导入已有侧栏设置到 cli.json", value: "import", description: configured() ? "文件已有配置，不允许覆盖" : "预览并确认后导入旧存档／legacySettings" })
-        const picked = await context.ui.dialog.select<string>({ title: "侧栏卡片", placeholder: "选择卡片或导入旧设置", options })
-        if (picked === undefined || disposed) return
-        if (picked === "import") { await importSettings(); continue }
-        const id = picked.slice("card:".length)
-        const hidden = settings().hidden.includes(id)
-        const action = await context.ui.dialog.select<CardAction | "done">({
-          title: `${labelFor(id)}（${hidden ? "已隐藏" : "显示中"}）`,
-          options: [
-            hidden ? { title: "显示这张卡片", value: "show" } : { title: "隐藏这张卡片", value: "hide" },
-            { title: "上移", value: "up", description: "与完整序列的上一项交换（含隐藏／未加载项）" },
-            { title: "下移", value: "down", description: "与完整序列的下一项交换（含隐藏／未加载项）" },
-            { title: "完成", value: "done" },
-          ],
-        })
-        if (action === undefined || action === "done" || disposed) return
-        await act(id, action)
-      }
-    }
-
     function statusText(): string {
       const status = fileStatus()
-      const current = fullSettings()
+      const current = effectiveSettings()
       const different = status?.readable && !inlineCliConfigActive() && !sameSidebarCards(settings(), status.settings)
       return [
         `宿主 ${OWNER}｜seam v${SEAM_VERSION}｜${handle.adopted ? "已接管注册表" : "新建注册表"}`,
@@ -229,6 +298,7 @@ export default Plugin.define({
         `文件：${config.path}`,
         `写入：${status?.writable ? "可写" : "只读／待检查"}｜${status?.reason ?? "尚未检查"}`,
         different ? "磁盘设置与当前展示不同，请重启 TUI，或打开 /sidebar-cards 重新读取。" : "菜单确认保存后本窗口立即应用；其他窗口未同步时重启 TUI。",
+        preview() ? "排列预览中：/sidebar-cards 窗口有未保存的排序／显隐草稿（仅本进程生效，未写文件）。" : "无未保存预览。",
         `已注册：${registrations().map((entry) => `${entry.id}#${entry.generation}`).join(" ") || "（无）"}`,
         `实际顺序：${current.order.map((id) => `${labelFor(id)}${current.hidden.includes(id) ? "（隐藏）" : ""}${findRecord(id) ? "" : "（未加载）"}`).join(" → ") || "（空）"}`,
         `写入成功 ${writes}｜失败 ${failures}｜进行中 ${activeWrites}`,
@@ -249,14 +319,37 @@ export default Plugin.define({
         </box>}</For>
       </box>
     }
+    const controlWindow = createControlWindow({
+      context,
+      fullSettings: () => effectiveSettings(),
+      rawSettings,
+      previewArrangement: (next) => setPreview(next),
+      refreshFromDisk,
+      saveCards,
+      saveAppearance,
+      savedAppearance,
+      setAppearanceDraft,
+      runImport: importSettings,
+      labelFor,
+      registrations,
+      fileState: (): ControlFileState => ({
+        writable: fileStatus()?.writable ?? false,
+        reason: fileStatus()?.reason ?? "尚未检查",
+        path: config.path,
+        configured: configured(),
+        inline: inlineCliConfigActive(),
+      }),
+    } satisfies ControlWindowHost)
+    const ControlSlot = controlWindow.Slot
     const disposeSlot = context.ui.slot({ append: "sidebar.content", render: (input) => <SidebarHost sessionID={input.sessionID} /> })
+    const disposeControlSlot = context.ui.slot({ append: "session.composer.top", render: () => <ControlSlot /> })
     const disposeCommands = context.ui.slot({
       append: "app",
       render: () => {
         context.keymap.layer(() => ({
           mode: "global",
           commands: [
-            { id: "sidebar-host-zh.cards", title: "侧栏宿主：管理卡片", description: "排序／显隐保存到 cli.json", group: "侧栏", palette: true, slash: { name: "sidebar-cards" }, run: manageCards },
+            { id: "sidebar-host-zh.cards", title: "侧栏宿主：管理卡片", description: "排列／显隐／外观及各卡展示设置，按页预览与保存", group: "侧栏", palette: true, slash: { name: "sidebar-cards" }, run: () => controlWindow.open() },
             ...(["show", "hide", "up", "down"] as const).map((action) => ({
               id: `sidebar-host-zh.${action}`,
               title: `侧栏宿主：${{ show: "显示卡片", hide: "隐藏卡片", up: "卡片上移", down: "卡片下移" }[action]}`,
@@ -281,8 +374,11 @@ export default Plugin.define({
     const disposeListener = handle.onChange(() => { setRegistrations(handle.seam.list()) })
     return () => {
       disposed = true
+      controlWindow.dispose()
+      appearancePublisher.dispose()
       disposeListener()
       disposeSlot()
+      disposeControlSlot()
       disposeCommands()
       // 不撤销卡片注册：宿主换代由下一代 adopt；注册归卡片所有者。
     }

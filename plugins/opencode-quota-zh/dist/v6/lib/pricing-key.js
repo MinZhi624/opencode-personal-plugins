@@ -326,7 +326,7 @@ export function resolvePricingKey(source) {
 }
 export function resolveModelPricing(source) {
     const mapping = resolvePricingKey(source);
-    if (!mapping.ok)
+    if (mapping.ok === false)
         return { kind: "unknown", unknown: mapping.unknown };
     const rates = mapping.key.provider === "cursor"
         ? lookupCursorLocalCost(mapping.key.model)

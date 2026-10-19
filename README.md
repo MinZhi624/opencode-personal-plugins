@@ -101,7 +101,17 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 新宿主的跨插件 JSX 注册通过同一 TUI 进程内的自有版本化接合处实现，并非 OpenCode 官方保证的跨插件 API；仅按 OpenCode 2.0.18 验证，升级须重新验收。接合处契约与迁移注意见 [`opencode-sidebar-host-zh`](plugins/opencode-sidebar-host-zh/README.md) 与 [`opencode-quota-card-zh`](plugins/opencode-quota-card-zh/README.md)。
 
-侧栏排列以全局 `cli.json` 中唯一宿主条目的 `options.sidebarCards` 为准：`order` 为稳定卡片 ID 数组（如 `sessionOverview`、`quota`、`subagents`、`skill`），`hidden` 为隐藏 ID 数组。`/sidebar-cards` 写回同一文件；失败时只读降级，不另存排序。菜单改过的文件属于用户自定义，重装默认保留，不会重置顺序。旧 storage 仅可显式导入，不能覆盖已有文件设置。第三方接入见 [对接指南](plugins/opencode-sidebar-host-zh/INTEGRATION.md)，不提供任意插件自动适配。
+侧栏排列以全局 `cli.json` 中唯一宿主条目的 `options.sidebarCards` 为准：`order` 为稳定卡片 ID 数组（如 `sessionOverview`、`quota`、`subagents`、`skill`），`hidden` 为隐藏 ID 数组。统一窗口与直接命令写回同一文件；失败时只读降级并给出手动片段，不另存排序。改过的文件属于用户自定义，重装默认保留，不会重置顺序。旧 storage 仅可显式导入，不能覆盖已有文件设置。第三方接入见 [对接指南](plugins/opencode-sidebar-host-zh/INTEGRATION.md)，不提供任意插件自动适配。
+
+### 统一展示控制窗口
+
+`/sidebar-cards` 是本套卡片的统一入口：排列、显隐、整体进度条样式、单卡覆盖，以及四张卡片各自适用的展示选项都在同一窗口按页管理；窗口与卡片统一主题、标题、间距与中文对齐，但各卡片保留适合自身内容的布局。编辑即时预览，显式保存才持久化；放弃恢复对应页已保存状态；有未保存修改时关闭或切页会要求保存／放弃／继续编辑，不静默丢失。保存失败保留草稿并明确报错，成功以重新读取文件后的结果为准。宿主偏好与侧栏形状偏好写入上述宿主条目，技能私有选项写入技能条目，均保留其他插件条目与注释，检测到外部修改时提示冲突、不静默覆盖；上下文展开状态、子代理排序／条数／保留期限继续由各自插件的会话存储拥有，统一窗口只经各所有者已有的读写能力保存，不建立第二份存储。
+
+`/sidebar-host-show|hide|up|down <卡片ID>` 等直接命令保持即时保存语义，与窗口草稿是两套交互。本包不承诺跨窗口热同步：其他窗口未同步时重启其 TUI，或重新打开 `/sidebar-cards` 重新读取。
+
+进度条形状可选 `blocks`、`shades`、`line`、`squares`、`dots`、`none`（`none` 只去掉图形，数值仍显示）。优先级为明确的单卡覆盖 > 明确的整体样式 > 卡片原有设置或默认形状，界面标明继承来源；首次使用不批量重写旧配置。该样式只作用于本套侧栏，不改变 `/quota` 报表、状态栏、Home footer 或通知；额度条仍表示剩余比例，上下文条仍表示已用比例，子代理和技能没有虚构进度。
+
+侧栏额度是 Quota 原生展示经本地 Adapter 接入宿主的唯一一份（稳定身份 `quota`），遵循宿主顺序与显隐，采用原生行布局，不再以旧固定 20 格、多行结构和已用／剩余双百分比为准；原生数据、重置、刷新与错误状态按原规则呈现，未知不显示为零。额度设置仍由 `~/.config/opencode/opencode-quota/settings.jsonc` 单一所有者管理，`/quota`、`/quota_settings` 等原生入口保留；隐藏卡片、禁用卡片插件、停用额度后台是三种互相独立的操作。使用与人工验收交接见 [侧栏统一展示控制：使用说明与人工验收](docs/sidebar-ui-manual-acceptance.md)。
 
 ## 更新
 
@@ -119,10 +129,13 @@ Set-ExecutionPolicy -Scope Process Bypass
 | `/quota_usage` | 用量视图；可带范围 today、24h、7d、30d、90d、all、session、between YYYY-MM-DD YYYY-MM-DD |
 | `/quota_settings` | v6 设置页：进度条样式、参考线、倒计时格式、额度行名称／显隐／顺序、Provider 顺序；草稿可预览、保存或放弃 |
 | `/quota_status` | 诊断认证、Provider、价格快照来源与未定价模型、维护公告；价格刷新入口在用量页 |
-| `/sidebar-cards` | 统一管理卡片顺序／显隐，保存到 cli.json（不等于禁用插件） |
+| `/sidebar-cards` | 统一展示控制窗口：排列／显隐、整体进度条样式与单卡覆盖、各卡片展示选项；按页草稿、显式保存（不等于禁用插件） |
+| `/sidebar-host-show` `hide` `up` `down` `<卡片ID>` | 直接命令：即时保存顺序／显隐，与统一窗口的按页草稿是两套语义 |
 | `/sidebar-host-import` `/sidebar-host-status` | 显式导入旧设置／查看文件配置与注册诊断 |
 | `/tokens_today` `/tokens_weekly` `/tokens_monthly` `/tokens_all` `/tokens_session` | 上游遗留别名，默认不列出，映射到 `/quota_usage` 对应范围；可在 `/quota_status` 开启 |
 | `/gpt-reset-credits` | 查询 ChatGPT 重置卡；带“兑换”参数表示确认兑换 |
+
+`/quota_settings` 的形状设置作用于 Quota 各展示位置；本套侧栏专属的整体进度条样式与单卡覆盖只在 `/sidebar-cards` 调整，两者互不改写。
 
 Workshop（`workshop` 组）把上游 Matt Pocock Skills `v1.2.3` 的 25 个 Promoted Skills 适配为 OpenCode Skill：普通技能按需由模型发现，user-only 技能不向模型主动展示，并开放用户侧原生技能菜单入口；不注册自定义命令执行器。TDD、独立完整 review、多方案设计、spec / tickets 等重量级工作流按约定只在明确要求时启动。这是提示词层面的行为约定，不是硬权限；隐藏发现也不禁止已知 ID 的加载。角色说明见 [opencode-matt-workshop](plugins/opencode-matt-workshop/README.md)。
 
@@ -167,7 +180,7 @@ Workshop（`workshop` 组）把上游 Matt Pocock Skills `v1.2.3` 的 25 个 Pro
 
 当前版本 **1.0.0**，与 `package.json` 及各插件 `package.json` 的 `version` 字段一致；root README 徽章随该版本号更新。
 
-- 公开文档只覆盖用法与核心设计原则；内部设计、原型与验收记录不随安装包分发。
+- 公开文档只覆盖用法与核心设计原则；内部设计与讨论记录不随安装包分发，安装后可用的文档见 bundle 的 `docs/`。
 - OpenCode 兼容基线为 2.0.18；升级 OpenCode 后须按上文重新验收自有接合处。
 
 ## 许可证与声明

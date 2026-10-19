@@ -6,6 +6,7 @@ import { Show } from "solid-js"
 import { registerSidebarCard } from "../../opencode-sidebar-host-zh/src/register-card.ts"
 import { useSharedSessionData } from "../../opencode-session-data/src/use-session-data.ts"
 import { SessionOverview } from "../../opencode-enhanced-sidebar-zh/src/tui-v2-session-overview.tsx"
+import { registerOverviewCardControls } from "./card-controls.ts"
 
 function OverviewCard(props: { context: Context; sessionID: string }) {
   const data = useSharedSessionData(props.context, "opencode-session-overview-zh", props.sessionID)
@@ -24,6 +25,9 @@ export default Plugin.define({
         if (status.state === "rejected") context.ui.toast.show({ title: "会话概览", message: `侧栏注册被拒：${status.code}`, variant: "error" })
       },
     })
-    return () => registration.dispose()
+    // 展示设置随本插件 setup 注册、cleanup 撤销：本插件已加载而卡片被隐藏时，
+    // 统一窗口仍可设置；插件未加载则不注册 provider，窗口里不会出现可用入口。
+    const disposeControls = registerOverviewCardControls(context)
+    return () => { disposeControls(); registration.dispose() }
   },
 })

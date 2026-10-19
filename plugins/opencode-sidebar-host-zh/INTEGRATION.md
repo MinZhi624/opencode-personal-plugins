@@ -8,9 +8,13 @@
 | --- | --- |
 | 卡片通过 `registerSidebarCard` 向宿主注册 | 已实现 |
 | `cli.json` 的插件对象条目将 `options` 传给该插件 | OpenCode V2 官方能力；各参数须由对应插件实现 |
-| 宿主从 `options.sidebarCards` 读取排序／隐藏 | 已实现，运行验收待使用者完成 |
-| `/sidebar-cards` 安全写回 `cli.json` | 已实现，不再写旧排序 storage；运行验收待使用者完成 |
+| 宿主从 `options.sidebarCards` 读取排序／显隐与侧栏进度条形状（`bar`／`bars`） | 已实现，运行验收待使用者完成 |
+| `/sidebar-cards` 安全写回 `cli.json`（逐字段定位，形状缺省即删键） | 已实现，不再写旧排序 storage；运行验收待使用者完成 |
+| `/sidebar-cards` 统一展示控制窗口：按页草稿、即时预览、显式保存／放弃 | 实施中；运行验收待使用者完成 |
+| 卡片通过 `registerCardControls` 提供统一窗口内的展示设置页 | 接合处已实现，运行验收待使用者完成 |
 | 任意插件自动转换、旧 API 通用兼容层 | 不在本次范围 |
+
+2026-10-19 增补：`/sidebar-cards` 升级为统一展示控制窗口——左侧导航、按设置页草稿、编辑时侧栏即时预览、显式保存或放弃；有未保存修改时关闭或切页会询问保存／放弃／继续编辑，不静默保存或丢弃。`/sidebar-host-show|hide|up|down` 等直接命令保持即时保存语义，与窗口草稿相互独立；保存以文件当前内容为基线比较，检测到外部修改明确提示冲突。新增侧栏专属进度条形状 `bar`／`bars`（六形状＋`none`，明确的卡片覆盖优先于整体形状，整体优先于卡片自身设置或默认形状），以及卡片展示设置提供者（Card Controls）。以上运行验收均待使用者完成，静态检查通过不代表交互已验收。
 
 宿主跨插件 JSX 接合处是本仓库自有协议（seam v1），目前仅标称在 OpenCode 2.0.18 验证，不是官方跨插件 UI API。升级 OpenCode、Solid/OpenTUI 或变更打包方式均须复验。
 
@@ -76,6 +80,30 @@ export default Plugin.define({
 - `hidden` 是隐藏展示，不是停用整个插件；组件可能被卸载，不能把必须持续运行的后台任务只放在组件挂载期间。
 - 不把宿主配置传给业务插件，不让卡片读写其他插件配置或凭据。
 
+## 展示设置提供者（Card Controls）
+
+卡片插件可在注册之外提供自己的展示设置提供者，`/sidebar-cards` 统一窗口据此建立对应卡片页。下游从宿主包导入提供者模块（本仓库同级插件用相对路径 `../../opencode-sidebar-host-zh/src/card-controls.ts`），在插件 `setup` 中调用 `registerCardControls(controls)`，并把返回的取消函数放入 cleanup：
+
+```tsx
+const disposeControls = registerCardControls({
+  id: "vendor.example",                       // 与卡片注册一致的稳定身份
+  title: "示例卡片",
+  fields: [{ key: "density", title: "密度", choices: [{ value: "cozy", title: "舒适" }, { value: "compact", title: "紧凑" }] }],
+  read: () => ({ density: "cozy" }),          // 同步或 Promise 均可
+  save: async (values, baseline) => { /* 在所有者自己的写入里对照 baseline 后再保存 */ },
+  actions: [{ title: "打开原生设置", run: () => openNativeSettings() }],
+  note: "可选的说明文字",
+})
+```
+
+约定：
+
+- 设置的读取与持久化归卡片插件所有。宿主只编排页面并转发草稿预览（`setCardControlPreview(id, values)`，传 `undefined` 表示取消预览），不复制卡片业务、不二次持久化，也不建立第二份同义设置。
+- `save(values, baseline)` 必须在所有者既有写入操作内对照 `baseline` 比较：检测到外部修改时重读或提示冲突，不静默覆盖；保存失败时统一窗口保留草稿并明确报错。
+- 只提供 `actions` 而不提供 `fields` 的提供者（例如额度只暴露原生设置入口）不需要在统一窗口里复制编辑器，窗口复用其原生设置入口。
+- 提供者随插件加载出现；卡片被隐藏或暂未加载时，统一窗口保留占位并明确不可用状态，可用的展示设置不因隐藏失去入口。
+- 排序／显隐与侧栏进度条形状（`options.sidebarCards` 的 `bar`／`bars`）由宿主拥有，不经由提供者保存，也不属于卡片私有业务参数。
+
 ## `cli.json` 参数化
 
 文件位于 `~/.config/opencode/cli.json`，设置 `XDG_CONFIG_HOME` 时位于 `$XDG_CONFIG_HOME/opencode/cli.json`；不是项目内配置，也不是旧 `tui.json`。以下是相关条目的示意，实际编辑时合并到现有 `plugins`，保留其他插件。
@@ -89,7 +117,9 @@ export default Plugin.define({
       "options": {
         "sidebarCards": {
           "order": ["sessionOverview", "quota", "vendor.example", "skill"],
-          "hidden": ["skill"]
+          "hidden": ["skill"],
+          "bar": "blocks",
+          "bars": { "quota": "line" }
         }
       }
     },
@@ -107,12 +137,12 @@ export default Plugin.define({
 
 配置语义：
 
-1. 宿主的 `options.sidebarCards.order/hidden` 控制卡片之间的顺序和显隐；下游自己的 `options` 控制卡片内部行为，参数名由下游定义并校验。不存在可控制所有插件的通用业务参数。
+1. 宿主的 `options.sidebarCards.order/hidden` 控制卡片之间的顺序和显隐，`bar`／`bars` 控制本套侧栏的进度条形状与单卡覆盖（六形状＋`none`，卡片覆盖优先于整体）；下游自己的 `options` 控制卡片内部行为，参数名由下游定义并校验。不存在可控制所有插件的通用业务参数。
 2. `order` 使用卡片 ID；未列出的已注册卡片按注册顺序追加。未知／暂未安装的 ID 保留，但不会因此自动安装或加载插件。
 3. `hidden` 隐藏卡片而不禁用插件；卸载后保留其配置，重新加载可恢复。`session.sidebar: "hide"` 则是 OpenCode 的整栏开关。
 4. `plugins` 加载顺序不等于宿主内卡片顺序；此配置不重排 OpenCode 原生侧栏或其他插件独立输出的内容。
 5. 文件为权威；菜单写回同一位置，不以旧 storage 覆盖文件。安全写入不可用时只读降级，给出手动修改提示；不静默改写其他插件配置。
-6. 官方支持有效配置编辑重载，但插件 options 的实际重载效果须在安装版验证；未同步时重启 TUI，或打开 `/sidebar-cards` 重新读取。本窗口确认菜单保存后立即应用。环境变量 `OPENCODE_CLI_CONFIG_CONTENT` 的覆盖优先级更高，设置时菜单保守拒写磁盘。
+6. 官方支持有效配置编辑重载，但插件 options 的实际重载效果须在安装版验证；未同步时重启 TUI，或打开 `/sidebar-cards` 重新读取。统一窗口显式保存后立即应用，`/sidebar-host-*` 直接命令即时保存。环境变量 `OPENCODE_CLI_CONFIG_CONTENT` 的覆盖优先级更高，设置时保守拒写磁盘。
 
 ## 下游验收清单
 

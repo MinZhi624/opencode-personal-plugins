@@ -8,8 +8,15 @@
  * - 显隐只是显示偏好：隐藏卡片仍占位，上移／下移以完整序列为准；
  * - 首次切换时读取旧聚合插件（opencode-enhanced-sidebar-zh）的
  *   `sidebar-cards-zh-v1` 设置，不静默丢弃用户既有顺序与显隐；
- * - 排序设置由宿主拥有：卸载某张卡片不删除其他卡片的设置，宿主卸载不删设置。
+ * - 排序设置由宿主拥有：卸载某张卡片不删除其他卡片的设置，宿主卸载不删设置；
+ * - 展示偏好还含本套侧栏专属的整体进度条形状（bar）与单卡覆盖（bars），
+ *   优先级为明确的卡片覆盖 > 明确的整体形状 > 卡片自身设置／默认形状；
+ *   宿主只为侧栏派生展示，不改写 Quota 跨展示位置共用的形状设置。
+ * 形状词汇（blocks、shades、line、squares、dots、none）以 presentation.ts
+ * 的 `isSidebarBarShape` 为唯一来源，避免两处定义漂移。
  */
+
+import { isSidebarBarShape, type SidebarBarShape } from "./presentation.ts"
 
 /** 宿主自己的设置键（与旧聚合插件的 `sidebar-cards-zh-v1` 是不同键，互不覆写）。 */
 export const HOST_SETTINGS_KEY = "sidebar-host-zh-v1"
@@ -26,6 +33,50 @@ export type LegacySidebarCardID = (typeof LEGACY_SIDEBAR_CARD_IDS)[number]
 export interface SidebarCardSettings {
   order: string[]
   hidden: string[]
+  /**
+   * 本套侧栏的整体进度条形状（展示偏好，非业务开关）。
+   * 缺省＝不强制：各卡片沿用自身已有设置或默认形状，首次打开不批量写入。
+   */
+  bar?: SidebarBarShape
+  /**
+   * 单卡形状覆盖：明确的卡片形状高于 `bar`；删除某张卡的条目即恢复跟随整体。
+   * 未知／暂未加载的卡片 ID 同样保留偏好（与 hidden 的占位规则一致）。
+   */
+  bars?: Record<string, SidebarBarShape>
+}
+
+/** 六个可选形状的报错文案，parse 与界面提示共用同一份词汇。 */
+const BAR_SHAPE_HINT = "blocks、shades、line、squares、dots 或 none"
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+/**
+ * 卡片 ID 是任意非空稳定字符串（`__proto__` 等特殊键同样是合法 ID）：
+ * 覆盖表一律用 defineProperty 写自有属性、用 hasOwn 读自有属性，
+ * 不走赋值／索引的原型链语义，也不因键名特殊拒绝任何合法 ID。
+ */
+function setOwnBar(bars: Record<string, SidebarBarShape>, id: string, shape: SidebarBarShape): void {
+  Object.defineProperty(bars, id, { value: shape, enumerable: true, writable: true, configurable: true })
+}
+
+function ownBar(bars: Record<string, SidebarBarShape> | undefined, id: string): SidebarBarShape | undefined {
+  if (bars === undefined || !Object.hasOwn(bars, id)) return undefined
+  return bars[id]
+}
+
+/** 复制覆盖表：只复制自有可枚举条目，`__proto__` 等键落成自有数据属性而非原型赋值。 */
+function copyBars(bars: Record<string, SidebarBarShape> | undefined): Record<string, SidebarBarShape> {
+  return bars === undefined ? {} : Object.fromEntries(Object.entries(bars))
+}
+
+/** 规范化外观字段：空覆盖等同未设置，避免 `{}` 与缺省被当成两种持久化状态。 */
+function appearanceOf(settings: SidebarCardSettings): { bar?: SidebarBarShape; bars?: Record<string, SidebarBarShape> } {
+  const appearance: { bar?: SidebarBarShape; bars?: Record<string, SidebarBarShape> } = {}
+  if (settings.bar !== undefined) appearance.bar = settings.bar
+  if (settings.bars !== undefined && Object.keys(settings.bars).length > 0) appearance.bars = copyBars(settings.bars)
+  return appearance
 }
 
 export function parseSidebarCards(value: unknown): { settings: SidebarCardSettings; issues: string[] } {
@@ -50,14 +101,38 @@ export function parseSidebarCards(value: unknown): { settings: SidebarCardSettin
   const order = list("order")
   const hidden = list("hidden")
   for (const id of hidden) if (!order.includes(id)) order.push(id)
-  return { settings: { order, hidden }, issues }
+  const settings: SidebarCardSettings = { order, hidden }
+  const rawBar = input.bar
+  if (rawBar !== undefined) {
+    if (isSidebarBarShape(rawBar)) settings.bar = rawBar
+    else issues.push(`sidebarCards.bar 必须是 ${BAR_SHAPE_HINT} 之一，已忽略`)
+  }
+  const rawBars = input.bars
+  if (rawBars !== undefined) {
+    if (!isPlainObject(rawBars)) {
+      issues.push("sidebarCards.bars 必须是对象，已忽略")
+    } else {
+      const bars: Record<string, SidebarBarShape> = {}
+      let badID = false
+      let badShape = false
+      for (const [id, shape] of Object.entries(rawBars)) {
+        if (id.trim().length === 0) { badID = true; continue }
+        if (!isSidebarBarShape(shape)) { badShape = true; continue }
+        setOwnBar(bars, id, shape)
+      }
+      if (badID) issues.push("sidebarCards.bars 含无效卡片 ID，已忽略无效项")
+      if (badShape) issues.push(`sidebarCards.bars 的形状值必须是 ${BAR_SHAPE_HINT} 之一，已忽略无效项`)
+      if (Object.keys(bars).length > 0) settings.bars = bars
+    }
+  }
+  return { settings, issues }
 }
 
 /** 完整序列：未知／隐藏项占位；新注册项仅在内存追加，不自动写文件。 */
 export function completeSidebarCards(settings: SidebarCardSettings, registeredIDs: readonly string[]): SidebarCardSettings {
   const order = [...settings.order]
   for (const id of registeredIDs) if (!order.includes(id)) order.push(id)
-  return { order, hidden: [...settings.hidden] }
+  return { order, hidden: [...settings.hidden], ...appearanceOf(settings) }
 }
 
 export function changeSidebarCard(
@@ -67,23 +142,90 @@ export function changeSidebarCard(
 ): { settings: SidebarCardSettings; result: "ok" | "boundary" | "unknown" } {
   const order = [...settings.order]
   let hidden = [...settings.hidden]
+  // 排序／显隐的修改不得丢失已保存的形状偏好。
+  const appearance = appearanceOf(settings)
   if (action === "show" || action === "hide") {
     if (!order.includes(id)) order.push(id)
     hidden = hidden.filter((item) => item !== id)
     if (action === "hide") hidden.push(id)
-    return { settings: { order, hidden }, result: "ok" }
+    return { settings: { order, hidden, ...appearance }, result: "ok" }
   }
   const index = order.indexOf(id)
   if (index === -1) return { settings, result: "unknown" }
   const target = index + (action === "up" ? -1 : 1)
   if (target < 0 || target >= order.length) return { settings, result: "boundary" }
   ;[order[index], order[target]] = [order[target]!, order[index]!]
-  return { settings: { order, hidden }, result: "ok" }
+  return { settings: { order, hidden, ...appearance }, result: "ok" }
 }
 
+function sameBar(a: SidebarBarShape | undefined, b: SidebarBarShape | undefined): boolean {
+  return (a ?? null) === (b ?? null)
+}
+
+/** 空覆盖与未设置等价：避免把 `{}` 与缺省判成两种持久化状态。 */
+function sameBars(a: Record<string, SidebarBarShape> | undefined, b: Record<string, SidebarBarShape> | undefined): boolean {
+  const left = a ?? {}
+  const right = b ?? {}
+  const ids = Object.keys(left)
+  // 只比自有条目：原型链上的同名属性不参与，也不因右表缺自有键而误判相等。
+  return ids.length === Object.keys(right).length && ids.every((id) => ownBar(left, id) === ownBar(right, id))
+}
+
+/** 持久化意义上的相同：顺序、显隐与可选形状都参与比较（写回前校验与冲突检测共用）。 */
 export function sameSidebarCards(a: SidebarCardSettings, b: SidebarCardSettings): boolean {
   return a.order.length === b.order.length && a.order.every((id, i) => id === b.order[i]) &&
-    a.hidden.length === b.hidden.length && a.hidden.every((id, i) => id === b.hidden[i])
+    a.hidden.length === b.hidden.length && a.hidden.every((id, i) => id === b.hidden[i]) &&
+    sameBar(a.bar, b.bar) && sameBars(a.bars, b.bars)
+}
+
+/** 只保留形状值合法的覆盖条目；没有合法条目时返回 undefined（等同未设置）。 */
+function nonEmptyBars(bars: Record<string, SidebarBarShape> | undefined): Record<string, SidebarBarShape> | undefined {
+  if (bars === undefined) return undefined
+  const entries = Object.entries(bars).filter(([, shape]) => isSidebarBarShape(shape))
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined
+}
+
+/**
+ * 设置或清除整体进度条形状。shape 为 undefined 表示不强制，
+ * 各卡片回到自身已有设置或默认形状；顺序与显隐原样保留。
+ */
+export function setSidebarSharedBar(settings: SidebarCardSettings, shape: SidebarBarShape | undefined): SidebarCardSettings {
+  if (shape !== undefined && !isSidebarBarShape(shape)) return settings
+  const next: SidebarCardSettings = { order: [...settings.order], hidden: [...settings.hidden] }
+  if (shape !== undefined) next.bar = shape
+  const bars = nonEmptyBars(settings.bars)
+  if (bars !== undefined) next.bars = bars
+  return next
+}
+
+/**
+ * 设置或清除单张卡片的形状覆盖。shape 为 undefined 即恢复跟随整体；
+ * 未知／暂未加载的卡片 ID 同样保留偏好（与 hidden 的占位规则一致）。
+ */
+export function setSidebarCardBar(settings: SidebarCardSettings, cardID: string, shape: SidebarBarShape | undefined): SidebarCardSettings {
+  if (typeof cardID !== "string" || cardID.trim().length === 0) return settings
+  if (shape !== undefined && !isSidebarBarShape(shape)) return settings
+  const bars = copyBars(nonEmptyBars(settings.bars))
+  if (shape === undefined) delete bars[cardID]
+  else setOwnBar(bars, cardID, shape)
+  const next: SidebarCardSettings = { order: [...settings.order], hidden: [...settings.hidden] }
+  if (settings.bar !== undefined) next.bar = settings.bar
+  if (Object.keys(bars).length > 0) next.bars = bars
+  return next
+}
+
+/**
+ * 某张卡片当前生效的形状与继承来源（界面标注用，不改变卡片自身默认值）：
+ * 明确的卡片覆盖 > 明确的整体形状 > 卡片自身设置／默认（宿主不替卡片决定默认形状）。
+ */
+export function resolveSidebarBar(
+  settings: SidebarCardSettings,
+  cardID: string,
+): { shape: SidebarBarShape | undefined; source: "card-override" | "shared" | "card-default" } {
+  const override = ownBar(settings.bars, cardID)
+  if (override !== undefined) return { shape: override, source: "card-override" }
+  if (settings.bar !== undefined) return { shape: settings.bar, source: "shared" }
+  return { shape: undefined, source: "card-default" }
 }
 
 /** 仅用于迁移后菜单里对“尚未加载”的旧卡片做可读标注，不参与任何业务判断。 */

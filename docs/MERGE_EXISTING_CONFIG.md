@@ -25,9 +25,11 @@ OpenCode v2 的终端配置只有全局 ~/.config/opencode/cli.json。保留 `op
 不要同时加载聚合入口和四张新卡，否则会重复展示、重复统计监听。schema 为
 https://opencode.ai/v2/cli.json。
 
-旧聚合入口的 `subagentsSortOrder`、`subagentsMaxEntries`、`subagentsTtlDays` 选项移到子代理卡片；
-`skillPanelMaxUsed`、`skillPanelDefaultOpen` 移到技能卡片。旧的 `sessionOverview`、`subagents`、
-`skillPanel` 启用选项现在由**是否加载对应插件**表达；需要隐藏而不禁用时用 `/sidebar-cards` 菜单。
+旧聚合入口的 `subagentsSortOrder`、`subagentsMaxEntries`、`subagentsTtlDays` 选项移到子代理卡片
+（存子代理卡片的会话存储）；`skillPanelMaxUsed`、`skillPanelDefaultOpen` 移到技能卡片
+（写技能条目 `options`）。旧的 `sessionOverview`、`subagents`、`skillPanel` 启用选项现在由
+**是否加载对应插件**表达；需要隐藏而不禁用时用 `/sidebar-cards` 统一窗口（按页草稿、显式保存）
+或 `/sidebar-host-hide` 等直接命令（即时保存）。
 宿主与数据模块互不依赖；关闭额度卡片不影响 `opencode-quota-zh` 的命令及服务端 RPC。
 若旧选项有 `false`，首次切换前可从 `plugins` 移除对应卡片，或在宿主选项中填入旧设置
 `legacySettings: {"version":1,"order":["quota","sessionOverview","subagents","skill"],"hidden":[...旧隐藏项]}`；
@@ -39,9 +41,9 @@ https://opencode.ai/v2/cli.json。
 应加载插件包目录，由包的 exports["./tui"] 选择 CLI 入口；不要直接配置源码 TSX。
 删除旧 tui.json(c) 中本包的 v1 入口，避免重复面板。
 
-宿主条目使用 `{ "package": "./opencode-zh-bundle/plugins/opencode-sidebar-host-zh", "options": { "sidebarCards": { "order": ["sessionOverview", "quota", "subagents", "skill"], "hidden": [] } } }`。`order`／`hidden` 的值是稳定卡片 ID，隐藏不等于停用插件。卡片内部业务参数仍写各自条目的 `options`。
+宿主条目使用 `{ "package": "./opencode-zh-bundle/plugins/opencode-sidebar-host-zh", "options": { "sidebarCards": { "order": ["sessionOverview", "quota", "subagents", "skill"], "hidden": [] } } }`。`order`／`hidden` 的值是稳定卡片 ID，隐藏不等于停用插件。卡片内部业务参数仍归各自插件：技能私有选项写各自条目的 `options`，上下文展开状态与子代理排序／条数／保留期限沿用各自插件的会话存储（SDK storage）。
 
-菜单与手改文件共用这一位置；菜单只有安全写入并重新读取确认后才提示保存。本窗口立即应用，其他窗口未同步时重启 TUI。没有唯一可写宿主条目或存在环境变量覆盖时菜单拒写，给出手动片段，不回退写 storage。菜单修改后安装器默认保留配置；不要用重装或 `--replace-config` 重置用户排序。
+统一窗口与直接命令、手改文件共用这一位置；两者都只有安全写入并重新读取确认后才提示保存。统一窗口按设置页草稿，显式保存才持久化，放弃恢复已保存状态，有未保存修改时关闭或切页会要求保存／放弃／继续编辑；`/sidebar-host-show|hide|up|down <卡片ID>` 等直接命令即时保存。保存后本窗口立即应用，其他窗口未同步时重启 TUI；本包不承诺跨窗口热同步。没有唯一可写宿主条目或存在环境变量覆盖时拒写，给出手动片段，文件设置不回退到备用存储。窗口或命令修改后安装器默认保留配置；不要用重装或 `--replace-config` 重置用户排序。
 
 ## 额度设置：opencode-quota/settings.jsonc
 
