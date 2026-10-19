@@ -266,7 +266,7 @@ export function SubAgentPanel(props: {
         </Show>
          <Show when={!view.open && summary && summary.descendantCount() > 0}>
           <text fg={theme.text.muted}>{summaryTokensText()}</text>
-          <text fg={theme.text.action.primary.base}>{summaryCostText()}</text>
+           <text fg={theme.text.muted}>{summaryCostText()}</text>
         </Show>
       </box>
       <Show when={view.open}>

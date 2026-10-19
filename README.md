@@ -5,7 +5,7 @@
 <p align="center">
   <a href="#版本记录"><img alt="版本" src="https://img.shields.io/badge/版本-v1.0.0-blue?style=flat-square" /></a>
   <a href="https://opencode.ai/v2/docs/"><img alt="OpenCode" src="https://img.shields.io/badge/OpenCode-2.0.18-blue?style=flat-square" /></a>
-  <a href="https://nodejs.org/"><img alt="Node.js" src="https://img.shields.io/badge/Node.js-%E2%89%A522.6-339933?style=flat-square" /></a>
+  <a href="https://nodejs.org/"><img alt="Node.js" src="https://img.shields.io/badge/Node.js-%E2%89%A526.4-339933?style=flat-square" /></a>
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" /></a>
 </p>
 
@@ -57,9 +57,10 @@
 
 环境要求：
 
-- OpenCode 2.0.18（跨插件侧栏接合处按此版本验证；升级须重新验收）
-- Node.js 22.6 或更高版本、npm
+- Node.js 26.4 或更高版本、npm
 - Python 3.10 或更高版本（仅安装 `alone` 组的 `gpt-reset-credits` 时需要）
+- OpenCode：跨插件侧栏接合处按 **2.0.18** 验证；额度后端 `opencode-quota-zh` 固定上游 v6，要求 OpenCode **2.0.26+** 与 SDK `@opencode/plugin` **2.0.31**（以更高者为准并须人工验收）
+- Node 基线取 26.4+：随附 OpenTUI `0.5.17` 自身声明 `node >=26.4.0`，bundle 基线与之对齐，不再保留低版本 Node 的 engine 告警风险
 
 Linux / macOS / WSL：
 
@@ -114,13 +115,13 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 | 命令 | 用途 |
 | --- | --- |
-| `/quota` | 查看当前 Provider 额度 |
+| `/quota` | 查看当前 Provider 额度（v6 统一窗口的额度视图） |
+| `/quota_usage` | 用量视图；可带范围 today、24h、7d、30d、90d、all、session、between YYYY-MM-DD YYYY-MM-DD |
+| `/quota_settings` | v6 设置页：进度条样式、参考线、倒计时格式、额度行名称／显隐／顺序、Provider 顺序；草稿可预览、保存或放弃 |
+| `/quota_status` | 诊断认证、Provider、价格快照来源与未定价模型、维护公告；价格刷新入口在用量页 |
 | `/sidebar-cards` | 统一管理卡片顺序／显隐，保存到 cli.json（不等于禁用插件） |
 | `/sidebar-host-import` `/sidebar-host-status` | 显式导入旧设置／查看文件配置与注册诊断 |
-| `/quota_status` | 诊断认证、价格快照与未定价模型 |
-| `Ctrl+P` → `额度设置面板` | 单独打开额度设置面板，切换侧栏部分错误静默；默认在有有效数据时隐藏同一 Provider 的接口错误，`/quota_status` 仍保留诊断信息 |
-| `/pricing_refresh` | 从 models.dev 刷新共享价格快照 |
-| `/tokens_today` `/tokens_weekly` `/tokens_monthly` `/tokens_all` `/tokens_session` | 历史与当前会话 Token 用量 |
+| `/tokens_today` `/tokens_weekly` `/tokens_monthly` `/tokens_all` `/tokens_session` | 上游遗留别名，默认不列出，映射到 `/quota_usage` 对应范围；可在 `/quota_status` 开启 |
 | `/gpt-reset-credits` | 查询 ChatGPT 重置卡；带“兑换”参数表示确认兑换 |
 
 Workshop（`workshop` 组）把上游 Matt Pocock Skills `v1.2.3` 的 25 个 Promoted Skills 适配为 OpenCode Skill：普通技能按需由模型发现，user-only 技能不向模型主动展示，并开放用户侧原生技能菜单入口；不注册自定义命令执行器。TDD、独立完整 review、多方案设计、spec / tickets 等重量级工作流按约定只在明确要求时启动。这是提示词层面的行为约定，不是硬权限；隐藏发现也不禁止已知 ID 的加载。角色说明见 [opencode-matt-workshop](plugins/opencode-matt-workshop/README.md)。
@@ -138,8 +139,8 @@ Workshop（`workshop` 组）把上游 Matt Pocock Skills `v1.2.3` 的 25 个 Pro
 
 - OpenCode 配置：`~/.config/opencode/`
 - 会话数据库（只读）：`${XDG_DATA_HOME:-~/.local/share}/opencode/opencode.db`
-- 共享价格缓存：`~/.cache/opencode/opencode-quota/`
-- OpenAI/Codex 凭证：优先由 v2 服务端 `integration.connection` 解析；旧 auth.json 仅兼容回退
+- 模型价格快照：由额度服务端统一选择与刷新，侧栏统计经 RPC 镜像；价格缓存只保留模型 ID 与价格字段，不保存消息正文或凭证
+- 额度凭证：`opencode-quota-zh` 仅由上游 v6 服务端处理（v2 `integration.connection`），不再读取 Codex CLI 登录文件回退；`gpt-reset-credits` 的重置卡查询仍保留其 `CODEX_AUTH_PATH` 兼容回退
 
 本包不包含、不提交 API key、OAuth token、cookie、会话数据库与账户数据；不要分享 auth 文件或未经检查的 `opencode debug config` 输出。
 

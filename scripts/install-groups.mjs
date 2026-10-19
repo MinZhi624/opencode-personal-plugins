@@ -49,6 +49,10 @@ export const GROUPS = [
     title: "侧栏（含额度后台 quota-zh）",
     summary: "额度／会话概览／子代理／技能卡片、宿主与共享会话统计（/quota 命令也在此组）",
     requiresPython: false,
+    // 固定最低 OpenCode 版本：侧栏的额度后台（v6 RPC）与会话统计的 sessionUsage 读法
+    // 从 2.0.26 起可用，本地核对到 2.0.28。声明的是“最低可用版本”，
+    // 不是随包的 SDK 版本（具体版本以根 package-lock.json 为准）。
+    minOpenCode: ">=2.0.26",
     plugins: [
       "opencode-quota-zh",
       "opencode-sidebar-host-zh",

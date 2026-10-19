@@ -11,6 +11,9 @@ const OWNER = "opencode-quota-card-zh"
 /** 稳定卡片身份（宿主按它保存排序／显隐，跨重启不变）。 */
 const CARD_ID = "quota"
 const CARD_TITLE = "额度"
+// Temporarily archive the local presentation while previewing upstream v6.
+// Keep the stable card id and implementation intact for a later switch back.
+const LOCAL_QUOTA_CARD_ENABLED = false
 
 /** 「额度」卡片插件：可独立启停的 TUI 入口。
  *
@@ -21,6 +24,7 @@ const CARD_TITLE = "额度"
 export default Plugin.define({
   id: OWNER,
   setup(context: Context) {
+    if (!LOCAL_QUOTA_CARD_ENABLED) return
     const registration = registerSidebarCard({
       id: CARD_ID,
       owner: OWNER,

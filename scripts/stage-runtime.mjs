@@ -28,7 +28,7 @@ await Promise.all([
   copy("plugins/opencode-quota-card-zh"),
   copy("plugins/opencode-skill-panel"),
   copy("plugins/gpt-reset-credits"),
-  copy("package.json"), copy("package-lock.json"), copy("README.md"), copy("LICENSE"), copy("THIRD_PARTY_NOTICES.md"), copy("install.sh"), copy("install.ps1"),
+  copy("package.json"), copy("package-lock.json"), copy(".npmrc"), copy("README.md"), copy("LICENSE"), copy("THIRD_PARTY_NOTICES.md"), copy("install.sh"), copy("install.ps1"),
   copy("scripts/install-main.mjs", "scripts/install-main.mjs"),
   copy("scripts/install-groups.mjs", "scripts/install-groups.mjs"),
   copy("docs/MERGE_EXISTING_CONFIG.md", "docs/MERGE_EXISTING_CONFIG.md"), copy("docs/TROUBLESHOOTING.md", "docs/TROUBLESHOOTING.md"),
@@ -62,7 +62,11 @@ for (const path of staged) {
     forbidden.push(`non-runtime script staged: ${path}`)
   }
 }
-const required = ["config/opencode.jsonc", "config/cli.json", "scripts/install-main.mjs", "scripts/install-groups.mjs", "plugins/opencode-matt-workshop/index.ts", "plugins/opencode-matt-workshop/dist/src/index.js", "plugins/opencode-matt-workshop/skill-manifest.json", "plugins/opencode-matt-workshop/skills/ask-matt/SKILL.md", "plugins/opencode-matt-workshop/skills/wizard/template.sh", "plugins/opencode-matt-workshop/licenses/MATT-POCOCK-SKILLS-LICENSE", "plugins/opencode-quota-zh/index.ts", "plugins/opencode-quota-zh/tui.ts", "plugins/opencode-quota-zh/dist/index.js", "plugins/opencode-quota-zh/dist/tui-v2.tsx", "plugins/opencode-quota-zh/package.json", "plugins/opencode-session-data/tui.ts", "plugins/opencode-sidebar-host-zh/tui.ts", "plugins/opencode-session-overview-zh/tui.ts", "plugins/opencode-subagent-card-zh/tui.ts", "plugins/opencode-quota-card-zh/tui.ts", "plugins/opencode-skill-panel/tui.ts", "plugins/opencode-skill-panel/src/tui-v2.tsx", "plugins/opencode-skill-panel/src/skill-tracker.ts"]
+// 生产关键文件断言：这些是两条入口（Server：index.ts → dist/index.js；TUI：tui.ts → dist/tui-v2.tsx）
+// 直接 import 的模块，以及运行包自身需要的环境声明。缺任何一条都意味着某个 copy 规则被删改，
+// 运行时会以“模块缺失”在加载期失败，所以在这里就炸掉，而不是让 stage 假通过。
+// 只断言入口直连的关键文件：v6 树的其余文件由 dist/ 整目录复制带入。
+const required = ["config/opencode.jsonc", "config/cli.json", "scripts/install-main.mjs", "scripts/install-groups.mjs", ".npmrc", "plugins/opencode-matt-workshop/index.ts", "plugins/opencode-matt-workshop/dist/src/index.js", "plugins/opencode-matt-workshop/skill-manifest.json", "plugins/opencode-matt-workshop/skills/ask-matt/SKILL.md", "plugins/opencode-matt-workshop/skills/wizard/template.sh", "plugins/opencode-matt-workshop/licenses/MATT-POCOCK-SKILLS-LICENSE", "plugins/opencode-quota-zh/index.ts", "plugins/opencode-quota-zh/tui.ts", "plugins/opencode-quota-zh/package.json", "plugins/opencode-quota-zh/dist/index.js", "plugins/opencode-quota-zh/dist/tui-v2.tsx", "plugins/opencode-quota-zh/dist/quota-rpc.js", "plugins/opencode-quota-zh/dist/lib/quota-sidebar-cards.js", "plugins/opencode-quota-zh/dist/local-tui-bridge.js", "plugins/opencode-quota-zh/dist/v6/plugin.js", "plugins/opencode-quota-zh/dist/v6/rpc.js", "plugins/opencode-quota-zh/dist/v6/lib/modelsdev-pricing.js", "plugins/opencode-quota-zh/dist/v6/data/modelsdev-pricing.min.json", "plugins/opencode-quota-zh/dist/v6/core/usage.js", "plugins/opencode-quota-zh/dist/v6/tui/index.js", "plugins/opencode-quota-zh/dist/v6/tui/index.tsx", "plugins/opencode-session-data/src/metrics/quota-usage-rpc.ts", "plugins/opencode-session-data/tui.ts", "plugins/opencode-sidebar-host-zh/tui.ts", "plugins/opencode-session-overview-zh/tui.ts", "plugins/opencode-subagent-card-zh/tui.ts", "plugins/opencode-quota-card-zh/tui.ts", "plugins/opencode-skill-panel/tui.ts", "plugins/opencode-skill-panel/src/tui-v2.tsx", "plugins/opencode-skill-panel/src/skill-tracker.ts"]
 for (const path of required) if (!staged.includes(path)) forbidden.push(`missing required runtime file: ${path}`)
 if (forbidden.length) throw new Error(`Runtime distribution isolation failed:\n${forbidden.join("\n")}`)
 console.log(`Runtime staging passed (${staged.length} files): ${destination}`)

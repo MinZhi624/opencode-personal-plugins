@@ -1,8 +1,14 @@
 {
+  "_provenance": {
+    "note": "Upstream @slkiser/opencode-quota package.json snapshot aligned to the fixed v6 source (tag v6.0.0-beta.1, commit 358f58c3ffa3c9cf8efa6374ca37f7f8d298346a). Its version field (5.0.3) is a stale identifier not in sync with the fixed tag; the tag and commit above are the only authoritative version source. This snapshot does not participate in install and must not be read as the fork's version.",
+    "tag": "v6.0.0-beta.1",
+    "commit": "358f58c3ffa3c9cf8efa6374ca37f7f8d298346a",
+    "syncedAt": "2026-10-17"
+  },
   "name": "@slkiser/opencode-quota",
-  "version": "4.4.0",
-  "packageManager": "pnpm@11.0.0",
-  "description": "OpenCode quota & tokens usage with zero context window pollution. Supports GitHub Copilot, OpenAI (Plus/Pro), Qwen Code, Chutes AI, Synthetic, Google Antigravity, Z.ai coding plan and more.",
+  "version": "5.0.3",
+  "packageManager": "pnpm@11.7.0",
+  "description": "OpenCode quota & tokens usage with zero context window pollution. Supports GitHub Copilot, OpenAI (Plus/Pro), Chutes AI, Synthetic, Google AGY, Z.ai coding plan and more.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -23,10 +29,6 @@
       "default": "./dist/tui.js"
     }
   },
-  "oc-plugin": [
-    "server",
-    "tui"
-  ],
   "files": [
     "dist",
     "README.md",
@@ -35,16 +37,19 @@
   "scripts": {
     "build": "node scripts/clean-dist.mjs && tsc && node scripts/copy-data.mjs && node scripts/prepare-tui-dist.mjs",
     "build:check": "pnpm run build && pnpm pack --dry-run",
+    "check": "biome check .",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "lint": "biome lint .",
     "pack:release-package": "node scripts/pack-release-package.mjs",
-    "format:check": "node scripts/verify-v4-formatting.mjs",
     "pricing:refresh": "node scripts/refresh-modelsdev-pricing.mjs",
     "pricing:refresh:if-stale": "node scripts/refresh-modelsdev-pricing-if-stale.mjs",
     "upstream:check": "node scripts/check-upstream-plugin-updates.mjs",
     "upstream:prepare-review": "node scripts/prepare-upstream-plugin-review.mjs",
     "upstream:sync": "node scripts/sync-upstream-plugin-references.mjs",
-    "release:check": "pnpm run format:check && pnpm run verify:typescript-version && pnpm run verify:v4-history && pnpm run typecheck && pnpm run build && pnpm test && pnpm run test:four-surfaces && pnpm run verify:release-package && pnpm run verify:release-version",
+    "release:check": "pnpm verify && pnpm run verify:release-version",
     "smoke:package": "node scripts/smoke-packed-package.mjs",
-    "test:four-surfaces": "vitest run tests/v4-phase5-cross-surface.test.ts",
+    "test:four-surfaces": "vitest run tests/v6-cross-surface.test.ts",
     "verify:package-contents": "node scripts/verify-package-contents.mjs",
     "verify:release-package": "node scripts/verify-release-package.mjs",
     "verify:release-version": "node scripts/verify-release-version.mjs",
@@ -53,8 +58,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "verify": "pnpm run check && pnpm run verify:typescript-version && pnpm run verify:v4-history && pnpm run typecheck && pnpm run build && pnpm test && pnpm run test:four-surfaces && pnpm run verify:package-contents",
     "prepublishOnly": "pnpm run build",
-    "prepare": "husky"
+    "prepare": "lefthook install"
   },
   "keywords": [
     "opencode",
@@ -64,7 +70,6 @@
     "github",
     "copilot",
     "google",
-    "antigravity",
     "gemini",
     "claude"
   ],
@@ -81,34 +86,27 @@
   "devDependencies": {
     "@babel/core": "^7.28.0",
     "@babel/preset-typescript": "^7.27.1",
-    "@opencode-ai/plugin": "1.18.1",
+    "@biomejs/biome": "2.3.11",
+    "@opencode/plugin": "2.0.28",
     "@opentelemetry/sdk-metrics": "2.10.0",
     "@types/node": "^22.0.0",
     "babel-preset-solid": "^1.9.12",
-    "husky": "^9.1.7",
-    "lint-staged": "^16.2.7",
-    "prettier": "^3.8.0",
-    "typescript": "^5.9.3",
+    "lefthook": "2.0.15",
+    "typescript": "7.0.2",
     "vitest": "^4.0.17",
     "yaml": "^2.8.3"
   },
   "dependencies": {
-    "@clack/prompts": "^1.2.0",
     "@opentelemetry/api": "^1.9.1",
-    "@opentui/core": "^0.4.3",
-    "@opentui/solid": "^0.4.3",
-    "comment-json": "^5.0.0",
+    "@opentui/core": "^0.5.10",
+    "@opentui/solid": "^0.5.10",
     "jsonc-parser": "^3.3.1",
-    "solid-js": "^1.9.12",
-    "xdg-basedir": "^5.1.0"
-  },
-  "optionalDependencies": {
-    "better-sqlite3": "^12.10.0"
+    "solid-js": "^1.9.12"
   },
   "peerDependencies": {
-    "@opencode-ai/plugin": "^1.4.3"
+    "@opencode/plugin": "2.0.28"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": "^22.13.0 || >=23.4.0"
   }
 }

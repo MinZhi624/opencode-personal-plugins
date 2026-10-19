@@ -1,5 +1,8 @@
 [← Back to README](../../README.md)
 
+> [!WARNING]
+> **上游英文手册留存副本，非本中文 Fork 的权威说明。** 本文来自 [`slkiser/opencode-quota`](https://github.com/slkiser/opencode-quota)，可能包含已不适用于 `opencode-quota-zh` 的旧命令（如 `/pricing_refresh`、`/quota_announcements`、`/quota_alerts`）、旧配置路径（如 `opencode-quota-zh/config.jsonc`、`opencode-quota/quota-toast.jsonc`）与旧默认值。当前命令、配置权威与默认值以 [README.zh.md](../../README.zh.md) 和 [UPSTREAM-PROVENANCE.md](../../UPSTREAM-PROVENANCE.md) 为准；请勿据本文直接配置或运行命令。配置权威是 `~/.config/opencode/opencode-quota/settings.jsonc`，命令为 `/quota`、`/quota_usage`、`/quota_status`、`/quota_settings`。
+
 # Configuration
 
 Most people only need the examples on this page. The full option list is at the bottom.

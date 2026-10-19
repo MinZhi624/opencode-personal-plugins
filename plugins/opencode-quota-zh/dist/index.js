@@ -3,141 +3,122 @@
  *
  * Shows quota status in OpenCode without LLM invocation.
  *
+ * The server entry runs the fixed upstream v6 quota backend and adds the
+ * local RPCs on top of it: the structured quota snapshot the Chinese sidebar
+ * card renders, the v6 price list in use, one session tree's usage read
+ * straight out of the v6 usage report, and the announcement when the price
+ * list in use really changes. Providers, authentication,
+ * multi-account state, caching, settings, commands, hooks and reports stay
+ * upstream's; this file only adapts v6 answers for the local card.
+ *
  * @packageDocumentation
  */
 import { Plugin } from "@opencode/plugin";
-import { sanitizeCredentialErrorText } from "./lib/display-sanitize.js";
-import { HOST_CREDENTIAL_FAILURE_REASON, } from "./lib/entries.js";
-import { buildQuotaDialogCommandOutput } from "./lib/quota-dialog-commands.js";
-import { buildQuotaSnapshotResponse } from "./lib/quota-sidebar-cards.js";
-import { collectQuotaRenderData } from "./lib/quota-render-data.js";
-import { createQuotaRuntimeRequestContext, resolveQuotaRuntimeContext, } from "./lib/quota-runtime-context.js";
+import { buildV6QuotaSnapshotResponse } from "./lib/quota-sidebar-cards.js";
 import { quotaRpc } from "./quota-rpc.js";
-// The upstream core only needs provider enumeration and the active config;
-// both are available from the V2 server context domains.
-//
-// A resolution that cannot be completed is reported as a visible failure
-// carrying one sanitized line, so the quota credential chain can show why the
-// preferred credential source produced nothing. Throwing here would abort the
-// whole quota query instead.
-async function resolveHostOAuthCredential(context, integrationID) {
-    try {
-        const connection = await context.integration.connection.active(integrationID);
-        if (!connection)
-            return null;
-        const value = await context.integration.connection.resolve(connection);
-        if (!value || value.type !== "oauth" || !value.access)
-            return null;
-        return {
-            access: value.access,
-            ...(value.refresh ? { refresh: value.refresh } : {}),
-            ...(typeof value.expires === "number" ? { expiresAt: value.expires } : {}),
-        };
-    }
-    catch (error) {
-        const reason = sanitizeCredentialErrorText(error instanceof Error ? error.message : String(error));
-        return {
-            failed: true,
-            reason: reason || HOST_CREDENTIAL_FAILURE_REASON,
-        };
-    }
-}
-function createQuotaCoreClient(context) {
-    return {
-        config: {
-            providers: async () => {
-                const response = await context.provider.list();
-                return { data: { providers: response.data.map((provider) => ({ id: provider.id })) } };
-            },
-            get: async () => ({ data: {} }),
-        },
-        // OpenCode V2 keeps saved credentials in the host database and owns OAuth
-        // token refresh. Expose the active connection so providers can prefer it
-        // over legacy auth.json entries; a lookup that cannot be completed
-        // answers with a sanitized failure instead of throwing.
-        integration: {
-            resolveOAuthCredential: (integrationID) => resolveHostOAuthCredential(context, integrationID),
-        },
-    };
-}
-async function loadRuntime(context, sessionID) {
-    return await resolveQuotaRuntimeContext({
-        client: createQuotaCoreClient(context),
-        roots: {
-            activeDirectory: context.location.directory,
-            fallbackDirectory: context.location.directory,
-        },
-        sessionID,
-        resolveSessionMeta: async (id) => {
-            const session = await context.session.get({ sessionID: id });
-            const model = session?.model;
-            return model ? { modelID: model.id, providerID: model.providerID } : {};
-        },
-        includeSessionMeta: (config) => config.onlyCurrentModel,
-    });
-}
-// Quota computation runs on the server through the shared upstream core; the
-// TUI receives structured sidebar cards and only renders them.
+import { sessionUsageReport } from "./v6/core/usage.js";
+import { getPricingSnapshotForClients, subscribePricingSnapshotChanges, } from "./v6/lib/modelsdev-pricing.js";
+import { QuotaToastPlugin } from "./v6/plugin.js";
+import { QuotaRpc } from "./v6/rpc.js";
+// The upstream v6 backend is the only quota implementation here: its setup
+// registers its own RPC, agent tools, slash commands, session hooks, settings
+// watch and credential binding, and returns the teardown for all of them. It
+// runs under the stable local plugin id, so the bundle keeps one server
+// plugin while every quota behavior stays upstream's.
 export default Plugin.define({
     id: "opencode-quota-zh",
     async setup(context) {
-        await context.rpc.register(quotaRpc, {
-            async snapshot(input) {
-                const runtime = await loadRuntime(context, input.sessionID);
-                // The snapshot is the public quota data interface: it is gated only by
-                // the quota background toggle, never by sidebar card visibility, so
-                // hiding the card does not stop independent commands or queries.
-                const result = runtime.config.enabled
-                    ? await collectQuotaRenderData({
-                        client: runtime.client,
-                        resolveRuntimeProviderIds: runtime.resolveRuntimeProviderIds,
-                        config: runtime.config,
-                        configMeta: runtime.configMeta,
-                        request: createQuotaRuntimeRequestContext(runtime),
-                        surfaceExplicitProviderIssues: true,
-                        formatStyle: "allWindows",
-                        providers: runtime.providers,
-                        includeAllWindowsData: true,
-                    })
-                    : null;
-                const suppressPartialErrors = input.suppressPartialErrorsOverride ?? runtime.config.tuiSidebarPanel.suppressPartialErrors;
-                const partialProviderErrors = suppressPartialErrors && result
-                    ? result.providerResults.flatMap(({ result: providerResult }) => providerResult.entries.length > 0 ? providerResult.errors : [])
-                    : [];
-                return buildQuotaSnapshotResponse({
-                    enabled: runtime.config.enabled,
-                    data: result ? (result.allWindowsData ?? result.data) : null,
-                    suppressPartialErrors,
-                    partialProviderErrors,
+        const upstreamTeardown = await QuotaToastPlugin.setup(context);
+        const releaseUpstream = async () => {
+            // The upstream setup always answers with its teardown; the guard only
+            // satisfies the Plugin.Cleanup | void type.
+            if (typeof upstreamTeardown === "function")
+                await upstreamTeardown();
+        };
+        try {
+            // Registered after the upstream setup, so the v6 route it calls is in
+            // place before any local call can arrive. Upstream keeps publishing its
+            // own `changed` events on its own RPC channel; the local quota RPC adds
+            // one event of its own, `pricingChanged`, announced here whenever the
+            // price list in use really changes, so a consumer can drop the costs it
+            // already displayed instead of waiting for its next poll.
+            const registration = await context.rpc.register(quotaRpc, {
+                snapshot: async (input) => {
+                    // The v6 backend answers with its structured snapshot; this layer
+                    // only converts it into sidebar cards. A failed query propagates as
+                    // an RPC error, so the card shows a failure instead of invented
+                    // data, and credentials never cross the boundary.
+                    const { snapshot } = await context.rpc(QuotaRpc).snapshot({
+                        ...(input.sessionID !== undefined ? { sessionID: input.sessionID } : {}),
+                    });
+                    return buildV6QuotaSnapshotResponse(snapshot);
+                },
+                pricing: async () => {
+                    // The v6 price list already in use: the same loaded snapshot the
+                    // report costs with, so no second cache, no download and no
+                    // credentials cross this boundary. An empty list stays visible as
+                    // `source: "empty"` instead of being disguised as zero prices.
+                    return getPricingSnapshotForClients();
+                },
+                sessionUsage: async (input) => {
+                    // The one cached v6 session report, read exactly as it stands: own,
+                    // tree and every session share its numbers, its price snapshot
+                    // labels and its time point, so the sidebar tree cannot drift from
+                    // the v6 session usage. A failed report propagates as an RPC error
+                    // instead of a complete-looking zero, and the lifecycle, the
+                    // snapshot and the pricing routes stay untouched here.
+                    return sessionUsageReport(input.sessionID);
+                },
+            });
+            // Subscribed once the local registration exists, so every announcement
+            // rides this registration's own channel: a fresh download, another
+            // source or another selection reaches a consumer as `pricingChanged`,
+            // with the same `generatedAt` and `selection` the `pricing` route
+            // answers with. The first load of the process announces nothing.
+            const stopPricingSubscription = subscribePricingSnapshotChanges((info) => {
+                // Fire-and-forget: the announcement must never hold up price loading
+                // or the download, and a failed emit leaves one fixed line behind —
+                // the original error is not logged.
+                void registration.events.emit("pricingChanged", info).catch(() => {
+                    console.warn("[opencode-quota] pricingChanged event failed");
                 });
-            },
-            async settings() {
-                const runtime = await loadRuntime(context);
-                return {
-                    suppressPartialErrors: runtime.config.tuiSidebarPanel.suppressPartialErrors,
-                };
-            },
-            async command(input) {
-                // Commands run against the connected server's location, config and
-                // storage. Credentials never cross the RPC boundary to the TUI.
-                return buildQuotaDialogCommandOutput({
-                    command: input.command,
-                    arguments: input.arguments,
-                    sessionID: input.sessionID,
-                    client: createQuotaCoreClient(context),
-                    roots: {
-                        activeDirectory: context.location.directory,
-                        fallbackDirectory: context.location.directory,
-                    },
-                    resolveSessionMeta: async (id) => {
-                        const session = await context.session.get({ sessionID: id });
-                        const model = session?.model;
-                        return model ? { modelID: model.id, providerID: model.providerID } : {};
-                    },
-                });
-            },
-        });
+            });
+            return async () => {
+                // Stop hearing about price changes before the route that carries them
+                // goes away: no announcement may outlive its registration. The stop
+                // itself cannot fail, and it runs either way so the local route and
+                // the upstream backend are always released.
+                try {
+                    stopPricingSubscription();
+                }
+                finally {
+                    // Drop the local route first, then release the upstream backend: its
+                    // teardown closes the settings watch, the store subscription and the
+                    // snapshot publisher, and unbinds the credential source.
+                    try {
+                        await registration.dispose();
+                    }
+                    finally {
+                        // A failed local teardown must not keep the upstream backend
+                        // running: the release happens either way.
+                        await releaseUpstream();
+                    }
+                }
+            };
+        }
+        catch (error) {
+            // The upstream backend is already running at this point; a failed local
+            // registration must not leave it active without a teardown.
+            try {
+                await releaseUpstream();
+            }
+            catch (cleanupError) {
+                // The registration failure stays the reported one; a teardown failure
+                // on this path rides along in the aggregate instead of replacing it,
+                // and nothing is logged unsanitized here.
+                throw new AggregateError([error, cleanupError], "opencode-quota-zh setup failed");
+            }
+            throw error;
+        }
     },
 });
-// Re-export types for consumers (types are erased at runtime, so safe to export)
-export { QUOTA_PROVIDER_MODES, QUOTA_PROVIDER_REMOTE_FORMATS, QUOTA_PROVIDER_WINDOW_TYPES, validateQuotaProviders, } from "./lib/quota-providers.js";

@@ -1,5 +1,8 @@
 [← Back to README](../../README.md)
 
+> [!WARNING]
+> **历史迁移文档，不适用于当前 v6 基线。** 本文是上游 v3→v4 的迁移说明，仅作历史记录。当前 `opencode-quota-zh` 固定上游 `v6.0.0-beta.1`，不把 v5.0.3 或更早版本作为必须经过的中间迁移；相关口径以 [README.zh.md](../../README.zh.md) 和 [UPSTREAM-PROVENANCE.md](../../UPSTREAM-PROVENANCE.md) 为准，勿据本文执行迁移。
+
 # Move from v3 to v4
 
 v4 adds clearer quota results, guided custom-provider setup, and JSON export v2. The updater keeps unrelated OpenCode settings.

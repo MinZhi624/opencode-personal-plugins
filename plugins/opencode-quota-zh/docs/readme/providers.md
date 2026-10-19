@@ -1,5 +1,8 @@
 [← Back to README](../../README.md)
 
+> [!WARNING]
+> **上游英文手册留存副本，非本中文 Fork 的权威说明。** Provider 列表与设置细节可能与固定 v6 基线有差异；命令、配置权威与默认值以 [README.zh.md](../../README.zh.md) 和 [UPSTREAM-PROVENANCE.md](../../UPSTREAM-PROVENANCE.md) 为准，勿据本文直接配置。
+
 # Providers
 
 ## On this page

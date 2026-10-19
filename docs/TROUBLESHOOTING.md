@@ -9,7 +9,7 @@
 
 ## 版本或配置不兼容
 
-本包固定支持 OpenCode 2.0.18。确认 opencode --version，并检查：
+本包跨插件侧栏接合处按 OpenCode 2.0.18 验证；额度后端 `opencode-quota-zh` 固定上游 v6，要求 OpenCode 2.0.26+ 与 SDK `@opencode/plugin` 2.0.31。确认 `opencode --version`，并检查：
 
 - 服务端配置为 ~/.config/opencode/opencode.json(c)，键名为 plugins。
 - 终端配置为 ~/.config/opencode/cli.json，schema 为 https://opencode.ai/v2/cli.json。
@@ -45,6 +45,13 @@ npm audit fix --force。
 - 「（不完整）」= 已显示金额但历史未取全，不能当作完整总额；
 - 完全没有费用行 = 取数成功且会话没有带 Token 的 assistant 消息。
 
+## 额度查询异常（v6）
+
+- 额度命令统一到 v6 窗口：`/quota`（额度）、`/quota_usage`（用量）、`/quota_status`（诊断）、`/quota_settings`（设置）。价格刷新入口在用量页，维护公告在插件页；旧的 `/pricing_refresh`、`/quota_announcements`、`/quota_alerts` 不再提供。
+- 查询失败不显示为 0% 或免费；保留旧数据时会标注刷新失败与上次成功时间，不把旧额度当成刚查询的结果。未定价模型保留 Token 并标记“未定价”。
+- 配置权威为 `~/.config/opencode/opencode-quota/settings.jsonc`（遵循 XDG）。旧 `opencode-quota-zh/config.jsonc`、`config.json` 自动迁移（追加、不覆盖、保留旧文件）；v6 不支持 project 级设置，旧 project 文件需手工合并。
+- 多账号、active 标记与“不支持额度查询”状态由上游 v6 判定；Codex CLI 登录文件回退已移除，此前仅靠该回退恢复的额度升级后可能不可用，需在 OpenCode 中重新连接。
+
 ## 子代理费用或状态缺失
 
 任务树只按 OpenCode v2 提供的父子会话关系与 execution/tool 事件归并。若事件没有提供
@@ -61,5 +68,5 @@ npm audit fix --force。
 
 ## Windows
 
-需要 Node.js 22.6+ 和 Python 3.10+。可用 OPENCODE_PYTHON 指向 Python 可执行文件；
+需要 Node.js 26.4+（随附 OpenTUI 声明 node >=26.4.0）和 Python 3.10+。可用 OPENCODE_PYTHON 指向 Python 可执行文件；
 不要在变量中附加参数。

@@ -1,0 +1,132 @@
+import {
+  API_KEY_LOGIN_VENDORS,
+  type ApiKeyLoginSpec,
+  resolveApiKeyLogin,
+} from "./api-key-resolver.js";
+import { sanitizeDisplaySnippet, sanitizeDisplayText } from "./display-sanitize.js";
+import { clampPercent } from "./format-utils.js";
+import { fetchWithTimeout } from "./http.js";
+import type { ZaiQuotaLimit, ZaiQuotaResult, ZaiResult } from "./types.js";
+
+type GlmEnvelope = {
+  code?: unknown;
+  msg?: unknown;
+  success?: unknown;
+  data?: { limits?: unknown } | null;
+  limits?: unknown;
+};
+
+/** One GLM coding plan endpoint: Z.ai (global) or Zhipu (China). */
+export type GlmEndpoint = {
+  label: string;
+  endpoint: string;
+  httpErrorPrefix: string;
+  auth: ApiKeyLoginSpec;
+} & ({ envelope: "zai"; apiErrorPrefix: string } | { envelope: "zhipu" });
+
+export const GLM_ENDPOINTS: Readonly<Record<"zai" | "zhipu", GlmEndpoint>> = {
+  zai: {
+    label: "Z.ai",
+    endpoint: "https://api.z.ai/api/monitor/usage/quota/limit",
+    httpErrorPrefix: "Z.ai API 错误",
+    apiErrorPrefix: "Z.ai API 错误",
+    envelope: "zai",
+    auth: API_KEY_LOGIN_VENDORS.zai,
+  },
+  zhipu: {
+    label: "Zhipu",
+    endpoint: "https://bigmodel.cn/api/monitor/usage/quota/limit",
+    httpErrorPrefix: "Zhipu API 错误",
+    envelope: "zhipu",
+    auth: API_KEY_LOGIN_VENDORS.zhipu,
+  },
+};
+
+export async function queryGlmCodingPlanQuota(
+  descriptor: GlmEndpoint,
+  options: { requestTimeoutMs?: number; apiKey?: string } = {},
+): Promise<ZaiResult> {
+  const auth = options.apiKey
+    ? { state: "configured" as const, apiKey: options.apiKey }
+    : await resolveApiKeyLogin(descriptor.auth);
+  if (auth.state === "none") return null;
+  if (auth.state === "invalid") return { success: false, error: auth.error };
+
+  try {
+    return await fetchWithTimeout(descriptor.endpoint, {
+      request: {
+        headers: {
+          Authorization: auth.apiKey,
+          "User-Agent": "OpenCode-Quota-Toast/1.0",
+          "Content-Type": "application/json",
+        },
+      },
+      timeoutMs: options.requestTimeoutMs,
+      consume: async (response) => {
+        if (!response.ok) {
+          const body = sanitizeDisplaySnippet(await response.text(), 120);
+          return {
+            success: false,
+            error: `${descriptor.httpErrorPrefix} ${response.status}: ${body}`,
+          };
+        }
+
+        const body = (await response.json()) as GlmEnvelope;
+        if (
+          descriptor.envelope === "zai" &&
+          (body.success === false || (typeof body.code === "number" && body.code >= 400))
+        ) {
+          const message = typeof body.msg === "string" ? sanitizeDisplayText(body.msg) : "";
+          return {
+            success: false,
+            error:
+              message ||
+              (typeof body.code === "number"
+                ? `${descriptor.apiErrorPrefix} ${body.code}`
+                : descriptor.apiErrorPrefix),
+          };
+        }
+
+        const limits =
+          descriptor.envelope === "zai" ? (body.data?.limits ?? body.limits) : body.data?.limits;
+        if (!Array.isArray(limits)) return { success: false, error: "额度数据无效" };
+
+        const windows: ZaiQuotaResult["windows"] = {};
+        for (const limit of limits as ZaiQuotaLimit[]) {
+          const resetDate = limit.nextResetTime ? new Date(Math.round(limit.nextResetTime)) : null;
+          const resetTimeIso =
+            resetDate && Number.isFinite(resetDate.valueOf()) && resetDate.valueOf() > 0
+              ? resetDate.toISOString()
+              : undefined;
+          let percentRemaining = clampPercent(100 - limit.percentage);
+          if (
+            limit.type === "CREDIT_LIMIT" &&
+            typeof limit.usage === "number" &&
+            Number.isFinite(limit.usage) &&
+            limit.usage > 0 &&
+            typeof limit.currentValue === "number" &&
+            Number.isFinite(limit.currentValue) &&
+            limit.currentValue >= 0
+          ) {
+            percentRemaining = clampPercent(
+              ((limit.usage - limit.currentValue) / limit.usage) * 100,
+            );
+          }
+          const window = { percentRemaining, resetTimeIso };
+
+          const isQuotaWindow = limit.type === "TOKENS_LIMIT" || limit.type === "CREDIT_LIMIT";
+          if (isQuotaWindow && limit.unit === 3) windows.fiveHour = window;
+          else if (isQuotaWindow && limit.unit === 6) windows.weekly = window;
+          else if (limit.type === "TIME_LIMIT") windows.mcp = window;
+        }
+
+        return { success: true, label: descriptor.label, windows };
+      },
+    });
+  } catch (error) {
+    return {
+      success: false,
+      error: sanitizeDisplayText(error instanceof Error ? error.message : String(error)),
+    };
+  }
+}

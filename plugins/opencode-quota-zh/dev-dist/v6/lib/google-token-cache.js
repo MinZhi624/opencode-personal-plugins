@@ -1,0 +1,50 @@
+/**
+ * Process-local access-token cache shared by the Google quota providers.
+ *
+ * Access tokens and account correlation material are intentionally never
+ * persisted. The legacy v1 disk cache contained account PII and an unkeyed
+ * refresh-token verifier, so it is ignored and removed on first use.
+ */
+import { createHmac, randomBytes } from "node:crypto";
+import { rm } from "node:fs/promises";
+import { join } from "node:path";
+import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
+const PROCESS_CACHE_KEY = randomBytes(32);
+const memoryTokens = new Map();
+let operationQueue = Promise.resolve();
+export function makeAccountCacheKey(params) {
+    return `gat1_${createHmac("sha256", PROCESS_CACHE_KEY)
+        .update("google-access-token-cache-v2\0")
+        .update(params.refreshToken)
+        .update("\0")
+        .update(params.projectId)
+        .digest("base64url")}`;
+}
+function enqueue(operation) {
+    const result = operationQueue.then(operation, operation);
+    operationQueue = result.then(() => undefined, () => undefined);
+    return result;
+}
+async function removeLegacyCache() {
+    const legacyPath = join(getOpencodeRuntimeDirs().cacheDir, "opencode-quota", "google-access-tokens.json");
+    await rm(legacyPath, { force: true }).catch(() => undefined);
+}
+export async function getCachedAccessToken(params) {
+    return enqueue(async () => {
+        await removeLegacyCache();
+        const entry = memoryTokens.get(params.key);
+        if (!entry)
+            return null;
+        if (entry.expiresAt <= Date.now() + params.skewMs) {
+            memoryTokens.delete(params.key);
+            return null;
+        }
+        return { ...entry };
+    });
+}
+export async function setCachedAccessToken(params) {
+    return enqueue(async () => {
+        await removeLegacyCache();
+        memoryTokens.set(params.key, { ...params.entry });
+    });
+}

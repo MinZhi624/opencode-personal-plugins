@@ -1,5 +1,8 @@
 [← Back to README](../../README.md)
 
+> [!WARNING]
+> **上游英文手册留存副本，非本中文 Fork 的权威说明。** 本文多次提到的 `/pricing_refresh` 等命令在当前 v6 已并入用量页／插件页，不再单独提供；诊断请用 `/quota_status`，配置权威是 `~/.config/opencode/opencode-quota/settings.jsonc`。请以 [README.zh.md](../../README.zh.md) 为准，勿据本文运行已移除的旧命令。
+
 # Troubleshooting
 
 Start with `/quota_status` in OpenCode, or `opencode-quota status` from a terminal. Both show which config, providers, authentication, and local files OpenCode Quota found.

@@ -1,7 +1,13 @@
 import type { Context } from "@opencode/plugin/tui/context"
 import { SessionMetricsService, normalizeMessage } from "./metrics/session-metrics.ts"
 import { StepTpsTracker } from "./metrics/step-tps.ts"
-import { maybeRefreshPricingSnapshot } from "./metrics/pricing.ts"
+import {
+  bindPricingSource,
+  maybeRefreshPricingSnapshot,
+  pricingSourceRpc,
+  type PricingSourceReport,
+} from "./metrics/pricing.ts"
+import { sessionUsageRpc, type SessionUsageReport } from "./metrics/quota-usage-rpc.ts"
 
 /**
  * V2 `GET /api/session/{id}/message` contract (verified against opencode
@@ -20,6 +26,25 @@ import { maybeRefreshPricingSnapshot } from "./metrics/pricing.ts"
 const MESSAGE_PAGE_SIZE = 200
 /** 100 pages × 200 messages; beyond that the result is marked incomplete. */
 const MESSAGE_MAX_PAGES = 100
+
+/** How long one server RPC read may take before it is given up on. */
+const RPC_TIMEOUT_MS = 60_000
+
+/**
+ * Where a server RPC read goes and how long it may take: the TUI's OWN folder
+ * — never a guessed cwd, so a call can never be routed to another workspace's
+ * settings — plus a one-minute budget. Same intent as the quota plugin's own
+ * `quotaCallOptions` (v6/tui/client.ts), mirrored here so no client/dist of
+ * that plugin is imported.
+ *
+ * A missing location is a hard error: falling back to cwd would silently read
+ * the wrong workspace. The message carries no secrets and no paths.
+ */
+function serverRpcOptions(context: Context): { location: NonNullable<Context["location"]>; signal: AbortSignal } {
+  const location = context.location ?? context.data.location.default()
+  if (!location) throw new Error("OpenCode gave the TUI no location")
+  return { location, signal: AbortSignal.timeout(RPC_TIMEOUT_MS) }
+}
 
 /**
  * One TUI instance's session-statistics runtime: per-session cost/token
@@ -50,6 +75,17 @@ export interface SessionDataRuntime {
  */
 export function createSessionDataRuntime(context: Context): SessionDataRuntime {
   const metrics = new SessionMetricsService({
+    // Cost/token numbers come from ONE place: the v6 usage engine behind the
+    // quota plugin's read-only `sessionUsage` RPC (same route id/method as its
+    // quotaRpc). One request per session answers with that session's own cost,
+    // the whole task tree and every session of the tree, all at one data point
+    // and one price snapshot — so no second, look-alike aggregation can drift
+    // from the v6 usage console. A null answer keeps the last complete result
+    // instead of inventing numbers.
+    fetchUsage: async (sessionID: string): Promise<SessionUsageReport | null> =>
+      (await context.client.rpc(sessionUsageRpc).sessionUsage({ sessionID }, serverRpcOptions(context))) ?? null,
+    // Message pagination stays bound for the hosts that still read messages
+    // for other metrics; only the cost path stopped consuming it.
     fetchPage: async ({ sessionID, limit, cursor }) => {
       const result = await context.client.message.list({
         sessionID,
@@ -67,7 +103,29 @@ export function createSessionDataRuntime(context: Context): SessionDataRuntime {
     maxPages: MESSAGE_MAX_PAGES,
   })
   const tps = new StepTpsTracker()
+  // Bind this runtime's pricing reader to the quota plugin's read-only
+  // pricing RPC (same route id/method as its quotaRpc). Downloads stay
+  // QuotaRpc.downloadPrices' exclusive job; the reader only syncs the
+  // cached snapshot. The disposer is generation-safe: a torn-down runtime
+  // never unbinds a newer host's binding.
+  const unbindPricingSource = bindPricingSource(
+    async (): Promise<PricingSourceReport | null> =>
+      (await context.client.rpc(pricingSourceRpc).pricing({}, serverRpcOptions(context))) ?? null,
+  )
   void maybeRefreshPricingSnapshot().catch(() => {})
+  /**
+   * Refresh one session and, when it is not the root itself, the root as well.
+   *
+   * A subagent's step changes the whole task tree's totals, and the tree
+   * surfaces read the root's report — so refreshing only the subagent would
+   * leave the tree stale forever. Both requests are debounced per session, so
+   * a burst of descendant events still collapses into one root read.
+   */
+  const refreshWithRoot = (sessionID: string, delayMs = 150) => {
+    metrics.refresh(sessionID, { delayMs })
+    const root = context.data.session.root(sessionID)
+    if (root && root !== sessionID) metrics.refresh(root, { delayMs })
+  }
   let unsubs: Array<() => void> = []
   let disposed = false
   return {
@@ -95,7 +153,7 @@ export function createSessionDataRuntime(context: Context): SessionDataRuntime {
             messageID: event.data.assistantMessageID,
             tokens: event.data.tokens,
           }, event.created)
-          metrics.refresh(event.data.sessionID, { delayMs: 150 })
+          refreshWithRoot(event.data.sessionID)
         }),
         context.data.on("session.text.delta", (event) => {
           tps.handlePartDelta(event.data.sessionID, event.data.assistantMessageID, "text", event.data.delta)
@@ -105,15 +163,23 @@ export function createSessionDataRuntime(context: Context): SessionDataRuntime {
         }),
         context.data.on("session.execution.succeeded", (event) => {
           tps.abortSession(event.data.sessionID)
-          metrics.refresh(event.data.sessionID, { delayMs: 150 })
+          refreshWithRoot(event.data.sessionID)
         }),
         context.data.on("session.execution.interrupted", (event) => {
           tps.abortSession(event.data.sessionID)
-          metrics.refresh(event.data.sessionID, { delayMs: 150 })
+          refreshWithRoot(event.data.sessionID)
         }),
         context.data.on("session.execution.failed", (event) => {
           tps.abortSession(event.data.sessionID)
-          metrics.refresh(event.data.sessionID, { delayMs: 150 })
+          refreshWithRoot(event.data.sessionID)
+        }),
+        // A REAL price change (another snapshot object, source or selection)
+        // makes every cached amount suspect: the engine repriced nothing, so
+        // the service drops its caches and re-requests what it tracks. This
+        // subscription belongs to the armed set, so an idle runtime keeps zero
+        // subscriptions and both `disarm` and `dispose` drop it again.
+        context.client.rpc(pricingSourceRpc).events.on("pricingChanged", () => {
+          metrics.refreshForPricingChange()
         }),
       ]
       // A returning consumer must not stare at data that stopped updating
@@ -130,6 +196,7 @@ export function createSessionDataRuntime(context: Context): SessionDataRuntime {
       disposed = true
       for (const unsubscribe of unsubs) unsubscribe()
       unsubs = []
+      unbindPricingSource()
       metrics.dispose()
     },
   }

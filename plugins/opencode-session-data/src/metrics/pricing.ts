@@ -1,16 +1,21 @@
 /**
- * models.dev pricing snapshot management and model/provider resolution.
+ * Pricing snapshot management and model/provider resolution.
  *
  * Ported from @slkiser/opencode-quota (dist/lib/modelsdev-pricing.js and
  * dist/lib/quota-stats.js resolution helpers), MIT.
  * See LICENSES/opencode-quota.LICENSE.
  *
  * Responsibilities:
- * - Load the bundled fallback snapshot (src/data/modelsdev-pricing.min.json).
- * - Overlay the shared runtime snapshot cached under the quota plugin's
- *   `opencode-quota/` namespace so all cost surfaces use one catalog.
- * - Refresh models.dev pricing in the background with timeout, throttle,
- *   staleness policy, atomic writes and safe fallback to the bundled snapshot.
+ * - Consume the quota plugin's read-only `pricing` RPC as the single pricing
+ *   authority (bound per runtime host via `bindPricingSource`). The quota
+ *   plugin owns the models.dev download (`QuotaRpc.downloadPrices`) and the
+ *   selected snapshot; this module never reads or writes pricing files and
+ *   never performs network fetches.
+ * - Retain the last authoritative snapshot when a sync fails and flag it
+ *   stale; before the first successful sync the store stays in the
+ *   loading/unknown state (never zero/free, never a local-disk impostor).
+ * - Track a snapshot revision so consumers can invalidate cached amounts
+ *   when price/meta/selection changes.
  * - Resolve OpenCode provider/model ids to a pricing key
  *   (provider aliases: openai/codex/chatgpt/copilot, GPT/Claude/Gemini/Grok/GLM
  *   model inference, -free / -thinking / version aliases, unique-model lookup).
@@ -18,10 +23,10 @@
  * Never reads OpenCode `session.cost` / `message.cost`.
  */
 
-import { readFileSync } from "node:fs"
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
+import { Rpc } from "@opencode/plugin"
 import { homedir } from "node:os"
-import { dirname, join } from "node:path"
+import { z } from "zod"
+import { join } from "node:path"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -79,9 +84,16 @@ export type RefreshOutcome = {
   updated: boolean
   reason?: string
   error?: string
+  /** True when a failed sync retained the previous authoritative snapshot. */
+  stale?: boolean
   state: RefreshState
 }
 
+/**
+ * Legacy options kept for signature compatibility. None of them trigger a
+ * fetch, a disk read or a disk write anymore — pricing sync is a read of the
+ * bound RPC source only.
+ */
 export interface PricingStoreOptions {
   bundledSnapshotOverride?: unknown
   runtimeDirs?: RuntimeDirs
@@ -96,25 +108,94 @@ export interface PricingStoreOptions {
 
 export type RuntimeDirs = { cacheDir: string }
 
+/** Report returned by the quota plugin's read-only pricing RPC. */
+export type PricingSourceReport = {
+  snapshot: PricingSnapshot
+  source: "runtime" | "bundled" | "empty"
+  selection: "auto" | "bundled" | "runtime"
+}
+
+/** Reader bound by a runtime host; see `bindPricingSource`. */
+export type PricingSourceReader = () => Promise<PricingSourceReport | null>
+
+// ---------------------------------------------------------------------------
+// Portable RPC route (client-side caller only)
+// ---------------------------------------------------------------------------
+
+const pricingCostBucketsSchema = z.object({
+  input: z.number().optional(),
+  output: z.number().optional(),
+  cache_read: z.number().optional(),
+  cache_write: z.number().optional(),
+  reasoning: z.number().optional(),
+})
+
+/**
+ * Mirror of the quota plugin's `pricingChanged` event: the price list in use
+ * changed for real (another snapshot object, source or selection), carrying
+ * the same `generatedAt` and `selection` the `pricing` route answers with.
+ * Declaring the schema here lets a runtime host `events.on("pricingChanged",
+ * ...)` later and invalidate the costs it already displayed. This module only
+ * declares the event: it listens to nothing and binds nothing.
+ */
+const pricingChangedSchema = z.object({
+  generatedAt: z.number(),
+  selection: z.enum(["auto", "bundled", "runtime"]),
+})
+
+/**
+ * Portable mirror of the quota plugin's `pricing` RPC route. It uses the
+ * same `id` ("opencode-quota-zh") and method name as the quota plugin's
+ * `quotaRpc`, so `client.rpc(pricingSourceRpc).pricing({})` addresses the
+ * quota plugin's handler without importing its (possibly unbuilt) dist.
+ * The quota plugin stays the only writer of pricing data; this definition
+ * exists purely as a typed read-only client caller.
+ */
+export const pricingSourceRpc = Rpc.define({
+  id: "opencode-quota-zh",
+  methods: {
+    pricing: {
+      input: z.object({}),
+      output: z.object({
+        snapshot: z.object({
+          _meta: z.object({
+            source: z.string(),
+            generatedAt: z.number(),
+            providers: z.array(z.string()),
+            units: z.string(),
+          }),
+          providers: z.record(z.string(), z.record(z.string(), pricingCostBucketsSchema)),
+        }),
+        source: z.enum(["runtime", "bundled", "empty"]),
+        selection: z.enum(["auto", "bundled", "runtime"]),
+      }),
+    },
+  },
+  events: {
+    pricingChanged: { schema: pricingChangedSchema },
+  },
+})
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const SOURCE_URL = "https://models.dev/api.json"
 const COST_KEYS = ["input", "output", "cache_read", "cache_write", "reasoning"] as const
-// Share quota-zh's runtime snapshot so every cost surface uses the same
-// provider/model catalog and refresh timestamp.
+// Namespace/filenames kept only so the path helpers below stay compatible
+// for diagnostics; this module never reads or writes those files itself.
 const RUNTIME_NAMESPACE = "opencode-quota-zh"
 const RUNTIME_SNAPSHOT_FILENAME = "modelsdev-pricing.runtime.min.json"
 const RUNTIME_REFRESH_STATE_FILENAME = "modelsdev-pricing.refresh-state.json"
-const DEFAULT_REFRESH_MIN_ATTEMPT_INTERVAL_MS = 6 * 60 * 60 * 1000
-const DEFAULT_REFRESH_TIMEOUT_MS = 6_000
 const MS_PER_DAY = 24 * 60 * 60 * 1000
 export const DEFAULT_PRICING_SNAPSHOT_MAX_AGE_MS = 3 * MS_PER_DAY
 
-const EMPTY_SNAPSHOT: PricingSnapshot = {
+/**
+ * Loading placeholder: no prices synced yet. Lookups against it resolve to
+ * unknown (partial), never to zero/free; `_meta.source` advertises loading.
+ */
+const LOADING_SNAPSHOT: PricingSnapshot = {
   _meta: {
-    source: "none",
+    source: "loading",
     generatedAt: 0,
     providers: [],
     units: "USD per 1M tokens",
@@ -175,7 +256,7 @@ export function normalizeSnapshot(raw: unknown): PricingSnapshot | null {
 
   return {
     _meta: {
-      source: typeof metaRaw.source === "string" && metaRaw.source ? metaRaw.source : SOURCE_URL,
+      source: typeof metaRaw.source === "string" && metaRaw.source ? metaRaw.source : "models.dev",
       generatedAt: Math.trunc(generatedAt),
       providers: Object.keys(providers).sort((a, b) => a.localeCompare(b)),
       units:
@@ -192,23 +273,24 @@ export function bundledSnapshotUrl(): URL {
   return new URL("../data/modelsdev-pricing.min.json", import.meta.url)
 }
 
+/**
+ * Compatibility shim: the bundled snapshot is no longer read from local disk —
+ * pricing authority comes from the bound RPC source only. An explicit
+ * `override` (test injection) is still normalized; without one the loading
+ * placeholder is returned so callers see unknown prices, never fabricated
+ * or free ones.
+ */
 export function loadBundledSnapshotSync(
   override?: unknown,
-  readFileSyncFn: (url: URL) => string = (url) => readFileSync(url, "utf-8"),
+  // Accepted for signature compatibility; local disk is never read.
+  _readFileSyncFn?: (url: URL) => string,
 ): PricingSnapshot {
-  if (override) {
-    return normalizeSnapshot(override) ?? EMPTY_SNAPSHOT
-  }
-  try {
-    const raw = readFileSyncFn(bundledSnapshotUrl())
-    return normalizeSnapshot(JSON.parse(raw)) ?? EMPTY_SNAPSHOT
-  } catch {
-    return EMPTY_SNAPSHOT
-  }
+  if (override !== undefined) return normalizeSnapshot(override) ?? LOADING_SNAPSHOT
+  return LOADING_SNAPSHOT
 }
 
 // ---------------------------------------------------------------------------
-// Runtime dirs (env based; independent of the quota plugin)
+// Runtime dirs (path helpers only; no file access)
 // ---------------------------------------------------------------------------
 
 export function getOpencodeRuntimeDirs(
@@ -227,13 +309,12 @@ export function getRuntimePricingRefreshStatePath(runtimeDirs: RuntimeDirs): str
   return join(runtimeDirs.cacheDir, RUNTIME_NAMESPACE, RUNTIME_REFRESH_STATE_FILENAME)
 }
 
-export function loadRuntimeSnapshotSync(runtimeDirs: RuntimeDirs): PricingSnapshot | null {
-  try {
-    const raw = readFileSync(getRuntimePricingSnapshotPath(runtimeDirs), "utf-8")
-    return normalizeSnapshot(JSON.parse(raw))
-  } catch {
-    return null
-  }
+/**
+ * Compatibility shim: the shared runtime snapshot is consumed through the
+ * quota plugin's pricing RPC, never read from disk here. Always null.
+ */
+export function loadRuntimeSnapshotSync(_runtimeDirs: RuntimeDirs): PricingSnapshot | null {
+  return null
 }
 
 export function hasSnapshotData(snapshot: PricingSnapshot): boolean {
@@ -241,51 +322,100 @@ export function hasSnapshotData(snapshot: PricingSnapshot): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Store
+// Store (RPC-backed, generation-safe binding)
 // ---------------------------------------------------------------------------
 
 interface PricingStoreInternal {
   snapshot: PricingSnapshot | null
   source: "bundled" | "runtime" | "empty"
+  /** True when the retained snapshot predates a failed sync. */
+  stale: boolean
+  /** Bumped whenever the applied snapshot/source changes. */
+  revision: number
+  reader: PricingSourceReader | null
+  /** Identity of the active binding; dispose only unbinds its own token. */
+  readerToken: object | null
   refreshInFlight: Promise<RefreshOutcome> | null
-  refreshChecked: boolean
 }
 
 let STORE: PricingStoreInternal | null = null
 
 function getStore(): PricingStoreInternal {
-  if (!STORE) STORE = { snapshot: null, source: "bundled", refreshInFlight: null, refreshChecked: false }
+  if (!STORE) {
+    STORE = {
+      snapshot: null,
+      source: "empty",
+      stale: false,
+      revision: 0,
+      reader: null,
+      readerToken: null,
+      refreshInFlight: null,
+    }
+  }
   return STORE
 }
 
+/**
+ * Bind the RPC reader that provides pricing authority for this host.
+ *
+ * The reader must be read-only (the quota plugin's pricing RPC): downloads
+ * stay `QuotaRpc.downloadPrices`' exclusive job. The returned disposer is
+ * generation-safe — it only unbinds while its own binding is still active,
+ * so a torn-down runtime never steals a newer host's binding (hot-reload
+ * generations, several runtimes sharing this module).
+ */
+export function bindPricingSource(reader: PricingSourceReader): () => void {
+  const store = getStore()
+  const token = {}
+  store.reader = reader
+  store.readerToken = token
+  let disposed = false
+  return () => {
+    if (disposed) return
+    disposed = true
+    if (store.readerToken === token) {
+      store.reader = null
+      store.readerToken = null
+    }
+  }
+}
+
+/** Revision of the currently applied pricing snapshot (0 before first sync). */
+export function getPricingRevision(): number {
+  return getStore().revision
+}
+
+/**
+ * Compatibility shim for the old disk-selection entry point: pricing now
+ * comes exclusively from the bound RPC source. An explicit
+ * `bundledSnapshotOverride` (test injection) is still honored as a bundled
+ * fallback while no RPC snapshot has been synced; local disk is never read.
+ */
 export function applySnapshotSelection(opts: {
   runtimeDirs?: RuntimeDirs
   bundledSnapshotOverride?: unknown
-}): PricingSnapshot {
-  const bundled = loadBundledSnapshotSync(opts.bundledSnapshotOverride)
-  const runtime = opts.runtimeDirs ? loadRuntimeSnapshotSync(opts.runtimeDirs) : null
-  let snapshot: PricingSnapshot
-  let source: "bundled" | "runtime" | "empty"
-  if (runtime && runtime._meta.generatedAt >= bundled._meta.generatedAt) {
-    snapshot = runtime
-    source = "runtime"
-  } else if (hasSnapshotData(bundled)) {
-    snapshot = bundled
-    source = "bundled"
-  } else {
-    snapshot = EMPTY_SNAPSHOT
-    source = "empty"
-  }
-  const store = getStore()
-  store.snapshot = snapshot
-  store.source = source
-  return snapshot
+} = {}): PricingSnapshot {
+  return ensureLoaded(opts)
 }
 
-export function ensureLoaded(opts?: { bundledSnapshotOverride?: unknown; runtimeDirs?: RuntimeDirs }): PricingSnapshot {
+export function ensureLoaded(opts?: {
+  bundledSnapshotOverride?: unknown
+  runtimeDirs?: RuntimeDirs
+}): PricingSnapshot {
   const store = getStore()
   if (store.snapshot) return store.snapshot
-  return applySnapshotSelection(opts ?? {})
+  if (opts?.bundledSnapshotOverride !== undefined) {
+    const injected = normalizeSnapshot(opts.bundledSnapshotOverride)
+    if (injected) {
+      store.snapshot = injected
+      store.source = "bundled"
+      store.stale = false
+      store.revision += 1
+      return injected
+    }
+  }
+  // No prices yet: loading/unknown — never zero/free.
+  return LOADING_SNAPSHOT
 }
 
 export function getPricingSnapshotMeta(): PricingSnapshot["_meta"] {
@@ -293,7 +423,6 @@ export function getPricingSnapshotMeta(): PricingSnapshot["_meta"] {
 }
 
 export function getPricingSnapshotSource(): "bundled" | "runtime" | "empty" {
-  ensureLoaded()
   return getStore().source
 }
 
@@ -301,11 +430,15 @@ export function getPricingSnapshotHealth(opts?: {
   nowMs?: number
   maxAgeMs?: number
 }): { generatedAt: number; ageMs: number; maxAgeMs: number; stale: boolean } {
+  const store = getStore()
   const generatedAt = getPricingSnapshotMeta().generatedAt
   const nowMs = opts?.nowMs ?? Date.now()
   const maxAgeMs = opts?.maxAgeMs ?? DEFAULT_PRICING_SNAPSHOT_MAX_AGE_MS
   const ageMs = Math.max(0, nowMs - generatedAt)
-  return { generatedAt, ageMs, maxAgeMs, stale: ageMs > maxAgeMs }
+  // Stale = a retained snapshot that predates a failed sync, or aged out.
+  // The never-synced loading state is NOT stale: it is unknown, not old.
+  const stale = store.stale || (generatedAt > 0 && ageMs > maxAgeMs)
+  return { generatedAt, ageMs, maxAgeMs, stale }
 }
 
 // ---------------------------------------------------------------------------
@@ -619,307 +752,159 @@ export function resolvePricingKey(
 }
 
 // ---------------------------------------------------------------------------
-// Runtime refresh
+// RPC sync (read-only cache; the quota plugin owns downloads)
 // ---------------------------------------------------------------------------
 
-function normalizeRefreshState(raw: unknown): RefreshState | null {
-  const obj = asRecord(raw)
-  if (!obj) return null
-  const version = Number(obj.version)
-  const updatedAt = Number(obj.updatedAt)
-  if (version !== 1 || !Number.isFinite(updatedAt) || updatedAt <= 0) return null
-  const out: RefreshState = { version: 1, updatedAt: Math.trunc(updatedAt) }
-  const lastAttemptAt = Number(obj.lastAttemptAt)
-  const lastSuccessAt = Number(obj.lastSuccessAt)
-  const lastFailureAt = Number(obj.lastFailureAt)
-  if (Number.isFinite(lastAttemptAt) && lastAttemptAt > 0) out.lastAttemptAt = Math.trunc(lastAttemptAt)
-  if (Number.isFinite(lastSuccessAt) && lastSuccessAt > 0) out.lastSuccessAt = Math.trunc(lastSuccessAt)
-  if (Number.isFinite(lastFailureAt) && lastFailureAt > 0) out.lastFailureAt = Math.trunc(lastFailureAt)
-  if (typeof obj.lastResult === "string") {
-    const allowed = new Set([
-      "success",
-      "not_modified",
-      "skipped_fresh",
-      "skipped_throttled",
-      "failed",
-    ])
-    if (allowed.has(obj.lastResult)) out.lastResult = obj.lastResult
+function describeError(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (error && typeof error === "object") {
+    const message = (error as { message?: unknown }).message
+    if (typeof message === "string" && message) return message
   }
-  if (typeof obj.lastError === "string" && obj.lastError) out.lastError = obj.lastError
-  if (typeof obj.etag === "string" && obj.etag) out.etag = obj.etag
-  if (typeof obj.lastModified === "string" && obj.lastModified) out.lastModified = obj.lastModified
-  return out
+  return String(error)
 }
 
-async function readRefreshState(path: string): Promise<RefreshState | null> {
-  try {
-    const raw = await readFile(path, "utf-8")
-    return normalizeRefreshState(JSON.parse(raw))
-  } catch {
-    return null
+function snapshotsEqual(a: PricingSnapshot | null, b: PricingSnapshot | null): boolean {
+  if (a === b) return true
+  if (!a || !b) return false
+  if (a._meta.generatedAt !== b._meta.generatedAt) return false
+  if (a._meta.source !== b._meta.source) return false
+  if (a._meta.units !== b._meta.units) return false
+  const aProviders = a._meta.providers
+  const bProviders = b._meta.providers
+  if (aProviders.length !== bProviders.length) return false
+  for (let i = 0; i < aProviders.length; i++) {
+    if (aProviders[i] !== bProviders[i]) return false
   }
-}
-
-function pickCostBuckets(rawCost: unknown): CostBuckets | null {
-  const obj = asRecord(rawCost)
-  if (!obj) return null
-  const picked: CostBuckets = {}
-  for (const key of COST_KEYS) {
-    const value = obj[key]
-    if (typeof value === "number" && Number.isFinite(value)) {
-      ;(picked as Record<string, number>)[key] = value
+  const aKeys = Object.keys(a.providers)
+  const bKeys = Object.keys(b.providers)
+  if (aKeys.length !== bKeys.length) return false
+  for (const key of aKeys) {
+    const aModels = a.providers[key]
+    const bModels = b.providers[key]
+    if (!bModels) return false
+    const aModelKeys = Object.keys(aModels)
+    const bModelKeys = Object.keys(bModels)
+    if (aModelKeys.length !== bModelKeys.length) return false
+    for (const modelKey of aModelKeys) {
+      const aCost = aModels[modelKey]
+      const bCost = bModels[modelKey]
+      if (!bCost) return false
+      for (const costKey of COST_KEYS) {
+        if (aCost[costKey] !== bCost[costKey]) return false
+      }
     }
   }
-  return Object.keys(picked).length > 0 ? picked : null
+  return true
 }
 
-function buildSnapshotFromApi(
-  apiRaw: unknown,
-  providerIDs: string[] | undefined,
-  generatedAt: number,
-): PricingSnapshot {
-  const api = asRecord(apiRaw) ?? {}
-  const providers: Record<string, Record<string, CostBuckets>> = {}
-  for (const providerID of providerIDs ?? Object.keys(api)) {
-    const providerNode = asRecord(api[providerID])
-    const models = asRecord(providerNode?.models)
-    if (!models) continue
-    const pricedModels: Record<string, CostBuckets> = {}
-    for (const modelID of Object.keys(models)) {
-      const modelNode = asRecord(models[modelID])
-      const cost = pickCostBuckets(modelNode?.cost)
-      if (cost) pricedModels[modelID] = cost
-    }
-    if (Object.keys(pricedModels).length > 0) {
-      providers[providerID] = sortRecordByKeys(pricedModels)
-    }
+/**
+ * Apply a report from the bound RPC source:
+ * - usable snapshot → becomes the authoritative snapshot; the revision
+ *   bumps on any price/meta/source change so consumers recompute cached
+ *   amounts instead of reusing init-time prices;
+ * - report without usable prices while a snapshot is held → keep the old
+ *   authority and flag it stale;
+ * - nothing at all → stay in the loading/unknown state.
+ */
+function applyPricingReport(report: PricingSourceReport | null): {
+  changed: boolean
+  keptStale: boolean
+} {
+  const store = getStore()
+  const normalized = report ? normalizeSnapshot(report.snapshot) : null
+  if (normalized) {
+    const changed =
+      store.snapshot === null ||
+      store.source !== report.source ||
+      !snapshotsEqual(store.snapshot, normalized)
+    store.snapshot = normalized
+    store.source = report.source
+    store.stale = false
+    if (changed) store.revision += 1
+    return { changed, keptStale: false }
   }
-  return {
-    _meta: {
-      generatedAt,
-      providers: Object.keys(providers).sort((a, b) => a.localeCompare(b)),
-      source: SOURCE_URL,
-      units: "USD per 1M tokens",
-    },
-    providers: sortRecordByKeys(providers),
+  if (store.snapshot) {
+    store.stale = true
+    return { changed: false, keptStale: true }
   }
+  store.snapshot = null
+  store.source = "empty"
+  store.stale = false
+  return { changed: false, keptStale: false }
 }
 
-function countPricedModels(snapshot: PricingSnapshot): number {
-  let total = 0
-  for (const models of Object.values(snapshot.providers)) {
-    total += Object.keys(models).length
-  }
-  return total
-}
-
-export async function fetchWithTimeout(
-  url: string,
-  options: {
-    timeoutMs: number
-    request?: RequestInit
-    fetchFn?: typeof fetch
-    consume: (response: Response) => Promise<unknown>
-  },
-): Promise<unknown> {
-  const timeoutMs = options.timeoutMs
-  const controller = new AbortController()
-  let timedOut = false
-  const timeoutErrorMessage = `Request timeout after ${Math.round(timeoutMs / 1000)}s`
-  let timeoutId: ReturnType<typeof setTimeout> | undefined
-  const timeout = new Promise<never>((_resolve, reject) => {
-    timeoutId = setTimeout(() => {
-      timedOut = true
-      controller.abort()
-      reject(new Error(timeoutErrorMessage))
-    }, timeoutMs)
-  })
-  try {
-    const transaction = (async () => {
-      const fetchFn = options.fetchFn ?? globalThis.fetch
-      const response = await fetchFn(url, {
-        ...options.request,
-        signal: controller.signal,
-      })
-      return await options.consume(response)
-    })()
-    return await Promise.race([transaction, timeout])
-  } catch (err) {
-    if (timedOut) throw new Error(timeoutErrorMessage)
-    throw err
-  } finally {
-    clearTimeout(timeoutId)
-  }
-}
-
-async function writeTextAtomic(path: string, content: string): Promise<void> {
-  const dir = dirname(path)
-  const tmp = `${path}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`
-  await mkdir(dir, { recursive: true })
-  try {
-    await writeFile(tmp, content, "utf-8")
-  } catch (writeError) {
-    try { await rm(tmp, { force: true }) } catch { /* best effort */ }
-    throw writeError
-  }
-  try {
-    await rename(tmp, path)
-  } catch (renameError) {
-    const code =
-      renameError && typeof renameError === "object" && "code" in renameError
-        ? String((renameError as NodeJS.ErrnoException).code)
-        : ""
-    const shouldRetryAsReplace = code === "EPERM" || code === "EEXIST" || code === "EACCES" || code === "ENOTEMPTY"
-    if (!shouldRetryAsReplace) {
-      try { await rm(tmp, { force: true }) } catch { /* best effort */ }
-      throw renameError
-    }
-    try { await rm(path, { force: true }) } catch { /* best effort */ }
-    try {
-      await rename(tmp, path)
-    } catch (replaceError) {
-      try { await rm(tmp, { force: true }) } catch { /* best effort */ }
-      throw replaceError
-    }
-  }
-}
-
+/**
+ * Sync pricing from the bound RPC source (read-only cache). Meant to run
+ * before every cost refresh: it never fetches, never writes files and never
+ * falls back to local disk. On failure the previous authoritative snapshot
+ * is retained and flagged stale; before the first successful sync the store
+ * stays in the loading/unknown state. `force` only re-reads the local RPC
+ * cache — downloading stays the quota plugin's exclusive job.
+ */
 export async function maybeRefreshPricingSnapshot(
   opts: PricingStoreOptions = {},
 ): Promise<RefreshOutcome> {
   const store = getStore()
   if (store.refreshInFlight) return store.refreshInFlight
-  store.refreshInFlight = (async () => {
+  const run = (async (): Promise<RefreshOutcome> => {
     const nowMs = opts.nowMs ?? Date.now()
-    const maxAgeMs = opts.maxAgeMs ?? DEFAULT_PRICING_SNAPSHOT_MAX_AGE_MS
-    const minAttemptIntervalMs = opts.minAttemptIntervalMs ?? DEFAULT_REFRESH_MIN_ATTEMPT_INTERVAL_MS
-    const timeoutMs = opts.timeoutMs ?? DEFAULT_REFRESH_TIMEOUT_MS
-    const runtimeDirs = opts.runtimeDirs ?? getOpencodeRuntimeDirs()
-    const snapshotPath = getRuntimePricingSnapshotPath(runtimeDirs)
-    const statePath = getRuntimePricingRefreshStatePath(runtimeDirs)
-    const force = opts.force === true
-    const previousState = (await readRefreshState(statePath)) ?? {
-      version: 1 as const,
-      updatedAt: nowMs,
-    }
-    const runtimeSnapshotBeforeRefresh = loadRuntimeSnapshotSync(runtimeDirs)
-    applySnapshotSelection({ runtimeDirs, bundledSnapshotOverride: opts.bundledSnapshotOverride })
-
-    if (!force && store.refreshChecked) {
-      return {
-        attempted: false,
-        updated: false,
-        reason: "already_checked_this_process",
-        state: previousState,
-      }
-    }
-    store.refreshChecked = true
-
-    const health = getPricingSnapshotHealth({ nowMs, maxAgeMs })
-    if (!force && !health.stale) {
-      return {
-        attempted: false,
-        updated: false,
-        reason: "fresh",
-        state: { ...previousState, updatedAt: nowMs, lastResult: "skipped_fresh" },
-      }
-    }
-    if (
-      !force &&
-      previousState.lastAttemptAt &&
-      nowMs - previousState.lastAttemptAt < minAttemptIntervalMs
-    ) {
-      return {
-        attempted: false,
-        updated: false,
-        reason: "throttled",
-        state: { ...previousState, updatedAt: nowMs, lastResult: "skipped_throttled" },
-      }
-    }
-
-    const attemptingState: RefreshState = {
-      ...previousState,
-      version: 1,
-      updatedAt: nowMs,
-      lastAttemptAt: nowMs,
+    const state: RefreshState = { version: 1, updatedAt: nowMs }
+    const reader = store.reader
+    if (!reader) {
+      // No RPC source bound in this host: never fabricate prices.
+      return { attempted: false, updated: false, reason: "no_source", state }
     }
     try {
-      const headers = new Headers()
-      if (attemptingState.etag) headers.set("If-None-Match", attemptingState.etag)
-      if (attemptingState.lastModified) headers.set("If-Modified-Since", attemptingState.lastModified)
-      const fetchResult = (await fetchWithTimeout(SOURCE_URL, {
-        timeoutMs,
-        request: { headers },
-        fetchFn: opts.fetchFn,
-        consume: async (response) => {
-          const responseMetadata = {
-            etag: response.headers.get("etag") ?? undefined,
-            lastModified: response.headers.get("last-modified") ?? undefined,
-          }
-          if (response.status === 304) return { kind: "not_modified", ...responseMetadata }
-          if (!response.ok) {
-            throw new Error(`Failed to fetch ${SOURCE_URL}: ${response.status} ${response.statusText}`)
-          }
-          return { kind: "success", api: await response.json(), ...responseMetadata }
-        },
-      })) as
-        | { kind: "not_modified"; etag?: string; lastModified?: string }
-        | { kind: "success"; api: unknown; etag?: string; lastModified?: string }
-
-      if (fetchResult.kind === "not_modified") {
-        const baseSnapshot = runtimeSnapshotBeforeRefresh ?? ensureLoaded()
-        const refreshedSnapshot: PricingSnapshot = {
-          _meta: { ...baseSnapshot._meta, generatedAt: nowMs },
-          providers: baseSnapshot.providers,
+      const report = await reader()
+      const applied = applyPricingReport(report)
+      if (applied.keptStale) {
+        return {
+          attempted: true,
+          updated: false,
+          reason: "stale_kept",
+          stale: true,
+          state: {
+            ...state,
+            lastAttemptAt: nowMs,
+            lastResult: "failed",
+            lastError: "pricing report carried no snapshot",
+          },
         }
-        await writeTextAtomic(snapshotPath, JSON.stringify(refreshedSnapshot) + "\n")
-        applySnapshotSelection({ runtimeDirs, bundledSnapshotOverride: opts.bundledSnapshotOverride })
-        const nextState: RefreshState = {
-          ...attemptingState,
-          updatedAt: nowMs,
-          lastSuccessAt: nowMs,
-          lastResult: "not_modified",
-          lastError: undefined,
-          etag: fetchResult.etag ?? attemptingState.etag,
-          lastModified: fetchResult.lastModified ?? attemptingState.lastModified,
-        }
-        try { await writeTextAtomic(statePath, JSON.stringify(nextState) + "\n") } catch { /* best effort */ }
-        return { attempted: true, updated: true, state: nextState }
       }
-
-      const snapshot = buildSnapshotFromApi(fetchResult.api, opts.providerAllowlist, nowMs)
-      if (countPricedModels(snapshot) === 0) {
-        throw new Error("Refusing to persist empty pricing snapshot from models.dev")
+      return {
+        attempted: true,
+        updated: applied.changed,
+        reason: applied.changed ? "synced" : "unchanged",
+        state: { ...state, lastAttemptAt: nowMs, lastSuccessAt: nowMs, lastResult: "success" },
       }
-      await writeTextAtomic(snapshotPath, JSON.stringify(snapshot) + "\n")
-      applySnapshotSelection({ runtimeDirs, bundledSnapshotOverride: opts.bundledSnapshotOverride })
-      const nextState: RefreshState = {
-        ...attemptingState,
-        updatedAt: nowMs,
-        lastSuccessAt: nowMs,
-        lastResult: "success",
-        lastError: undefined,
-        etag: fetchResult.etag ?? attemptingState.etag,
-        lastModified: fetchResult.lastModified ?? attemptingState.lastModified,
-      }
-      try { await writeTextAtomic(statePath, JSON.stringify(nextState) + "\n") } catch { /* best effort */ }
-      return { attempted: true, updated: true, state: nextState }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      const nextState: RefreshState = {
-        ...attemptingState,
-        updatedAt: nowMs,
-        lastFailureAt: nowMs,
-        lastResult: "failed",
-        lastError: errorMessage,
+      // Retain the last authoritative snapshot and flag it stale.
+      const retained = store.snapshot !== null
+      if (retained) store.stale = true
+      const errorMessage = describeError(error)
+      return {
+        attempted: true,
+        updated: false,
+        reason: "failed",
+        error: errorMessage,
+        ...(retained ? { stale: true } : {}),
+        state: {
+          ...state,
+          lastAttemptAt: nowMs,
+          lastFailureAt: nowMs,
+          lastResult: "failed",
+          lastError: errorMessage,
+        },
       }
-      try { await writeTextAtomic(statePath, JSON.stringify(nextState) + "\n") } catch { /* best effort */ }
-      return { attempted: true, updated: false, error: errorMessage, state: nextState }
     }
-  })().finally(() => {
-    store.refreshInFlight = null
-  })
-  return store.refreshInFlight
+  })()
+  store.refreshInFlight = run
+  const clearInFlight = () => {
+    if (store.refreshInFlight === run) store.refreshInFlight = null
+  }
+  run.then(clearInFlight, clearInFlight)
+  return run
 }
 
 // ---------------------------------------------------------------------------

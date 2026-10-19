@@ -58,12 +58,15 @@ TUI 插件，向侧栏宿主注册一张稳定身份为 `quota`、标题「额�
 1. **Seam 锚点键**：与宿主共用唯一 `register-card.ts` 协议和固定的 `Symbol.for` 锚点；独立安装的第三方卡片也可复制这个公开协议，不依赖模块缓存。
 2. **宿主渲染义务**：宿主应以 `append: "sidebar.content"` 放置卡片，并对每张卡片的
    `render` 结果包 `ErrorBoundary`，使单卡渲染异常不拖垮其他卡片与原生侧栏。
-3. **卡片内交互**：`QuotaPanel` 自带折叠点击、60 秒刷新、事件订阅（`session.step.ended`／
-   `session.execution.failed`）与组件级 `onCleanup` 释放；其内部的「额度设置面板」keymap
-   命令（部分错误显示方式）是既有面板自身交互，随卡片渲染创建、随卸载消失，不属于本
-   插件 setup 的命令注册。
-4. **数据接口**：卡片只调用 `opencode-quota-zh` 注册的 RPC；该接口不被卡片显隐门控，
-   停用本插件不影响 `/quota` 命令与后台查询。
+3. **命令与设置归属**：详细的额度命令与设置（`/quota`、`/quota_usage`、`/quota_status`、
+   `/quota_settings`）由 `opencode-quota-zh` 的 TUI 独立注册，不随本卡片的渲染、隐藏或卸载
+   而创建或消失；本地 `QuotaPanel` 不拥有这些命令，也没有 partialErrors／“部分错误显示”开关。
+   卡片上的“部分错误”仅是某 Provider 同时存在旧数据行与查询错误时的概述标注，不是静默补丁。
+   `QuotaPanel` 自身只保留折叠点击、60 秒刷新、事件订阅（`session.step.ended`／
+   `session.execution.failed`）与组件级 `onCleanup` 释放。
+4. **数据接口与后台命令**：卡片只调用 `opencode-quota-zh` 注册的 RPC。该接口与后台命令不被
+   卡片显隐门控：在宿主隐藏本卡片、甚至禁用本卡片插件，都不会关闭 `/quota` 等命令与服务端
+   额度查询；“停用额度后台”是一项独立操作，与卡片显隐、禁用不是同一件事。
 5. **多 TUI**：每个 TUI 进程各自 setup、各自注册一份；排序／显隐设置由宿主持久化同步，
    卡片实例与订阅彼此隔离，不共享 JSX 节点。
 
@@ -83,3 +86,6 @@ TUI 插件，向侧栏宿主注册一张稳定身份为 `quota`、标题「额�
 
 - 真实安装后的 TUI 端到端人工验收（宿主就绪后按安装版验收清单逐项执行，未勾选项不能视为通过）。
 - 其他 OpenCode 版本；跨插件注册是版本限定、需升级复验的自有接合处，非官方承诺接口。
+# 临时预览模式
+
+当前暂停本地额度卡片注册（`src/tui.tsx` 的 `LOCAL_QUOTA_CARD_ENABLED = false`），代码与卡片身份保留；改由 quota v6 TUI 注册上游 `SidebarPanel`。其他本地侧栏卡片与额度后端不变。恢复时需同时关闭 v6 TUI 的 `disposeSidebar` 注册，避免双重显示。

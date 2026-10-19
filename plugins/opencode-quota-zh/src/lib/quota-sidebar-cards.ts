@@ -1,40 +1,44 @@
-import {
-  formatAccountingBoolean,
-  formatAccountingQuantity,
-  getAccountingEntryLabel,
-} from "./accounting-format.js";
-import { sanitizeQuotaRenderData, sanitizeQuotaToastError } from "./display-sanitize.js";
-import {
-  isBooleanEntry,
-  isPercentEntry,
-  isQuantityEntry,
-  isValueEntry,
-  type QuotaToastError,
-  type QuotaToastEntry,
-} from "./entries.js";
-import type { QuotaRenderData } from "./quota-render-data.js";
+import type { Amount, QuotaRow, QuotaSnapshot, QuotaWindow } from "../v6/core/types.js";
+import { paceOf } from "../v6/core/pace.js";
+import { DEFAULT_WORDS } from "../v6/view/format.js";
+import { pickRow, visibleGroups, windowFor, type Group } from "../v6/view/select.js";
+import { rowName } from "../v6/view/text.js";
+import type { DisplaySettings } from "../v6/tui/display.js";
+import { sanitizeDisplayText } from "../v6/lib/display-sanitize.js";
 
 /**
  * Structured sidebar card model shared by the V2 server RPC and the TUI panel.
  *
- * The server runs the upstream quota core and maps its render data into these
- * cards; the TUI only renders them. Percent rows keep the raw remaining
- * percentage so the panel never has to parse display text back into numbers.
+ * The server runs the v6 quota core and maps one snapshot into these cards;
+ * the TUI only renders them. Percent rows keep the raw remaining percentage
+ * so the panel never has to parse display text back into numbers, and every
+ * card and row carries a stable id so renderers can key them safely.
+ *
+ * The local panel also converts the bridge host's snapshot itself. That path
+ * takes the host's display settings and lets the v6 selectors (`visibleGroups`,
+ * `rowName`) pick the rows, their names and their order, so the card follows
+ * the settings without keeping a second copy of them.
  */
 
 export type QuotaSidebarPercentRow = {
+  id: string;
   kind: "percent";
   label: string;
   /** Remaining quota as a percentage; may be outside [0, 100] when over quota. */
   percentRemaining: number;
   resetTimeIso?: string;
   right?: string;
+  /** The window the row covers, when the provider named one: the even-use mark's basis. */
+  window?: QuotaWindow;
+  /** ISO time the window started, when known: with `window` it spans the window. */
+  windowStartedAtIso?: string;
 };
 
 export type QuotaSidebarValueRow = {
+  id: string;
   kind: "value";
   label: string;
-  /** Provider-reported text value, e.g. a currency balance. */
+  /** Formatted value: an amount, a yes/no word, provider text, or the unknown marker. */
   value: string;
   resetTimeIso?: string;
   right?: string;
@@ -43,9 +47,17 @@ export type QuotaSidebarValueRow = {
 export type QuotaSidebarRow = QuotaSidebarPercentRow | QuotaSidebarValueRow;
 
 export type QuotaSidebarCard = {
+  /** Stable `${providerId}::${account}` identity; the account part is empty when the provider has none. */
+  id: string;
   label: string;
   rows: QuotaSidebarRow[];
   error?: string;
+  /** True while the provider's next check is in flight. */
+  refreshing: boolean;
+  /** When the card's rows were last fetched, as an ISO string. */
+  okAtIso?: string;
+  /** When the last check attempt ended, as an ISO string. */
+  checkedAtIso?: string;
 };
 
 /**
@@ -69,122 +81,304 @@ export interface QuotaSnapshotResponse {
 /** Rendered instead of 0% when a percentage is missing or not finite. */
 export const QUOTA_SIDEBAR_UNKNOWN_VALUE = "未知";
 
-export interface BuildQuotaSidebarCardsOptions {
-  /** Hide errors from a provider that returned at least one usable entry. */
-  suppressPartialErrors?: boolean;
-  /** Errors returned by providers that also returned usable entries. */
-  partialProviderErrors?: readonly QuotaToastError[];
-}
+/** Yes/no words for status rows; a flag is a switch, never a percentage. */
+const QUOTA_FLAG_WORDS = { on: "开启", off: "关闭" } as const;
 
-function errorKey(error: Pick<QuotaToastError, "label" | "message">): string {
-  return `${error.label}\u0000${error.message}`;
+/**
+ * Chinese phrases for the v6 error vocabulary. Only the code reaches the
+ * screen: `QuotaError.detail` is diagnostic (the provider's own message) and
+ * must never be rendered.
+ */
+const QUOTA_ERROR_PHRASES: Record<string, string> = {
+  not_configured: "未配置",
+  login_expired: "登录已过期",
+  no_plan: "无可用套餐",
+  rate_limited: "请求过于频繁",
+  timeout: "请求超时",
+  network: "网络异常",
+  provider_error: "服务端错误",
+  bad_response: "响应异常",
+  no_data: "暂无数据",
+  local_tool: "本地工具异常",
+  internal: "内部错误",
+};
+
+const QUOTA_ERROR_FALLBACK = "加载失败";
+
+function quotaErrorPhrase(code: string): string {
+  return QUOTA_ERROR_PHRASES[code] ?? QUOTA_ERROR_FALLBACK;
 }
 
 function localizeBalanceLabel(label: string): string {
   return label.replace(/\bBalance\b:?/gi, "额度");
 }
 
-function entryGroupKey(entry: QuotaToastEntry): string {
-  return entry.group || entry.accounting.sourceId || entry.name;
+function displayLabel(text: string): string {
+  return localizeBalanceLabel(sanitizeDisplayText(text));
 }
 
-function entryRowLabel(entry: QuotaToastEntry): string {
-  const label = entry.semantic
-    ? getAccountingEntryLabel(entry)
-    : entry.group
-      ? entry.label || entry.name
-      : entry.name;
-  return localizeBalanceLabel(label);
+function cardId(providerId: string, account: string): string {
+  return `${providerId}::${account}`;
 }
+
+function isoFromMs(ms: number | undefined): string | undefined {
+  if (typeof ms !== "number" || !Number.isFinite(ms)) return undefined;
+  return new Date(ms).toISOString();
+}
+
+type ProviderSnapshot = QuotaSnapshot["providers"][number];
 
 // Optional keys must be omitted rather than set to undefined: the V2 RPC
 // response is validated as a strict JSON value, and `{ key: undefined }` is
 // rejected by it.
-function entryRowOptionals(entry: QuotaToastEntry): { resetTimeIso?: string; right?: string } {
-  const optionals: { resetTimeIso?: string; right?: string } = {};
-  if (entry.resetTimeIso !== undefined) optionals.resetTimeIso = entry.resetTimeIso;
-  if (entry.right !== undefined) optionals.right = entry.right;
+function cardTimeOptionals(provider: ProviderSnapshot): { okAtIso?: string; checkedAtIso?: string } {
+  const optionals: { okAtIso?: string; checkedAtIso?: string } = {};
+  const okAtIso = isoFromMs(provider.okAtMs);
+  if (okAtIso !== undefined) optionals.okAtIso = okAtIso;
+  const checkedAtIso = isoFromMs(provider.checkedAtMs);
+  if (checkedAtIso !== undefined) optionals.checkedAtIso = checkedAtIso;
   return optionals;
 }
 
-function entryRow(entry: QuotaToastEntry): QuotaSidebarRow {
-  const label = entryRowLabel(entry);
-  const optionals = entryRowOptionals(entry);
+function rowResetTimeIso(row: QuotaRow): string | undefined {
+  if (typeof row.resetsAt !== "string" || row.resetsAt.length === 0) return undefined;
+  return sanitizeDisplayText(row.resetsAt);
+}
 
-  if (isPercentEntry(entry)) {
-    // Missing or non-finite percentages must never surface as a zero quota.
-    if (!Number.isFinite(entry.percentRemaining)) {
-      return { kind: "value", label, value: QUOTA_SIDEBAR_UNKNOWN_VALUE, ...optionals };
-    }
-    return { kind: "percent", label, percentRemaining: entry.percentRemaining, ...optionals };
+/** The window facts a percent row keeps for the even-use mark, when it has them. */
+function paceOptionals(row: QuotaRow): { window?: QuotaWindow; windowStartedAtIso?: string } {
+  const optionals: { window?: QuotaWindow; windowStartedAtIso?: string } = {};
+  if (row.window !== undefined) optionals.window = row.window;
+  if (typeof row.windowStartedAt === "string" && row.windowStartedAt.length > 0) {
+    optionals.windowStartedAtIso = sanitizeDisplayText(row.windowStartedAt);
   }
-  if (isValueEntry(entry)) {
-    return { kind: "value", label, value: entry.value, ...optionals };
-  }
-  if (isQuantityEntry(entry)) {
-    return {
-      kind: "value",
-      label,
-      value: formatAccountingQuantity(entry.quantity),
-      ...optionals,
-    };
-  }
-  if (isBooleanEntry(entry)) {
-    return {
-      kind: "value",
-      label,
-      value: formatAccountingBoolean(entry.value, entry.semantic),
-      ...optionals,
-    };
-  }
-  return { kind: "value", label, value: QUOTA_SIDEBAR_UNKNOWN_VALUE, ...optionals };
+  return optionals;
+}
+
+/** The row `paceOf` judges: a percent row carries its window facts with it. */
+function paceRow(row: QuotaSidebarPercentRow): QuotaRow {
+  return {
+    id: row.id,
+    providerId: "",
+    label: row.label,
+    type: "quota",
+    method: "remote_api",
+    authority: "provider_reported",
+    prominence: "primary",
+    percentRemaining: row.percentRemaining,
+    ...(row.resetTimeIso !== undefined ? { resetsAt: row.resetTimeIso } : {}),
+    ...(row.window !== undefined ? { window: row.window } : {}),
+    ...(row.windowStartedAtIso !== undefined ? { windowStartedAt: row.windowStartedAtIso } : {}),
+  };
 }
 
 /**
- * Group provider render data into per-provider sidebar cards.
- *
- * Entries are grouped by their provider group (or source id, or name); each
- * provider may own multiple independent quota windows. Currency-style rows
- * stay value rows and never become progress bars. Intentional-filter
- * diagnostics are skipped so the sidebar only shows real problems.
+ * The percent even use would leave a percent row now (the ┃ mark), or
+ * undefined when the row has no window to judge it by. A missing reset time
+ * or window length means no mark — never a made-up one.
  */
-export function buildQuotaSidebarCards(
-  data: QuotaRenderData | null | undefined,
-  options: BuildQuotaSidebarCardsOptions = {},
+export function evenUseLeft(row: QuotaSidebarPercentRow, nowMs: number): number | undefined {
+  return paceOf(paceRow(row), nowMs)?.evenLeft;
+}
+
+/** Format an exact amount; undefined when it is missing or not a finite decimal. */
+function formatAmount(amount: Amount | undefined): string | undefined {
+  if (!amount) return undefined;
+  const decimal = amount.decimal;
+  if (typeof decimal !== "string" || decimal.trim().length === 0) return undefined;
+  if (!Number.isFinite(Number(decimal))) return undefined;
+  const unit = amount.unit;
+  if (unit.kind === "currency") return `${decimal} ${unit.code}`;
+  if (unit.kind === "count") return `${decimal} ${unit.unit}`;
+  if (unit.kind === "custom") return `${unit.symbol}${decimal}`;
+  return undefined;
+}
+
+function usageValue(row: QuotaRow): string {
+  const used = formatAmount(row.used);
+  const limit = formatAmount(row.limit);
+  if (used !== undefined) return limit !== undefined ? `${used} / ${limit}` : used;
+  const remaining = formatAmount(row.remaining);
+  if (remaining !== undefined) return limit !== undefined ? `${remaining} / ${limit}` : remaining;
+  const amount = formatAmount(row.amount);
+  if (amount !== undefined) return amount;
+  return QUOTA_SIDEBAR_UNKNOWN_VALUE;
+}
+
+function balanceValue(row: QuotaRow): string {
+  return formatAmount(row.remaining) ?? formatAmount(row.amount) ?? QUOTA_SIDEBAR_UNKNOWN_VALUE;
+}
+
+function statusValue(row: QuotaRow): string {
+  if (typeof row.text === "string" && row.text.length > 0) return sanitizeDisplayText(row.text);
+  if (typeof row.flag === "boolean") return row.flag ? QUOTA_FLAG_WORDS.on : QUOTA_FLAG_WORDS.off;
+  return QUOTA_SIDEBAR_UNKNOWN_VALUE;
+}
+
+function sidebarRow(row: QuotaRow, id: string, index: number, name?: string): QuotaSidebarRow {
+  // `name` is the row's name on a surface: the user's rename when they made
+  // one, else the name the words picked for it.
+  const label =
+    name !== undefined
+      ? displayLabel(name)
+      : displayLabel(typeof row.label === "string" ? row.label : "");
+  const rowId = typeof row.id === "string" && row.id.length > 0 ? row.id : `row-${index}`;
+  const rowKey = `${id}::${rowId}`;
+  const optionals: { resetTimeIso?: string } = {};
+  const resetTimeIso = rowResetTimeIso(row);
+  if (resetTimeIso !== undefined) optionals.resetTimeIso = resetTimeIso;
+
+  if (row.type === "quota" || row.type === "budget") {
+    // Missing or non-finite percentages must never surface as a zero quota.
+    if (typeof row.percentRemaining === "number" && Number.isFinite(row.percentRemaining)) {
+      return {
+        id: rowKey,
+        kind: "percent",
+        label,
+        percentRemaining: row.percentRemaining,
+        ...optionals,
+        ...paceOptionals(row),
+      };
+    }
+    return { id: rowKey, kind: "value", label, value: QUOTA_SIDEBAR_UNKNOWN_VALUE, ...optionals };
+  }
+  if (row.type === "usage") {
+    return { id: rowKey, kind: "value", label, value: usageValue(row), ...optionals };
+  }
+  if (row.type === "balance") {
+    return { id: rowKey, kind: "value", label, value: balanceValue(row), ...optionals };
+  }
+  if (row.type === "status") {
+    return { id: rowKey, kind: "value", label, value: statusValue(row), ...optionals };
+  }
+  return { id: rowKey, kind: "value", label, value: QUOTA_SIDEBAR_UNKNOWN_VALUE, ...optionals };
+}
+
+/**
+ * Group one provider snapshot into per-account sidebar cards.
+ *
+ * Rows are grouped by account in first-appearance order; a provider may own
+ * several accounts and each becomes its own card. A provider error lands on
+ * the first account group, following the upstream convention: when the
+ * provider also returned rows, that card keeps the last good data and shows
+ * the error beside it; with no rows at all the card carries just the error.
+ */
+function providerCards(provider: ProviderSnapshot): QuotaSidebarCard[] {
+  const providerLabel = displayLabel(typeof provider.label === "string" ? provider.label : "");
+  const accounts: string[] = [];
+  const rowsByAccount = new Map<string, QuotaRow[]>();
+  for (const row of provider.rows) {
+    const account = typeof row.account === "string" ? row.account : "";
+    const bucket = rowsByAccount.get(account);
+    if (bucket) bucket.push(row);
+    else {
+      rowsByAccount.set(account, [row]);
+      accounts.push(account);
+    }
+  }
+
+  const cards: QuotaSidebarCard[] = [];
+  for (const account of accounts) {
+    const id = cardId(provider.providerId, account);
+    const rows = (rowsByAccount.get(account) ?? []).map((row, index) => sidebarRow(row, id, index));
+    cards.push({
+      id,
+      label: account.length > 0 ? `${providerLabel} · ${sanitizeDisplayText(account)}` : providerLabel,
+      rows,
+      refreshing: provider.refreshing === true,
+      ...cardTimeOptionals(provider),
+    });
+  }
+
+  if (provider.error) {
+    const phrase = quotaErrorPhrase(provider.error.code);
+    const target =
+      cards[0] ??
+      ({
+        id: cardId(provider.providerId, ""),
+        label: providerLabel,
+        rows: [],
+        refreshing: provider.refreshing === true,
+        ...cardTimeOptionals(provider),
+      } satisfies QuotaSidebarCard);
+    target.error = target.error ? `${target.error}; ${phrase}` : phrase;
+    if (cards.length === 0) cards.push(target);
+  }
+
+  return cards;
+}
+
+/**
+ * Build the sidebar cards for a v6 quota snapshot.
+ *
+ * One card per provider and account, in provider registration order. Only
+ * quota and budget rows become percentages; usage, balance and status rows
+ * stay value rows, and anything unknown renders as the unknown marker rather
+ * than a fabricated number.
+ *
+ * With the bridge host's `display`, the v6 selectors pick the cards instead:
+ * `visibleGroups` applies the hidden rows, the row and provider order and the
+ * words of the same snapshot, and `rowName` names each row, so the card
+ * follows the settings without a second copy of them. `surface` says which
+ * settings apply: the expanded panel reads "sidebar", the collapsed one
+ * "collapsed", each with its own hidden rows and orders. Without a display
+ * the snapshot's own order and rows stand, which is the no-bridge fallback.
+ *
+ * The collapsed surface keeps the local multi-row overview instead of the
+ * native single row, so its window preference links through `pickRow` and
+ * `windowFor`: the row the collapsed surface would show leads its group, and
+ * the group's other rows follow. A window chosen on the Collapsed tab
+ * therefore changes what the collapsed card leads with, without dropping the
+ * rows the user asked to keep.
+ */
+export function buildV6QuotaSidebarCards(
+  snapshot: QuotaSnapshot,
+  display?: DisplaySettings,
+  surface: "sidebar" | "collapsed" = "sidebar",
 ): QuotaSidebarCard[] {
-  if (!data) return [];
-  const sanitized = sanitizeQuotaRenderData(data);
-  const cards = new Map<string, QuotaSidebarCard>();
-  const partialErrorCounts = new Map<string, number>();
-  if (options.suppressPartialErrors) {
-    for (const error of options.partialProviderErrors ?? []) {
-      const matchKey = errorKey(sanitizeQuotaToastError(error));
-      partialErrorCounts.set(matchKey, (partialErrorCounts.get(matchKey) ?? 0) + 1);
+  if (display === undefined) {
+    const cards: QuotaSidebarCard[] = [];
+    for (const provider of snapshot.providers) {
+      cards.push(...providerCards(provider));
     }
+    return cards;
   }
-
-  for (const entry of sanitized.entries) {
-    const key = entryGroupKey(entry);
-    const card = cards.get(key) ?? { label: localizeBalanceLabel(key), rows: [] };
-    card.rows.push(entryRow(entry));
-    cards.set(key, card);
-  }
-
-  for (const error of sanitized.errors) {
-    if (error.kind === "intentional-filter") continue;
-    const matchKey = errorKey(error);
-    const partialCount = partialErrorCounts.get(matchKey) ?? 0;
-    if (partialCount > 0) {
-      partialErrorCounts.set(matchKey, partialCount - 1);
-      continue;
+  const words = snapshot.words ?? DEFAULT_WORDS;
+  const cards: QuotaSidebarCard[] = [];
+  for (const group of visibleGroups(snapshot, display, surface, words)) {
+    // A group with neither rows nor an error has nothing to show: a provider
+    // never checked, or one whose every row the settings hide. The
+    // no-settings path drops the same groups.
+    if (group.rows.length === 0 && group.error === undefined) continue;
+    const provider = snapshot.providers.find((item) => item.providerId === group.providerId);
+    const id = cardId(group.providerId, group.account ?? "");
+    const rows = group.rows.map((item, index) =>
+      sidebarRow(item.row, id, index, rowName(item, group, words)),
+    );
+    if (surface === "collapsed") {
+      const picked = pickRow(group, windowFor(display.window, group.providerId));
+      const at = picked === undefined ? -1 : group.rows.indexOf(picked);
+      if (at > 0) rows.unshift(...rows.splice(at, 1));
     }
-    const cardKey = error.label || "额度";
-    const card = cards.get(cardKey) ?? { label: localizeBalanceLabel(cardKey), rows: [] };
-    card.error = card.error ? `${card.error}; ${error.message}` : error.message;
-    cards.set(cardKey, card);
+    const card: QuotaSidebarCard = {
+      id,
+      label: sidebarGroupLabel(group),
+      rows,
+      refreshing: provider?.refreshing === true,
+      ...(provider ? cardTimeOptionals(provider) : {}),
+    };
+    // The provider's last error lands on its first shown group, as upstream
+    // puts it; the phrase stays Chinese and never carries the diagnostic.
+    if (group.error !== undefined) card.error = quotaErrorPhrase(group.error.code);
+    cards.push(card);
   }
+  return cards;
+}
 
-  return [...cards.values()];
+/** A group's card label in the local form: "Provider · account", or "Provider". */
+function sidebarGroupLabel(group: Group): string {
+  const name = displayLabel(group.name);
+  return group.account ? `${name} · ${sanitizeDisplayText(group.account)}` : name;
 }
 
 /**
@@ -192,31 +386,16 @@ export function buildQuotaSidebarCards(
  *
  * The response status only distinguishes a running background ("ready", cards
  * may still be empty) from an explicitly disabled background ("disabled").
- * Hiding the sidebar card must not turn this into an empty or failing
- * interface: card visibility is applied where the card is rendered, never
- * here, so independent commands keep querying the same server-side data.
+ * A v6 snapshot only exists once the background ran, so this conversion
+ * always answers "ready"; the disabled short-circuit stays with the caller
+ * that knows the background is switched off. Hiding the sidebar card must not
+ * turn this into an empty or failing interface: card visibility is applied
+ * where the card is rendered, never here, so independent commands keep
+ * querying the same server-side data.
  */
-export function buildQuotaSnapshotResponse(params: {
-  /** Whether the quota background is enabled; false yields the disabled status. */
-  enabled: boolean;
-  data: QuotaRenderData | null | undefined;
-  suppressPartialErrors?: boolean;
-  partialProviderErrors?: readonly QuotaToastError[];
-}): QuotaSnapshotResponse {
-  if (!params.enabled) {
-    return { status: "disabled", cards: [] };
-  }
-
-  const options: BuildQuotaSidebarCardsOptions = {};
-  if (params.suppressPartialErrors !== undefined) {
-    options.suppressPartialErrors = params.suppressPartialErrors;
-  }
-  if (params.partialProviderErrors !== undefined) {
-    options.partialProviderErrors = params.partialProviderErrors;
-  }
-
+export function buildV6QuotaSnapshotResponse(snapshot: QuotaSnapshot): QuotaSnapshotResponse {
   return {
     status: "ready",
-    cards: buildQuotaSidebarCards(params.data, options),
+    cards: buildV6QuotaSidebarCards(snapshot),
   };
 }

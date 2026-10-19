@@ -39,7 +39,8 @@ function usage() {
 组件组：
 ${GROUPS.map((g) => `  ${g.id.padEnd(9)} ${g.title} — ${g.summary}`).join("\n")}
 
-说明：组之间无依赖；依赖插件随组整体安装。已有配置默认保留，安装器只会打印需增删的条目。`)
+说明：组之间无依赖；依赖插件随组整体安装。侧栏组需要 OpenCode >= 2.0.26；Node.js 需要 26.4+（随附 OpenTUI 声明 node >=26.4.0）。
+已有配置默认保留，安装器只会打印需增删的条目。`)
 }
 
 function parseArgs(argv) {
@@ -195,8 +196,61 @@ function pickGroups(preselected) {
 
 function checkNodeVersion() {
   const [major, minor] = process.versions.node.split(".").map(Number)
-  if (major < 22 || (major === 22 && minor < 6)) {
-    throw new UserError(`Node.js ${process.versions.node} 过旧；需要 22.6.0 或更高版本。`)
+  // 与根 package.json 的 engines 一致：>=26.4.0。
+  // 采用该下限是因为随附 @opentui/core@0.5.17 自身声明 node >=26.4.0，
+  // bundle 基线对齐它，避免更低 Node 触发 engine 告警或运行时缺 API。
+  const ok =
+    Number.isInteger(major) &&
+    Number.isInteger(minor) &&
+    (major > 26 || (major === 26 && minor >= 4))
+  if (!ok) {
+    throw new UserError(`Node.js ${process.versions.node} 过旧；需要 26.4.0 或更高版本（随附 OpenTUI 声明 node >=26.4.0）。`)
+  }
+}
+
+// 版本号比较只认 `X.Y.Z[-prerelease][+build]`，且两种后缀分成各自的捕获组：
+// 只有 prerelease 参与“踩线即拒”的判断，build metadata 一律忽略
+// （SemVer 规定 build 不参与优先级比较）。
+function parseSemver(text) {
+  const match = /(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+([0-9A-Za-z.-]+))?/.exec(String(text || ""))
+  if (!match) return null
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+    prerelease: match[4] !== undefined,
+  }
+}
+
+function compareSemver(a, b) {
+  if (a.major !== b.major) return a.major - b.major
+  if (a.minor !== b.minor) return a.minor - b.minor
+  return a.patch - b.patch
+}
+
+// 组可在 install-groups.mjs 用 minOpenCode 声明固定最低版本（形如 ">=2.0.26"）。
+// 安装器只认这一种写法：没有协商、没有覆盖开关，也不把“读不到的版本”当成满足。
+function checkOpenCodeVersion(ids, versionText) {
+  const demands = ids.map((id) => groupById(id)).filter((group) => group.minOpenCode)
+  if (!demands.length) return
+  const summary = demands.map((group) => `${group.id} 组需要 OpenCode ${group.minOpenCode}`).join("；")
+  const version = parseSemver(versionText)
+  // 只有读不出三维版本号（命令无输出、dev 构建号、非 SemVer 形态）才响亮失败；
+  // 能解析出的预发布版照常按 SemVer 主次 patch 比较，不另立“预发布一律禁止”的政策。
+  if (!version) {
+    throw new UserError(
+      `无法可靠确认 OpenCode 版本（opencode --version 输出：${versionText ? `"${versionText}"` : "空"}）。${summary}。请先确认实际版本后再安装。`,
+    )
+  }
+  for (const group of demands) {
+    const minimum = parseSemver(group.minOpenCode)
+    if (!minimum) continue
+    const order = compareSemver(version, minimum)
+    // SemVer：同号预发布低于正式版，所以 2.0.26-beta < 2.0.26，踩线要拒；
+    // 数值上更高的预发布（2.0.28-dev > 2.0.26）满足下限，但这仍只是版本下限，不是运行兼容验收。
+    if (order < 0 || (order === 0 && version.prerelease)) {
+      throw new UserError(`OpenCode ${versionText} 过旧；${summary}。`)
+    }
   }
 }
 
@@ -257,7 +311,7 @@ function stageAndCopy(ids) {
   const staged = join(ROOT, "runtime-stage")
   mkdirSync(BUNDLE_DIR, { recursive: true })
   for (const name of ["scripts", "config", "docs"]) copyTree(join(staged, name), join(BUNDLE_DIR, name))
-  for (const name of ["package.json", "package-lock.json", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "install.sh", "install.ps1"]) {
+  for (const name of ["package.json", "package-lock.json", ".npmrc", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "install.sh", "install.ps1"]) {
     cpSync(join(staged, name), join(BUNDLE_DIR, name), { force: true })
   }
   // 并集保留：只覆盖本次选中组的插件目录，未选组的旧目录不动。
@@ -355,7 +409,9 @@ async function main() {
   const python = needsPython ? resolvePython() : null
   if (python) checkPythonVersion(python)
 
-  console.log(`OpenCode：${capture("opencode", ["--version"]) || "未知版本"}`)
+  const opencodeVersion = capture("opencode", ["--version"])
+  console.log(`OpenCode：${opencodeVersion || "未知版本"}`)
+  checkOpenCodeVersion(ids, opencodeVersion)
   console.log(`Node.js：${process.version}`)
   if (python) console.log(`Python：${capture(python.cmd, [...python.args, "--version"], false) || "未知版本"}`)
   console.log(`本次安装组：${ids.join("、")}`)

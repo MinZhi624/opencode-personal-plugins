@@ -1,3 +1,8 @@
+> [!WARNING]
+> **Upstream English README (reference copy) — not the authoritative doc for this fork.** This is the upstream [`slkiser/opencode-quota`](https://github.com/slkiser/opencode-quota) README. It may list commands and config that no longer apply to `opencode-quota-zh` (e.g. `/pricing_refresh`, `/quota_announcements`, `npx @slkiser/opencode-quota init/update`, `opencode-quota/quota-toast.jsonc`). The authoritative doc is [README.zh.md](README.zh.md); provenance is in [UPSTREAM-PROVENANCE.md](UPSTREAM-PROVENANCE.md). Current commands are `/quota`, `/quota_usage`, `/quota_status`, `/quota_settings`; config authority is `~/.config/opencode/opencode-quota/settings.jsonc`.
+>
+> **上游英文 README 留存副本，非本 Fork 权威说明；请以 [README.zh.md](README.zh.md) 为准。**
+
 <p align="center">
   <a href="https://github.com/slkiser/opencode-quota">
     <picture>

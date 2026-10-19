@@ -1,5 +1,8 @@
 [← Back to README](../../README.md)
 
+> [!WARNING]
+> **上游英文手册留存副本，非本中文 Fork 的权威说明。** 本文描述的 `opencode-quota` CLI（`init` / `update` / `show` / `status`）与自更新流程属于上游独立包，**不是**本整合包的分发方式；本包用 `install.sh` / `install.ps1` 安装，不引入上游第二套包管理或自更新。命令与配置可能已变化，请以 [README.zh.md](../../README.zh.md) 为准，勿据本文运行上游安装或更新命令。
+
 # External integration
 
 Use this page when a script, status bar, or CI job needs quota data.

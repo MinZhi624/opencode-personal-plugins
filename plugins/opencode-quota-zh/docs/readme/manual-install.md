@@ -1,5 +1,8 @@
 [← Back to README](../../README.md)
 
+> [!WARNING]
+> **上游英文手册留存副本，非本中文 Fork 的权威说明。** 本文的 `npx @slkiser/opencode-quota init` / `update` 与 `opencode-quota/quota-toast.jsonc` 配置路径属于上游独立包的自安装流程，**不是**本整合包的分发方式；本包用 `install.sh` / `install.ps1` 安装，运行时配置权威是 `~/.config/opencode/opencode-quota/settings.jsonc`。请以 [README.zh.md](../../README.zh.md) 为准，勿据本文运行上游安装或更新命令。
+
 # Manual install
 
 The guided installer is easier and safer:

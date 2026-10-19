@@ -1,0 +1,325 @@
+/**
+ * The /quota_status report of the slash command, the `quota_status` tool and
+ * `opencode-quota status`, and the quota lines of `opencode-quota show`. Each reads the server
+ * settings the host holds now.
+ */
+import { loadProviderSource, providerContext, } from "../core/provider-source.js";
+import { matchesQuotaProviderCurrentSelection } from "../core/selection.js";
+import { createQuotaStore } from "../core/store.js";
+import { usageReport } from "../core/usage.js";
+import { getProviders } from "../providers/registry.js";
+import { apiKeyStatusDetails, simpleApiKeyStatusDetails } from "../providers/result-helpers.js";
+import { PROVIDER_IDS } from "../settings/schema.js";
+import { DEFAULT_WORDS } from "../view/format.js";
+import { visibleGroups } from "../view/select.js";
+import { plainLines } from "../view/text.js";
+import { API_KEY_LOGIN_VENDORS, API_KEY_VENDORS, getApiKeyDiagnostics, getApiKeyLoginDiagnostics, } from "./api-key-resolver.js";
+import { inspectCursorAuthPresence } from "./cursor-detection.js";
+import { isCursorProviderId } from "./cursor-pricing.js";
+import { sanitizeDisplayText } from "./display-sanitize.js";
+import { getMaintainerAnnouncementsSummary } from "./maintainer-announcements.js";
+import { getPricingSnapshotSource, getRuntimePricingRefreshStatePath, getRuntimePricingSnapshotPath, maybeRefreshPricingSnapshot, setPricingSnapshotAutoRefresh, setPricingSnapshotSelection, } from "./modelsdev-pricing.js";
+import { getCredentialSourceDiagnostics } from "./opencode-auth.js";
+import { resolveOpenRouterApiKey } from "./openrouter.js";
+import { getQuotaProviderDisplayLabel, getQuotaProviderRuntimeIds } from "./provider-metadata.js";
+import { buildQuotaStatusReportDocument, knownProviderIds, publicPricingMeta, statusPathText, } from "./quota-status.js";
+import { renderPlainTextReport } from "./report-document.js";
+/** `opencode-quota show` lists every row of every provider. */
+const EVERY_ROW = { enabled: true, hidden: [], providerOrder: [], rowOrder: {} };
+const EVERY_ROW_SETTINGS = {
+    labels: {},
+    window: {},
+    surfaces: { sidebar: EVERY_ROW, collapsed: EVERY_ROW, statusLine: EVERY_ROW, toast: EVERY_ROW },
+};
+/**
+ * The quota lines `opencode-quota show` prints, in the snapshot's words: a line per row (with
+ * "runs out in …" when the quota runs out before its reset), a line per provider problem, then the session's
+ * tokens when the snapshot has them.
+ */
+export function quotaReportLines(snapshot, nowMs) {
+    const words = snapshot.words ?? DEFAULT_WORDS;
+    const groups = visibleGroups(snapshot, EVERY_ROW_SETTINGS, "toast", words);
+    const sessionTokens = snapshot.sessionTokens ? { sessionTokens: snapshot.sessionTokens } : {};
+    return plainLines({ groups, words, nowMs, runsOut: true, ...sessionTokens }).map(sanitizeDisplayText);
+}
+/**
+ * Uses the pricing settings from now on: the price list (`source`) and how many days old it
+ * may get before a refresh. Applied before any provider check, as local estimates use prices.
+ */
+export function applyPricingSettings(pricing) {
+    setPricingSnapshotAutoRefresh(pricing.autoRefreshDays);
+    setPricingSnapshotSelection(pricing.source);
+}
+/** Starts a models.dev price refresh when due and waits for it at most 0.75 s. */
+export async function kickPricingRefresh(params) {
+    try {
+        const refresh = maybeRefreshPricingSnapshot(params).catch(() => undefined);
+        await Promise.race([refresh, new Promise((resolve) => setTimeout(resolve, 750))]);
+    }
+    catch {
+        // A refresh that fails to start keeps the current price list.
+    }
+}
+/**
+ * A fresh check of every enabled and available provider (or only `providerId`), through a
+ * store of its own that keeps nothing: the same providers, rows, errors and debug details the
+ * plugin's store would hold.
+ */
+export async function checkProviders(host, providerId) {
+    const store = createQuotaStore({ source: () => loadProviderSource(host), file: null });
+    try {
+        const providerIds = providerId ? [providerId] : undefined;
+        const snapshot = await store.refresh({ reason: "manual", providerIds });
+        const providers = snapshot.providers.filter((provider) => !providerId || provider.providerId === providerId);
+        return { ...snapshot, providers };
+    }
+    finally {
+        await store.dispose();
+    }
+}
+async function isAvailable(provider, ctx) {
+    try {
+        return await provider.isAvailable(ctx);
+    }
+    catch {
+        return false;
+    }
+}
+/**
+ * Where an API-key provider (and Cursor) looked for its key, from local reads only, with the
+ * same details its own check writes: whether a key is set, its source, and the files checked.
+ * Nothing for a provider without an API key.
+ */
+async function apiKeySetupDetails(providerId) {
+    if (Object.hasOwn(API_KEY_VENDORS, providerId)) {
+        const vendor = API_KEY_VENDORS[providerId];
+        return simpleApiKeyStatusDetails(await getApiKeyDiagnostics(vendor));
+    }
+    if (Object.hasOwn(API_KEY_LOGIN_VENDORS, providerId)) {
+        const vendor = API_KEY_LOGIN_VENDORS[providerId];
+        return apiKeyStatusDetails(await getApiKeyLoginDiagnostics(vendor));
+    }
+    if (providerId === "openrouter") {
+        const resolved = await resolveOpenRouterApiKey();
+        return simpleApiKeyStatusDetails({
+            configured: Boolean(resolved.key),
+            source: resolved.source,
+            checkedPaths: resolved.checkedPaths,
+            credentialDatabasePaths: resolved.credentialDatabasePaths,
+        });
+    }
+    if (providerId === "cursor") {
+        const auth = await inspectCursorAuthPresence();
+        return [
+            { key: "auth_state", value: auth.state },
+            { key: "auth_selected_path", value: auth.selectedPath ?? "(none)" },
+            { key: "auth_present_paths", value: auth.presentPaths.join(" | ") || "(none)" },
+            { key: "auth_candidate_paths", value: auth.candidatePaths.join(" | ") || "(none)" },
+        ];
+    }
+    return [];
+}
+/**
+ * What an unavailable provider's setup looks like, from local checks only: whether OpenCode
+ * lists the provider and, for an API-key provider, where its key was looked for. No quota
+ * request is made.
+ */
+async function localSetupDetails(providerId, ctx) {
+    const details = [];
+    const runtimeIds = getQuotaProviderRuntimeIds(providerId);
+    if (runtimeIds.length > 0) {
+        let listed;
+        try {
+            const openCodeIds = await ctx.resolveRuntimeProviderIds();
+            const found = runtimeIds.filter((id) => openCodeIds.has(id));
+            listed =
+                found.length > 0 ? `有 found=${found.join(",")}` : `无 looked_for=${runtimeIds.join(",")}`;
+        }
+        catch {
+            listed = "unreadable";
+        }
+        details.push({ key: "opencode_provider", value: listed });
+    }
+    try {
+        details.push(...(await apiKeySetupDetails(providerId)));
+    }
+    catch {
+        details.push({ key: "api_key_configured", value: "unreadable" });
+    }
+    return details;
+}
+/**
+ * A fresh check of every known provider (or only `providerId`) for /quota_status. The plugin's
+ * source decides which providers are enabled and available; those are checked through a store
+ * of its own that keeps nothing, as the plugin's store would check them. An unavailable
+ * provider shows its local setup details instead, and one turned off in the settings is never
+ * fetched.
+ */
+async function checkKnownProviders(host, providerId) {
+    const source = await loadProviderSource(host);
+    const sourceIds = new Set(source.providers.map((provider) => provider.id));
+    const ctx = providerContext(host);
+    const { enabledProviders } = ctx.config;
+    const turnedOn = (id) => enabledProviders === "auto" || enabledProviders.includes(id);
+    const known = getProviders().filter((provider) => !providerId || provider.id === providerId);
+    const checks = await Promise.all(known.map(async (provider) => {
+        if (sourceIds.has(provider.id))
+            return { provider, enabled: true, available: true };
+        if (turnedOn(provider.id))
+            return { provider, enabled: true, available: false };
+        return { provider, enabled: false, available: await isAvailable(provider, ctx) };
+    }));
+    const setupSnapshots = checks
+        .filter((check) => !check.available && turnedOn(check.provider.id))
+        .map(async ({ provider }) => ({
+        providerId: provider.id,
+        label: getQuotaProviderDisplayLabel(provider.id),
+        rows: [],
+        refreshing: false,
+        debug: await localSetupDetails(provider.id, ctx),
+    }));
+    const store = createQuotaStore({ source: async () => source, file: null });
+    try {
+        const knownIds = new Set(known.map((provider) => provider.id));
+        const snapshot = await store.refresh({ reason: "manual", providerIds: [...knownIds] });
+        const checked = snapshot.providers.filter((provider) => knownIds.has(provider.providerId));
+        return { checks, snapshots: [...checked, ...(await Promise.all(setupSnapshots))] };
+    }
+    finally {
+        await store.dispose();
+    }
+}
+/** The last 30 days of usage, for the models without a price; null when it can't be read. */
+async function readRecentUsage(nowMs) {
+    try {
+        return await usageReport({ range: "30d" }, nowMs);
+    }
+    catch {
+        return null;
+    }
+}
+export async function buildStatusReportData(params) {
+    const { host } = params;
+    const loaded = host.settings();
+    const { settings } = loaded;
+    await kickPricingRefresh({
+        reason: "status",
+        snapshotSelection: settings.providers.pricing.source,
+    });
+    const currentModel = params.sessionModel?.id;
+    const currentProviderID = params.sessionModel?.providerID;
+    const sessionModelLookup = !params.sessionID
+        ? "no_session"
+        : currentModel
+            ? "ok"
+            : "not_found";
+    const { enabledProviders, automaticDiscovery, quotaProviders } = providerContext(host, loaded).config;
+    const [{ checks, snapshots }, usage] = await Promise.all([
+        checkKnownProviders(host, params.providerFilterId),
+        readRecentUsage(params.generatedAtMs),
+    ]);
+    const availability = checks.map(({ provider, enabled, available }) => ({
+        id: provider.id,
+        enabled,
+        available,
+        matchesCurrentModel: currentModel || isCursorProviderId(currentProviderID)
+            ? matchesQuotaProviderCurrentSelection({
+                provider,
+                currentModel,
+                currentProviderID,
+                enabledProviders,
+                automaticDiscovery,
+                quotaProviders,
+            })
+            : undefined,
+    }));
+    await params.onDetectedProviderIds?.(availability.filter((item) => item.enabled && item.available).map((item) => item.id));
+    const checkedIds = new Set(availability.filter((item) => item.enabled && item.available).map((item) => item.id));
+    const checked = snapshots.filter((provider) => checkedIds.has(provider.providerId));
+    const announcementProviderIds = availability
+        .filter((item) => item.enabled && item.available)
+        .map((item) => item.id);
+    const maintainerAnnouncementsSummary = getMaintainerAnnouncementsSummary({
+        enabledProviders: announcementProviderIds,
+    });
+    const document = await buildQuotaStatusReportDocument({
+        origin: params.origin,
+        opencode: params.opencode,
+        settings: loaded,
+        conversion: loaded.conversion ?? params.conversion,
+        workspaceRoot: host.workspaceRoot,
+        enabledProviders: settings.providers.off.length === 0
+            ? "auto"
+            : PROVIDER_IDS.filter((id) => !settings.providers.off.includes(id)),
+        offProviders: settings.providers.off,
+        quotaProviders: settings.providers.custom,
+        pricingSnapshotSource: settings.providers.pricing.source,
+        currentModel,
+        currentProviderID,
+        sessionModelLookup,
+        providerAvailability: availability,
+        providers: snapshots,
+        credentialSource: getCredentialSourceDiagnostics(),
+        maintainerAnnouncements: {
+            summary: maintainerAnnouncementsSummary,
+        },
+        usage,
+        generatedAtMs: params.generatedAtMs,
+    });
+    // The payload follows the report's closed vocabulary: known ids, fixed words, known paths.
+    const pricingMeta = publicPricingMeta();
+    const payload = {
+        version: "6",
+        generatedAt: new Date(params.generatedAtMs).toISOString(),
+        config: {
+            settingsPath: statusPathText(loaded.path),
+            settingsFileExists: loaded.exists,
+            enabledProviders: knownProviderIds(settings.providers.off.length === 0
+                ? "auto"
+                : PROVIDER_IDS.filter((id) => !settings.providers.off.includes(id))),
+            onlyCurrentModel: settings.words.onlyCurrentModel,
+            pricingSnapshotSource: settings.providers.pricing.source,
+        },
+        providers: availability,
+        pricing: {
+            selection: settings.providers.pricing.source,
+            activeSource: getPricingSnapshotSource(),
+            snapshot: {
+                source: pricingMeta.source,
+                // "(none)" and "(invalid date)" are no time.
+                generatedAt: /^\d/u.test(pricingMeta.generatedAt) ? pricingMeta.generatedAt : null,
+                units: pricingMeta.units,
+            },
+            snapshotPath: statusPathText(getRuntimePricingSnapshotPath()),
+            refreshStatePath: statusPathText(getRuntimePricingRefreshStatePath()),
+        },
+        liveProbes: checked.map((provider) => ({
+            id: provider.providerId,
+            ok: provider.error === undefined,
+        })),
+    };
+    return {
+        output: renderPlainTextReport(document),
+        payload,
+        hasComparableProviderData: checked.some((provider) => provider.rows.length > 0),
+    };
+}
+/** The /quota_status report as text. */
+export async function buildQuotaDialogCommandOutput(params) {
+    const generatedAtMs = params.generatedAtMs ?? Date.now();
+    applyPricingSettings(params.host.settings().settings.providers.pricing);
+    const sessionModel = params.sessionID && params.resolveSessionModel
+        ? await params.resolveSessionModel(params.sessionID)
+        : undefined;
+    const data = await buildStatusReportData({
+        host: params.host,
+        origin: params.origin,
+        opencode: params.opencode,
+        sessionID: params.sessionID,
+        sessionModel,
+        conversion: params.conversion,
+        generatedAtMs,
+        onDetectedProviderIds: params.onDetectedProviderIds,
+    });
+    return { output: data.output };
+}

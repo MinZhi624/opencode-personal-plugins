@@ -43,6 +43,15 @@ https://opencode.ai/v2/cli.json。
 
 菜单与手改文件共用这一位置；菜单只有安全写入并重新读取确认后才提示保存。本窗口立即应用，其他窗口未同步时重启 TUI。没有唯一可写宿主条目或存在环境变量覆盖时菜单拒写，给出手动片段，不回退写 storage。菜单修改后安装器默认保留配置；不要用重装或 `--replace-config` 重置用户排序。
 
+## 额度设置：opencode-quota/settings.jsonc
+
+`opencode-quota-zh` 的运行时设置权威为 `~/.config/opencode/opencode-quota/settings.jsonc`
+（遵循 XDG，可被 `XDG_CONFIG_HOME` 改变），不由 `opencode.json(c)` 或 `cli.json` 的插件条目承载。
+
+- 旧 `opencode-quota-zh/config.jsonc`、`config.json` 由迁移逻辑追加进入 v6 转换器：同 root 下中文优先、否则走上游 v5 路径；无目标才写入，不覆盖已有新文件，旧文件保留。
+- v6 原生不支持 project 级设置；旧 project 文件仅在 `/quota_status` 给出诊断提示，需手工合并，不会偷偷写入全局配置。
+- 自动额度 toast 默认关闭；其余默认值遵循上游 v6（重置通知默认关、等待额度重置重试默认开、状态行默认开）。
+
 ## v1 回退
 
 oc-v2 不维护双入口。需要回退时：
