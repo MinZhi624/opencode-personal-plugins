@@ -5,9 +5,9 @@
  * 命令面板菜单见 tui-v2-sidebar-card-menu.tsx，宿主渲染见 tui-v2.tsx。
  *
  * 设置契约：
- * - 宿主持久化带版本的卡片 ID 顺序及显隐状态，用 context.storage.store 保存；
- * - 首次无新设置时按既有顺序（额度、会话概览、子代理、技能）初始化，
- *   旧启用选项决定首次显隐；已有新设置后菜单保存值优先，不被启动选项覆写；
+ * - 顺序／显隐的权威来源是宿主写入 cli.json 插件选项的文件配置（options.sidebarCards），
+ *   统一窗口保存的就是它；旧 storage 存档仅作无文件配置时的遗留回退；
+ * - 首次两者皆无时按既有顺序（额度、会话概览、子代理、技能）初始化，旧启用选项决定首次显隐；
  * - 读取时忽略未知 ID、补齐缺失的已知 ID，防止旧设置或将来增减卡片导致空白侧栏；
  * - 顺序包含隐藏卡片：上移／下移以完整序列为准，重新显示后位置可预测。
  */
@@ -35,12 +35,17 @@ export const SIDEBAR_CARD_LABELS: Record<SidebarCardID, string> = {
   skill: "技能",
 }
 
-/** 旧启动选项：只决定“首次没有新设置时”的显隐，之后由菜单保存值覆盖。 */
+/** 旧启动选项：只决定“首次没有新设置时”的显隐，之后由保存值覆盖。 */
 export type SidebarCardOptions = {
   sessionOverview?: boolean
   subagents?: boolean
   /** 技能卡片的启用选项历史上叫 skillPanel。 */
   skillPanel?: boolean
+  /**
+   * 宿主写入 cli.json 的文件配置（统一窗口的安全写回目标）。
+   * 文件配置是顺序／显隐的权威来源；旧 storage 仅作无文件配置时的遗留回退。
+   */
+  sidebarCards?: { order?: unknown; hidden?: unknown }
 }
 
 const CARD_OPTION_KEYS: Record<Exclude<SidebarCardID, "quota">, keyof SidebarCardOptions> = {
@@ -87,11 +92,24 @@ export function normalizeSidebarCardSettings(settings: SidebarCardSettings): Sid
   return { version: 1, order, hidden: order.filter((id) => hidden.has(id)) }
 }
 
-/** 已保存设置优先；没有（或不可用）时按旧顺序与旧启用选项初始化。 */
+/** 文件配置（宿主 cli.json 插件选项）：order 非空即权威；损坏或空视为未配置。 */
+function fileConfigSidebarCardSettings(options?: SidebarCardOptions): SidebarCardSettings | undefined {
+  const config = options?.sidebarCards
+  if (!config || toIDArray(config.order).length === 0) return undefined
+  return normalizeSidebarCardSettings({ version: 1, order: toIDArray(config.order) as SidebarCardID[], hidden: toIDArray(config.hidden) as SidebarCardID[] })
+}
+
+/**
+ * 解析优先级：宿主文件配置（cli.json 插件选项）> 旧 storage 存档 > 旧启用选项默认。
+ * 统一窗口保存写的是文件配置，因此它是顺序／显隐的权威来源；
+ * 旧菜单写过的 storage 仅在没有文件配置时回退，避免旧存档覆盖窗口保存结果。
+ */
 export function resolveSidebarCardSettings(
   settings: SidebarCardSettings,
   options?: SidebarCardOptions,
 ): SidebarCardSettings {
+  const fileConfig = fileConfigSidebarCardSettings(options)
+  if (fileConfig !== undefined) return fileConfig
   if (!isSidebarCardInitialized(settings)) return defaultSidebarCardSettings(options)
   return normalizeSidebarCardSettings(settings)
 }

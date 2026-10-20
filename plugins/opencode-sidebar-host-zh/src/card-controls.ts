@@ -11,6 +11,14 @@ export interface CardControlField {
   min?: number
   max?: number
   integer?: boolean
+  /** 设置内说明（范围定义、口径边界等），随字段行显示。 */
+  description?: string
+}
+/** 命名预设：一整套字段值；窗口只把它写进草稿，保存仍走 owner 的 save。 */
+export interface CardControlPreset {
+  title: string
+  description?: string
+  values: CardControlValues
 }
 export interface CardControls {
   id: string
@@ -21,6 +29,7 @@ export interface CardControls {
   save(values: CardControlValues, baseline: CardControlValues): Promise<void>
   actions?: readonly { title: string; run(): void | Promise<void> }[]
   note?: string
+  presets?: readonly CardControlPreset[]
 }
 type Entry = { controls: CardControls; preview?: CardControlValues; previewOwner?: object; listeners: Set<() => void> }
 type Registry = { entries: Map<string, Entry>; listeners: Set<() => void> }

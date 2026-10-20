@@ -61,7 +61,7 @@ export function Rail(props: {
   )
 }
 
-/** 窄窗横排页面条：当前页用语义色＋加粗，藏起来的页用 ‹ ／ › 收进两端。 */
+/** 窄窗横排页面条：当前页用语义色＋加粗＋下划线（Quota 标签样式），藏起来的页用 ‹ ／ › 收进两端。 */
 export function PageStrip(props: {
   items: readonly StripItem<string>[]
   chosen: string
@@ -77,9 +77,8 @@ export function PageStrip(props: {
     const chosen = item.key === props.chosen
     return (
       <text
-        fg={chosen ? props.theme.text.action.primary.base : props.theme.text.muted}
-        bg={chosen ? props.theme.background?.raised.high : undefined}
-        attributes={chosen ? TextAttributes.BOLD : TextAttributes.NONE}
+        fg={chosen ? props.theme.text.base : props.theme.text.muted}
+        attributes={chosen ? TextAttributes.BOLD | TextAttributes.UNDERLINE : TextAttributes.NONE}
         wrapMode="none"
         flexShrink={0}
         selectable={false}
@@ -90,7 +89,7 @@ export function PageStrip(props: {
     )
   }
   return (
-    <box flexDirection="row" flexShrink={0} marginBottom={1}>
+    <box flexDirection="row" flexShrink={0}>
       <Show when={window().left && previous()}>
         <text fg={props.theme.text.muted} wrapMode="none" selectable={false} onMouseUp={() => props.pick(previous()!.key)}>
           {"‹ "}
@@ -101,7 +100,7 @@ export function PageStrip(props: {
           {label(item)}
           <Show when={position < window().items.length - 1}>
             <text fg={props.theme.text.muted} wrapMode="none" selectable={false}>
-              {" · "}
+              {"  "}
             </text>
           </Show>
         </>

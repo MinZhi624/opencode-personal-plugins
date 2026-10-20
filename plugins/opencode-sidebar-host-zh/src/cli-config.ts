@@ -218,6 +218,13 @@ export function createCliCardConfig(path = cliConfigPath()) {
         ["hidden", parsed.settings.hidden],
         ["bar", parsed.settings.bar],
         ["bars", parsed.settings.bars],
+        ["barWidth", parsed.settings.barWidth],
+        ["barWidths", parsed.settings.barWidths],
+        ["layout", parsed.settings.layout],
+        ["cardLayout", parsed.settings.cardLayout],
+        ["colors", parsed.settings.colors],
+        ["cardColors", parsed.settings.cardColors],
+        ["shortcuts", parsed.settings.shortcuts],
       ] as const) {
         text = applyEdits(text, modify(text, [...base, "options", "sidebarCards", field], value, { formattingOptions }))
       }

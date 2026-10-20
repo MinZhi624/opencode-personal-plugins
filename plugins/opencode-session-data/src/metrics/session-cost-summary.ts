@@ -3,8 +3,33 @@ import type { Context } from "@opencode/plugin/tui/context"
 import type { SessionMetricsService } from "./session-metrics.ts"
 import { formatCompactCostUsd, formatCostUsd } from "./token-cost.ts"
 import { formatSessionCost } from "./session-overview-view.ts"
-import { totalTokenBuckets } from "./token-buckets.ts"
+import { addTokenBuckets, emptyTokenBuckets, totalTokenBuckets } from "./token-buckets.ts"
+import type { TokenBuckets } from "./token-buckets.ts"
 import type { SessionUsageCost, SessionUsageReport } from "./quota-usage-rpc.ts"
+
+/** 统计范围：本会话／已跟踪子代理／任务树。三者是同一引擎的不同视角。 */
+export type SessionMetricScope = "session" | "subagents" | "tree"
+
+/**
+ * 一个范围的就绪状态。`empty` 表示这一范围确实没有已跟踪会话——那不是
+ * “还在加载”，也不能显示成 0。
+ */
+export type SessionScopeStatus = "loading" | "failed" | "incomplete" | "stale" | "ready" | "empty"
+
+/**
+ * 同一范围的 Token 与费用读数。
+ *
+ * 三个范围覆盖的是重叠的会话集合，所以它们**绝不相加**：UI 每个范围单独一行，
+ * 由用户自己决定看哪几个。任何一项没读到都是 `null`，配 `status` 说明原因，
+ * 绝不伪装成 0。
+ */
+export interface SessionScopeUsage {
+  /** 五桶 Token；未读／不完整／无用量时为 null。 */
+  tokens: () => TokenBuckets | null
+  /** 费用文本（自带（旧数据）标记）；不可用时为 null。 */
+  cost: () => string | null
+  status: () => SessionScopeStatus
+}
 
 export type SessionCostSummary = {
   /** 花费（本会话）: this session only, keeps 加载失败 / （不完整） visibility. */
@@ -23,6 +48,11 @@ export type SessionCostSummary = {
   descendantTokens: () => number | null
   descendantTokenStatus: () => "loading" | "failed" | "incomplete" | "stale" | "ready"
   descendantCost: () => string | null
+  /**
+   * 三个统计范围的读数：指标设置里 Token 与费用各自选择范围时共用这一份。
+   * 范围之间互不覆盖也互不相等，UI 按范围分行展示，不做任何相加。
+   */
+  scopes: Record<SessionMetricScope, SessionScopeUsage>
 }
 
 /** Shared shape of every readiness answer the panel renders. */
@@ -172,6 +202,20 @@ export function createSessionCostSummary(
     if (costs.some((cost) => !cost || !cost.complete)) return null
     return costs.reduce((sum, cost) => sum + totalTokenBuckets(cost.tokens), 0)
   }
+  /**
+   * Five-bucket tokens of one report's members, on the same terms as `sumCost`:
+   * every listed session must have been read by that very report and read
+   * completely, and a scope whose members carry no usage at all stays null —
+   * an empty scope reads as "no usage", never as a zero total.
+   */
+  const sumTokenBuckets = (report: SessionUsageReport, ids: readonly string[]): TokenBuckets | null => {
+    const costs = ids.map((id) => costIn(report, id))
+    if (!costs.length) return null
+    if (costs.some((cost) => !cost || !cost.complete)) return null
+    const used = costs.filter((cost): cost is SessionUsageCost => cost.hasUsage)
+    if (!used.length) return null
+    return used.reduce((sum, cost) => addTokenBuckets(sum, cost.tokens), emptyTokenBuckets())
+  }
   /** A report whose refresh failed: what is on screen are its last numbers. */
   const isStaleReport = (report: SessionUsageReport | undefined): boolean =>
     report !== undefined && runtime.metrics.isStale(report.sessionID)
@@ -297,5 +341,42 @@ export function createSessionCostSummary(
     if (!report) return resultStatus([rootID()])
     return statusOf(report, descendantIDs())
   })
-  return { session, subagent, tree, treeTokens, treeTokenStatus, rootID, descendantIDs, descendantCount, descendantTokens, descendantTokenStatus, descendantCost }
+  // ------------------------------------------------------- 三范围读数（scopes）
+  // 三个范围覆盖的是重叠的会话集合：UI 每范围一行、由用户选择看哪几个，
+  // 绝不相加。empty＝该范围确实没有已跟踪会话，不是加载中，也不显示成 0。
+  const sessionScope = createMemo<{ tokens: TokenBuckets | null; status: SessionScopeStatus }>(() => {
+    void tick()
+    const result = runtime.metrics.get(sessionID())
+    if (!result) return { tokens: null, status: "loading" }
+    if (result.error && result.error !== "truncated") return { tokens: null, status: "failed" }
+    if (!result.complete) return { tokens: null, status: "incomplete" }
+    if (!result.hasUsage) return { tokens: null, status: "empty" }
+    return { tokens: result.tokens, status: runtime.metrics.isStale(sessionID()) ? "stale" : "ready" }
+  })
+  const subagentScope = createMemo<{ tokens: TokenBuckets | null; status: SessionScopeStatus }>(() => {
+    void tick()
+    const report = sessionReport()
+    const own = sessionID()
+    if (!report) return { tokens: null, status: failedText([own]) ? "failed" : "loading" }
+    const ids = Object.keys(report.bySession).filter((id) => id !== own)
+    if (!ids.length) return { tokens: null, status: "empty" }
+    return { tokens: sumTokenBuckets(report, ids), status: statusOf(report, ids) }
+  })
+  const treeScope = createMemo<{ tokens: TokenBuckets | null; status: SessionScopeStatus }>(() => {
+    void tick()
+    const report = validRootReport()
+    if (!report) return { tokens: null, status: failedText([rootID()]) ? "failed" : "loading" }
+    const cost = report.tree
+    if (cost.error && cost.error !== "truncated") return { tokens: null, status: "failed" }
+    if (!cost.complete) return { tokens: null, status: "incomplete" }
+    if (!cost.hasUsage) return { tokens: null, status: "empty" }
+    return { tokens: cost.tokens, status: isStaleReport(report) ? "stale" : "ready" }
+  })
+  // 费用文本复用既有访问器（自带（旧数据）标记与失败可见性），与卡片既有行同源。
+  const scopes: Record<SessionMetricScope, SessionScopeUsage> = {
+    session: { tokens: () => sessionScope().tokens, cost: session, status: () => sessionScope().status },
+    subagents: { tokens: () => subagentScope().tokens, cost: subagent, status: () => subagentScope().status },
+    tree: { tokens: () => treeScope().tokens, cost: tree, status: () => treeScope().status },
+  }
+  return { session, subagent, tree, treeTokens, treeTokenStatus, rootID, descendantIDs, descendantCount, descendantTokens, descendantTokenStatus, descendantCost, scopes }
 }

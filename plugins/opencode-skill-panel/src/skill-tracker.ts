@@ -8,7 +8,8 @@
  *    `{ type: "tool", id, name: "skill", state: { input: { id: "research" }, ... } }`
  *    （v1 兼容：`{ type: "tool", tool: "skill", parts[] 外层 }`）
  *
- * 2) `@` 提及 / 自动注入 —— 用户消息的 `skills` 字段：
+ * 2) 当前 V2 独立消息：`{ type: "skill", skill: "research", name, text }`。
+ *    兼容旧版 `@` 提及 / 自动注入 —— 用户消息的 `skills` 字段：
  *    `{ id: "ask-matt", name: "ask-matt", text: "<skill_content …>" }`
  *    （无加载时该字段缺失或为空数组）
  *
@@ -84,6 +85,15 @@ export function collectSkillUsage(messages: readonly unknown[]): Map<string, Ski
 
   for (const raw of messages) {
     const id = messageID(raw)
+    const message = asRecord(raw)
+    // 当前 V2 的技能注入是独立联合消息，不在 user.skills 或 content 中。
+    if (message?.type === "skill") {
+      const skillID = typeof message.skill === "string" && message.skill.length > 0
+        ? message.skill
+        : typeof message.name === "string" && message.name.length > 0 ? message.name : null
+      if (skillID) bump(skillID, id)
+      continue
+    }
 
     // 形态 2：用户消息 skills 字段（@ 提及 / 自动注入）
     for (const entry of messageSkills(raw)) {

@@ -8,7 +8,7 @@
  */
 import type { Context } from "@opencode/plugin/tui/context"
 import type { RGBA } from "@opentui/core"
-import type { SidebarAppearance } from "../presentation.ts"
+import type { SidebarAppearance, SidebarShortcuts } from "../presentation.ts"
 import type { RegisteredCard } from "../seam.ts"
 import type { SidebarCardSettings } from "../host-settings.ts"
 
@@ -17,11 +17,14 @@ export type ThemeColor = string | RGBA
 
 /** 窗口读到的主题令牌（只用本仓库其他 TUI 已验证存在的角色）。 */
 export interface WindowTheme {
-  readonly background?: { readonly raised: { readonly high: ThemeColor } }
+  readonly background?: {
+    readonly raised: { readonly high: ThemeColor }
+    readonly action?: { readonly primary?: { readonly focused?: ThemeColor } }
+  }
   readonly text: {
     readonly base: ThemeColor
     readonly muted: ThemeColor
-    readonly action: { readonly primary: { readonly base: ThemeColor } }
+    readonly action: { readonly primary: { readonly base: ThemeColor; readonly focused?: ThemeColor } }
     readonly feedback: {
       readonly success: { readonly base: ThemeColor }
       readonly warning: { readonly base: ThemeColor }
@@ -61,8 +64,10 @@ export interface ControlWindowHost {
   refreshFromDisk(): Promise<void>
   /** 保存排列草稿。内部用 sameSidebarCards(current, baseline) 防止覆盖外部修改。 */
   saveCards(draft: SidebarCardSettings, baseline: SidebarCardSettings): Promise<SaveResult>
-  /** 保存外观草稿：只写 bar/bars，不动磁盘上的 order/hidden。 */
+  /** 保存外观草稿：只写 bar/bars 等展示字段，不动磁盘上的 order/hidden。 */
   saveAppearance(appearance: SidebarAppearance, baseline: SidebarCardSettings): Promise<SaveResult>
+  /** 保存快捷入口草稿：整份替换 shortcuts，其余字段原样保留。 */
+  saveShortcuts(shortcuts: SidebarShortcuts, baseline: SidebarCardSettings): Promise<SaveResult>
   /** 已保存的外观（原始基线里的 bar/bars）。 */
   savedAppearance(): SidebarAppearance
   /** 外观草稿发布：宿主 effect 消费；undefined = 回到已保存值。 */

@@ -503,7 +503,8 @@ function isRecent(recent: RecentReport, nowMs: number): boolean {
  * The usage report for `query` at `nowMs`. Identical questions (same database, price
  * snapshot identity and selection, local day and query) share one read of the history: a
  * request made while the same report is being built waits for it, and a finished report
- * answers again for 30 s, so its numbers can be up to 30 s old. A failed report is not
+ * answers again for 30 s, except session reports, which only share in-flight reads so
+ * step-completion refreshes can see newly persisted usage immediately. A failed report is not
  * kept, and a report whose price snapshot changed while the history was read fails with
  * "价格已更新，请刷新用量" instead of answering with two price lists mixed.
  */
@@ -538,9 +539,12 @@ export async function usageReport(
 
   const report = buildUsageReport(query, nowMs, pricing);
   recentReports.set(key, { startedMs: nowMs, report });
-  report.catch(() => {
+  const forget = () => {
     if (recentReports.get(key)?.report === report) recentReports.delete(key);
-  });
+  };
+  // Session readers refresh on execution events. Reusing a completed report here
+  // would turn those refreshes into stale reads (including a cached hasUsage=false).
+  report.then(range === "session" ? forget : undefined, forget);
   return report;
 }
 

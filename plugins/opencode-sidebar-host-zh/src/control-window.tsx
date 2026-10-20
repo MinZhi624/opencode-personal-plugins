@@ -1,11 +1,13 @@
 /**
- * /sidebar-cards 统一窗口：排列显隐、整体外观，以及各卡片经 card-controls 提供的自有设置。
+ * /sidebar-cards 统一窗口：卡片排列显隐、布局、颜色、快捷入口，以及各卡片经
+ * card-controls 提供的自有设置。
  *
  * 定位与边界：
  * - 形态是 `session.composer.top` 里的一个窗口（Quota 窗口同款槽位），键盘经 SDK 的
  *   keymap.layer + target 管理，只在本窗口持有键盘时响应，不抢占消息框的按键；
  * - 一切编辑都是内存草稿：排列／显隐经宿主 preview 立即反映到侧栏（不落盘），
- *   外观经宿主 effect 发布给侧栏卡片，卡片设置经 setCardControlPreview 预览；
+ *   外观（布局＋颜色共用一份 SidebarAppearance 草稿）经宿主 effect 发布给侧栏卡片，
+ *   卡片设置经 setCardControlPreview 预览；快捷入口不做实时预览，保存后生效；
  * - 一切保存都走宿主既有 cli.json 写通道：config.update 回调里用
  *   sameSidebarCards(current, baseline) 比对**原始基线**，文件被其他窗口或
  *   /sidebar-host-* 命令改过就拒绝写入，绝不覆盖外部修改；
@@ -18,21 +20,67 @@ import type { Context } from "@opencode/plugin/tui/context"
 import type { BoxRenderable, Renderable, ScrollBoxRenderable } from "@opentui/core"
 import type { JSX } from "@opentui/solid"
 import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js"
-import { changeSidebarCard, completeSidebarCards, resolveSidebarBar, sameSidebarCards, type SidebarCardSettings } from "./host-settings.ts"
+import {
+  changeSidebarCard,
+  completeSidebarCards,
+  resolveSidebarBar,
+  sameSidebarCards,
+  sameSidebarShortcuts,
+  shortcutsOf,
+  SIDEBAR_LAYOUT_LIMITS,
+  SIDEBAR_SHORTCUT_CATEGORY_KEYS,
+  type SidebarCardSettings,
+  type SidebarLayoutNumberField,
+} from "./host-settings.ts"
 import { sameCardControlValues, setCardControlPreview, useCardControls } from "./card-controls.ts"
-import type { CardControlField, CardControls, CardControlValue, CardControlValues } from "./card-controls.ts"
-import type { SidebarAppearance } from "./presentation.ts"
+import type { CardControlField, CardControls, CardControlPreset, CardControlValue, CardControlValues } from "./card-controls.ts"
+import {
+  isSidebarColor,
+  SIDEBAR_COLOR_ROLES,
+  type SidebarAppearance,
+  type SidebarColorRole,
+  type SidebarLayout,
+  type SidebarShortcutCategory,
+  type SidebarShortcuts,
+} from "./presentation.ts"
 import {
   appearanceOf,
   sameAppearance,
   INHERIT_TITLE,
   ownCardBar,
+  ownCardValue,
   SHAPE_CHOICES,
   shapeTitle,
   stepChoice,
   UNSET_TITLE,
   withCardBar,
+  withCardValue,
 } from "./ui/appearance.ts"
+import {
+  BAR_WIDTH_CHOICES,
+  BAR_WIDTH_VALUES,
+  COLOR_PRESETS,
+  COLOR_ROLE_TITLES,
+  colorTitle,
+  dividerTitle,
+  FOLLOW_THEME_TITLE,
+  layoutChoices,
+  layoutFieldTitle,
+  LAYOUT_NUMBER_FIELDS,
+  patchColorRole,
+  patchLayoutField,
+  QUOTA_STYLE_PRESET,
+  widthTitle,
+} from "./ui/appearance-fields.ts"
+import {
+  ONLY_MAIN_ENTRY_PRESET,
+  SHORTCUT_CATEGORY_DESCRIPTIONS,
+  SHORTCUT_CATEGORY_TITLES,
+  SHORTCUT_CHANNEL_KEYS,
+  SHORTCUT_CHANNEL_TITLES,
+  type ShortcutCategoryKey,
+  type ShortcutChannelKey,
+} from "./ui/shortcut-fields.ts"
 import { OptionRow, type OptionLine } from "./ui/option-row.tsx"
 import { PageStrip, Rail, railRoomOf } from "./ui/rail.tsx"
 import type { ControlWindowHost, SaveResult, WindowTheme } from "./ui/types.ts"
@@ -43,9 +91,8 @@ const KEYS = "侧栏卡片窗口"
 const TITLE = "侧栏卡片"
 /** 窗口默认高度（量到会话列之前先用它兜底，避免无限撑高）。 */
 const DEFAULT_ROOM = 16
-/** 高度上下限：短终端也不把消息框挤没。 */
+/** 高度下限：短终端也不把消息框挤没。上限不封顶——与 Quota 窗口一致，随屏幕伸展。 */
 const ROOM_MIN = 10
-const ROOM_MAX = 30
 /** 窄于这个宽度时左导航收成横排页面条。 */
 const NARROW_WIDTH = 52
 /** 渲染able id 前缀，供 scrollbox 滚动选中行。 */
@@ -60,7 +107,8 @@ export interface ControlWindow {
 }
 
 type Zone = "rail" | "body"
-type PageKind = "arrangement" | "appearance" | "control"
+/** 页面种类：卡片（排列显隐）、布局、颜色、快捷入口，以及各 provider 的卡片设置页。 */
+type PageKind = "arrangement" | "layout" | "colors" | "shortcuts" | "control"
 
 interface ControlPage {
   readonly id: string
@@ -94,9 +142,15 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
   const [zone, setZone] = createSignal<Zone>("rail")
   const [selected, setSelected] = createSignal("")
   const [baseline, setBaseline] = createSignal<SidebarCardSettings>({ order: [], hidden: [] })
+  /** 布局＋颜色两页共用一份外观草稿：各自页面只编辑自己的字段子集，脏标记按整份草稿算。 */
   const [appearance, setAppearance] = createSignal<SidebarAppearance>({})
   const [cardsDirty, setCardsDirty] = createSignal(false)
   const [appearanceDirty, setAppearanceDirty] = createSignal(false)
+  /** 快捷入口草稿：一份 SidebarShortcuts（undefined 类别＝缺省显示），无实时预览，保存后生效。 */
+  const [shortcuts, setShortcuts] = createSignal<SidebarShortcuts>({})
+  const [shortcutsDirty, setShortcutsDirty] = createSignal(false)
+  /** 颜色预设行的光标（整体与每卡覆盖行共用）。 */
+  const [colorPreset, setColorPreset] = createSignal(0)
   const [busy, setBusy] = createSignal(false)
   const [providerState, setProviderState] = createSignal<Map<string, ProviderPageState>>(new Map())
   /** 窗口盒与滚动框：由 Window 组件的 ref 赋值，关闭／滚动时用。 */
@@ -148,8 +202,10 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
 
   function pages(): ControlPage[] {
     const list: ControlPage[] = [
-      { id: "arrangement", kind: "arrangement", title: "排列" },
-      { id: "appearance", kind: "appearance", title: "外观" },
+      { id: "arrangement", kind: "arrangement", title: "卡片" },
+      { id: "layout", kind: "layout", title: "布局" },
+      { id: "colors", kind: "colors", title: "颜色" },
+      { id: "shortcuts", kind: "shortcuts", title: "快捷入口" },
     ]
     const current = host.fullSettings()
     for (const id of knownControls()) {
@@ -181,7 +237,10 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
 
   function pageDirty(id: string): boolean {
     if (id === "arrangement") return cardsDirty()
-    if (id === "appearance") return appearanceDirty()
+    // 布局与颜色共用一份草稿、一个脏标记：任一页的未保存修改在另一页同样可见，
+    // 避免「颜色页改了、布局页保存时被顺带写盘」却不提示。
+    if (id === "layout" || id === "colors") return appearanceDirty()
+    if (id === "shortcuts") return shortcutsDirty()
     const state = providerState().get(id.slice("control:".length))
     return state?.dirty ?? false
   }
@@ -243,16 +302,20 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
     return lines
   }
 
-  // ---------------------------------------------------------------- 外观页
+  // ---------------------------------------------------------------- 布局页
 
-  function cycleBar(delta: number): void {
-    if (blocked()) return
-    const draft = appearance()
-    const next: SidebarAppearance = { ...draft, bar: stepChoice(SHAPE_CHOICES, draft.bar, delta) }
+  /** 草稿提交：写草稿、按原始基线算脏、把有效草稿发布给侧栏预览。 */
+  function commitAppearance(next: SidebarAppearance): void {
     setAppearance(next)
     const dirty = !sameAppearance(next, appearanceOf(baseline()))
     setAppearanceDirty(dirty)
     host.setAppearanceDraft(dirty ? next : undefined)
+  }
+
+  function cycleBar(delta: number): void {
+    if (blocked()) return
+    const draft = appearance()
+    commitAppearance({ ...draft, bar: stepChoice(SHAPE_CHOICES, draft.bar, delta) })
   }
 
   function cycleBars(id: string, delta: number): void {
@@ -260,15 +323,43 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
     const draft = appearance()
     const shape = stepChoice(SHAPE_CHOICES, ownCardBar(draft.bars, id), delta)
     // 自有属性写入：`__proto__` 等键同样落成数据属性，不污染原型链。
-    const next: SidebarAppearance = { ...draft, bars: withCardBar(draft.bars, id, shape) }
-    setAppearance(next)
-    const dirty = !sameAppearance(next, appearanceOf(baseline()))
-    setAppearanceDirty(dirty)
-    host.setAppearanceDraft(dirty ? next : undefined)
+    commitAppearance({ ...draft, bars: withCardBar(draft.bars, id, shape) })
   }
 
-  /** 真正渲染进度条的卡片：只给它们形状覆盖控件。 */
-  const BAR_CARD_IDS: readonly string[] = ["quota", "sessionOverview"]
+  function cycleBarWidth(delta: number): void {
+    if (blocked()) return
+    const draft = appearance()
+    commitAppearance({ ...draft, barWidth: stepChoice(BAR_WIDTH_VALUES, draft.barWidth, delta) })
+  }
+
+  function cycleBarWidths(id: string, delta: number): void {
+    if (blocked()) return
+    const draft = appearance()
+    const width = stepChoice(BAR_WIDTH_CHOICES, ownCardValue(draft.barWidths, id), delta)
+    commitAppearance({ ...draft, barWidths: withCardValue(draft.barWidths, id, width) })
+  }
+
+  function cycleLayout(field: SidebarLayoutNumberField | "divider", delta: number): void {
+    if (blocked()) return
+    const draft = appearance()
+    const entry = draft.layout
+    const current = field === "divider" ? entry?.divider : entry?.[field]
+    commitAppearance({ ...draft, layout: patchLayoutField(entry, field, stepChoice(layoutChoices(field), current, delta)) })
+  }
+
+  function cycleCardLayout(id: string, field: SidebarLayoutNumberField | "divider", delta: number): void {
+    if (blocked()) return
+    const draft = appearance()
+    const entry = ownCardValue(draft.cardLayout, id)
+    const current = field === "divider" ? entry?.divider : entry?.[field]
+    commitAppearance({
+      ...draft,
+      cardLayout: withCardValue(draft.cardLayout, id, patchLayoutField(entry, field, stepChoice(layoutChoices(field), current, delta))),
+    })
+  }
+
+  /** 真正渲染进度条的卡片：只给它们形状／宽度／布局覆盖控件。 */
+  const BAR_CARD_IDS: readonly string[] = ["quota", "sessionOverview", "subagents", "skill"]
 
   /** 可覆盖的卡片：已注册且真的有进度条（隐藏的也可设置），按完整序列排列。 */
   function overrideIDs(): string[] {
@@ -277,42 +368,307 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
 
   /** 其他卡片已保存的覆盖偏好：保留在草稿里（schema 不丢），但不展示无效控件。 */
   function preservedOverrides(draft: SidebarAppearance): string[] {
-    return Object.keys(draft.bars ?? {}).filter((id) => !overrideIDs().includes(id))
+    const ids = new Set<string>()
+    for (const record of [draft.bars, draft.barWidths, draft.cardLayout, draft.cardColors]) {
+      for (const id of Object.keys(record ?? {})) ids.add(id)
+    }
+    return [...ids].filter((id) => !overrideIDs().includes(id))
   }
 
-  function appearanceLines(): OptionLine[] {
+  /** 单卡布局字段的当前生效值与来源：卡片覆盖 › 整体 › 未设置（渲染方决定）。 */
+  function layoutNote(entry: SidebarLayout | undefined, field: SidebarLayoutNumberField | "divider"): string {
+    const own = field === "divider" ? entry?.divider : entry?.[field]
+    if (own !== undefined) return `当前生效：${layoutFieldTitle(field, own, UNSET_TITLE)}（卡片覆盖）`
+    const shared = appearance().layout
+    const base = field === "divider" ? shared?.divider : shared?.[field]
+    if (base !== undefined) return `当前生效：${layoutFieldTitle(field, base, UNSET_TITLE)}（整体）`
+    return "未设置：由渲染方决定"
+  }
+
+  function applyQuotaPreset(): void {
+    if (blocked()) return
+    const draft = appearance()
+    commitAppearance({
+      ...draft,
+      bar: QUOTA_STYLE_PRESET.bar,
+      barWidth: QUOTA_STYLE_PRESET.barWidth,
+      layout: { ...QUOTA_STYLE_PRESET.layout },
+      // 颜色清空＝跟随主题；单卡颜色偏好一并清空。
+      colors: undefined,
+      cardColors: undefined,
+    })
+  }
+
+  function layoutLines(): OptionLine[] {
     const draft = appearance()
     const draftSettings: SidebarCardSettings = { order: [], hidden: [], ...appearanceOf(draft) }
     const lines: OptionLine[] = [
       {
-        id: "appearance:bar",
+        id: "layout:preset",
+        group: "预设",
+        title: "▸ 应用 Quota 风格预设",
+        value: () => "▸",
+        run: () => applyQuotaPreset(),
+        note: () => "细线进度条填满可用宽度、卡片间距 1 空行、行名 12 字符、显示标题分隔线；颜色跟随主题。只写草稿，未保存。",
+      },
+      {
+        id: "layout:bar",
         group: "整体",
         title: "进度条形状",
         value: () => shapeTitle(draft.bar, UNSET_TITLE),
         cycle: (delta: number) => cycleBar(delta),
-        note: () => "所有侧栏卡片进度条的默认形状",
+        note: () => "所有侧栏卡片进度条的默认形状；none 只隐藏图形，不删除数字",
+      },
+      {
+        id: "layout:barWidth",
+        title: "进度条宽度",
+        value: () => widthTitle(draft.barWidth, UNSET_TITLE),
+        cycle: (delta: number) => cycleBarWidth(delta),
+        note: () => "固定字符列数，或填满可用宽度（由渲染方量宽）",
       },
     ]
-    let grouped = false
-    for (const id of overrideIDs()) {
-      const override = ownCardBar(draft.bars, id)
-      const resolved = resolveSidebarBar(draftSettings, id)
-      const source = resolved.source === "card-override" ? "卡片覆盖" : resolved.source === "shared" ? "整体" : "卡片自己的设置"
+    for (const field of LAYOUT_NUMBER_FIELDS) {
       lines.push({
-        id: `appearance:bars:${id}`,
-        group: grouped ? undefined : "卡片覆盖",
-        title: host.labelFor(id),
-        value: () => shapeTitle(override, INHERIT_TITLE),
-        cycle: (delta: number) => cycleBars(id, delta),
-        note: () => `当前生效：${shapeTitle(resolved.shape, UNSET_TITLE)}（${source}）`,
+        id: `layout:${field.key}`,
+        title: field.title,
+        value: () => layoutFieldTitle(field.key, draft.layout?.[field.key], UNSET_TITLE),
+        cycle: (delta: number) => cycleLayout(field.key, delta),
+        note: () => `范围 ${SIDEBAR_LAYOUT_LIMITS[field.key].min} – ${SIDEBAR_LAYOUT_LIMITS[field.key].max} ${field.unit}`,
       })
-      grouped = true
+    }
+    lines.push({
+      id: "layout:divider",
+      title: "标题分隔线",
+      value: () => dividerTitle(draft.layout?.divider, UNSET_TITLE),
+      cycle: (delta: number) => cycleLayout("divider", delta),
+      note: () => "卡片标题下方的分隔线",
+    })
+    for (const id of overrideIDs()) {
+      const resolvedBar = resolveSidebarBar(draftSettings, id)
+      const barSource = resolvedBar.source === "card-override" ? "卡片覆盖" : resolvedBar.source === "shared" ? "整体" : "卡片自己的设置"
+      const width = ownCardValue(draft.barWidths, id)
+      const entry = ownCardValue(draft.cardLayout, id)
+      lines.push({
+        id: `layout:bars:${id}`,
+        group: `卡片覆盖 · ${host.labelFor(id)}`,
+        title: "进度条形状",
+        value: () => shapeTitle(ownCardBar(draft.bars, id), INHERIT_TITLE),
+        cycle: (delta: number) => cycleBars(id, delta),
+        note: () => `当前生效：${shapeTitle(resolvedBar.shape, UNSET_TITLE)}（${barSource}）`,
+      })
+      lines.push({
+        id: `layout:barWidths:${id}`,
+        title: "进度条宽度",
+        value: () => widthTitle(width, INHERIT_TITLE),
+        cycle: (delta: number) => cycleBarWidths(id, delta),
+        note: () => `当前生效：${widthTitle(width ?? draft.barWidth, UNSET_TITLE)}（${width !== undefined ? "卡片覆盖" : draft.barWidth !== undefined ? "整体" : "卡片自己的设置"}）`,
+      })
+      for (const field of LAYOUT_NUMBER_FIELDS) {
+        lines.push({
+          id: `layout:card:${id}:${field.key}`,
+          title: field.title,
+          value: () => layoutFieldTitle(field.key, entry?.[field.key], INHERIT_TITLE),
+          cycle: (delta: number) => cycleCardLayout(id, field.key, delta),
+          note: () => layoutNote(entry, field.key),
+        })
+      }
+      lines.push({
+        id: `layout:card:${id}:divider`,
+        title: "标题分隔线",
+        value: () => dividerTitle(entry?.divider, INHERIT_TITLE),
+        cycle: (delta: number) => cycleCardLayout(id, "divider", delta),
+        note: () => layoutNote(entry, "divider"),
+      })
     }
     const preserved = preservedOverrides(draft)
     lines.push({
-      id: "appearance:info",
+      id: "layout:info",
       info: true,
-      title: `优先级：卡片覆盖 › 整体 › 卡片自己的设置；none 只隐藏进度条，不删除数字。${preserved.length > 0 ? ` 其他卡片已保存的偏好（${preserved.join("、")}）保留，但不显示形状控件。` : ""}`,
+      title: `优先级：卡片覆盖 › 整体 › 卡片自己的设置；none 只隐藏进度条，不删除数字。${preserved.length > 0 ? ` 其他卡片已保存的偏好（${preserved.join("、")}）保留，但不显示控件。` : ""}`,
+      value: () => "",
+    })
+    return lines
+  }
+
+  // ---------------------------------------------------------------- 颜色页
+
+  function applyColorPreset(index: number, cardID?: string): void {
+    if (blocked()) return
+    const preset = COLOR_PRESETS[index] ?? COLOR_PRESETS[0]!
+    const draft = appearance()
+    if (cardID === undefined) commitAppearance({ ...draft, colors: { ...preset.colors } })
+    else commitAppearance({ ...draft, cardColors: withCardValue(draft.cardColors, cardID, { ...preset.colors }) })
+  }
+
+  function cycleColorPreset(delta: number, cardID?: string): void {
+    if (blocked()) return
+    const index = stepChoice([0, 1, 2], colorPreset(), delta)
+    setColorPreset(index)
+    applyColorPreset(index, cardID)
+  }
+
+  function setSharedColor(role: SidebarColorRole, value: string | undefined): void {
+    const draft = appearance()
+    commitAppearance({ ...draft, colors: patchColorRole(draft.colors, role, value) })
+  }
+
+  function setCardColor(id: string, role: SidebarColorRole, value: string | undefined): void {
+    const draft = appearance()
+    commitAppearance({ ...draft, cardColors: withCardValue(draft.cardColors, id, patchColorRole(ownCardValue(draft.cardColors, id), role, value)) })
+  }
+
+  /** 自定义颜色输入：只认 #RGB／#RRGGBB，非法明确报错并保持原值，绝不钳制。 */
+  async function promptColor(role: SidebarColorRole, cardID?: string): Promise<void> {
+    if (blocked()) return
+    const draft = appearance()
+    const entry = cardID === undefined ? draft.colors : ownCardValue(draft.cardColors, cardID)
+    const started = generation
+    let answer: string | undefined
+    setConfirming(true)
+    try {
+      answer = await context.ui.dialog.prompt({
+        title: `${COLOR_ROLE_TITLES[role]}颜色`,
+        description: "输入 #RGB 或 #RRGGBB（如 #fff 或 #1d4ed8）；取消保持原值",
+        value: entry?.[role] ?? "",
+      })
+    } finally {
+      setConfirming(false)
+    }
+    // 窗口已换代：这次回答不属于当前窗口，什么都不改。
+    if (started !== generation) return
+    if (answer === undefined) return
+    const text = answer.trim()
+    if (!isSidebarColor(text)) {
+      toast("error", `「${text}」不是合法颜色（#RGB 或 #RRGGBB），已保持原值`)
+      return
+    }
+    if (cardID === undefined) setSharedColor(role, text)
+    else setCardColor(cardID, role, text)
+  }
+
+  function colorsLines(): OptionLine[] {
+    const draft = appearance()
+    const lines: OptionLine[] = [
+      {
+        id: "colors:preset",
+        group: "预设",
+        title: "▸ 预设：浅色／深色／高对比",
+        value: () => COLOR_PRESETS[colorPreset()]!.title,
+        cycle: (delta: number) => cycleColorPreset(delta),
+        run: () => applyColorPreset(colorPreset()),
+        note: () => "把整套角色色写入草稿（未保存）；之后单个角色再改即成为自定义。",
+      },
+    ]
+    let grouped = false
+    for (const role of SIDEBAR_COLOR_ROLES) {
+      lines.push({
+        id: `colors:${role}`,
+        group: grouped ? undefined : "整体",
+        title: COLOR_ROLE_TITLES[role],
+        value: () => colorTitle(draft.colors?.[role], FOLLOW_THEME_TITLE),
+        // ← 回到跟随主题（删值）；→／enter 输入自定义颜色。
+        cycle: (delta: number) => {
+          if (delta < 0) setSharedColor(role, undefined)
+          else void promptColor(role)
+        },
+        run: () => void promptColor(role),
+      })
+      grouped = true
+    }
+    for (const id of overrideIDs()) {
+      const entry = ownCardValue(draft.cardColors, id)
+      lines.push({
+        id: `colors:card:${id}:preset`,
+        group: `卡片覆盖 · ${host.labelFor(id)}`,
+        title: "▸ 预设：浅色／深色／高对比",
+        value: () => COLOR_PRESETS[colorPreset()]!.title,
+        cycle: (delta: number) => cycleColorPreset(delta, id),
+        run: () => applyColorPreset(colorPreset(), id),
+        note: () => "把整套角色色写进这张卡的覆盖（未保存）。",
+      })
+      for (const role of SIDEBAR_COLOR_ROLES) {
+        lines.push({
+          id: `colors:card:${id}:${role}`,
+          title: COLOR_ROLE_TITLES[role],
+          value: () => colorTitle(entry?.[role], INHERIT_TITLE),
+          cycle: (delta: number) => {
+            if (delta < 0) setCardColor(id, role, undefined)
+            else void promptColor(role, id)
+          },
+          run: () => void promptColor(role, id),
+        })
+      }
+    }
+    lines.push({
+      id: "colors:info",
+      info: true,
+      title: "← 回到跟随主题／继承（删除该值）；→ 或 enter 输入 #RGB／#RRGGBB。缺省角色由渲染方回退主题色；未设置的颜色保存时即从文件删除。",
+      value: () => "",
+    })
+    return lines
+  }
+
+  // ---------------------------------------------------------------- 快捷入口页
+
+  /** 快捷入口的原始基线（缺省类别＝显示；未设置即 undefined）。 */
+  function shortcutsBaseline(): SidebarShortcuts | undefined {
+    return shortcutsOf(baseline())
+  }
+
+  function commitShortcuts(next: SidebarShortcuts | undefined): void {
+    setShortcuts(next ?? {})
+    setShortcutsDirty(!sameSidebarShortcuts(next, shortcutsBaseline()))
+  }
+
+  function toggleShortcut(key: ShortcutCategoryKey, channel: ShortcutChannelKey): void {
+    if (blocked()) return
+    const draft = shortcuts()
+    const visible = draft[key]?.[channel] !== false
+    const category: SidebarShortcutCategory = { ...draft[key], [channel]: !visible }
+    const next: SidebarShortcuts = { ...draft, [key]: category }
+    // 两条通道都回到缺省（显示）时删掉整个类别：与「未设置」保持同一持久化语义。
+    if (category.slash !== false && category.palette !== false) delete next[key]
+    // 过一次 shortcutsOf：清掉空类别，全缺省时与未设置判为同一状态。
+    commitShortcuts(shortcutsOf({ order: [], hidden: [], shortcuts: next }))
+  }
+
+  function applyOnlyMainPreset(): void {
+    if (blocked()) return
+    commitShortcuts(shortcutsOf({ order: [], hidden: [], shortcuts: ONLY_MAIN_ENTRY_PRESET }))
+  }
+
+  function shortcutsLines(): OptionLine[] {
+    const draft = shortcuts()
+    const lines: OptionLine[] = [
+      {
+        id: "shortcuts:preset",
+        group: "预设",
+        title: "▸ 应用「仅主入口」预设",
+        value: () => "▸",
+        run: () => applyOnlyMainPreset(),
+        note: () => "三类附属入口的斜杠与命令面板全部关闭，只保留 /sidebar-cards 主入口。只写草稿，未保存。",
+      },
+      { id: "shortcuts:info", info: true, title: "主入口 /sidebar-cards 常显，没有开关；这里只控制下列三类附属入口。", value: () => "" },
+    ]
+    for (const key of SIDEBAR_SHORTCUT_CATEGORY_KEYS) {
+      let first = true
+      for (const channel of SHORTCUT_CHANNEL_KEYS) {
+        lines.push({
+          id: `shortcuts:${key}:${channel}`,
+          group: first ? SHORTCUT_CATEGORY_TITLES[key] : undefined,
+          title: SHORTCUT_CHANNEL_TITLES[channel],
+          value: () => (draft[key]?.[channel] === false ? "关" : "开"),
+          cycle: () => toggleShortcut(key, channel),
+          run: () => toggleShortcut(key, channel),
+          note: () => (first ? SHORTCUT_CATEGORY_DESCRIPTIONS[key] : undefined),
+        })
+        first = false
+      }
+    }
+    lines.push({
+      id: "shortcuts:note",
+      info: true,
+      title: "关闭后对应命令不再注册斜杠／命令面板入口；本进程保存后立即生效，其他窗口重启 TUI 后同步。",
       value: () => "",
     })
     return lines
@@ -391,6 +747,17 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
     setCardControlPreview(controls.id, dirty ? draft : undefined, previewOwner)
   }
 
+  /** 命名预设：整份写进本页草稿并按基线重算脏，同时刷新预览；保存仍走 owner 的 save。 */
+  function applyPreset(controls: CardControls, preset: CardControlPreset): void {
+    if (blocked()) return
+    const state = providerState().get(controls.id)
+    if (!state?.draft) return
+    const draft: CardControlValues = { ...state.draft, ...preset.values }
+    const dirty = !sameCardControlValues(draft, state.baseline ?? {})
+    patchProvider(controls.id, { draft, dirty })
+    setCardControlPreview(controls.id, dirty ? draft : undefined, previewOwner)
+  }
+
   function controlLines(controls: CardControls): OptionLine[] {
     const state = providerState().get(controls.id)
     if (!state || state.status === "idle" || state.status === "loading") {
@@ -404,16 +771,29 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
     }
     const lines: OptionLine[] = controls.fields.map((field) => {
       const value = state.draft?.[field.key]
+      const note = fieldNote(field, value)
       return {
         id: `field:${field.key}`,
         title: field.title,
         value: () => displayValue(field, value),
-        note: () => fieldNote(field, value),
+        // 提供方自带的字段说明并入行下注释（范围／口径与字段行同显示）。
+        note: () => (field.description ? (note ? `${note}；${field.description}` : field.description) : note),
         cycle: (delta: number) => cycleField(controls, field, delta),
         // 有界数值字段：enter 输入自定义值；其余行 enter 仍向前循环建议值。
         run: boundedNumber(field, value) ? () => void promptField(controls, field) : undefined,
       }
     })
+    const presets = controls.presets ?? []
+    for (const [index, preset] of presets.entries()) {
+      lines.push({
+        id: `preset:${index}`,
+        group: index === 0 ? (controls.fields.length > 0 ? "预设" : undefined) : undefined,
+        title: `▸ 预设：${preset.title}`,
+        value: () => "▸",
+        run: () => applyPreset(controls, preset),
+        note: () => preset.description,
+      })
+    }
     const actions = controls.actions ?? []
     for (const [index, action] of actions.entries()) {
       lines.push({
@@ -461,7 +841,9 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
   function bodyLines(): OptionLine[] {
     const current = currentPage()
     if (current.kind === "arrangement") return arrangementLines()
-    if (current.kind === "appearance") return appearanceLines()
+    if (current.kind === "layout") return layoutLines()
+    if (current.kind === "colors") return colorsLines()
+    if (current.kind === "shortcuts") return shortcutsLines()
     const controls = providerByID(current.cardID)
     if (!controls) return goneLines(current.cardID ?? "")
     return controlLines(controls)
@@ -630,13 +1012,22 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
         finishCardsSave(result)
         return true
       }
-      if (current.kind === "appearance") {
+      if (current.kind === "layout" || current.kind === "colors") {
         const result = await host.saveAppearance(appearance(), baseline())
         if (!result.ok) {
           toast("error", `${result.message ?? "保存失败"}；草稿已保留`)
           return false
         }
         finishAppearanceSave(result)
+        return true
+      }
+      if (current.kind === "shortcuts") {
+        const result = await host.saveShortcuts(shortcuts(), baseline())
+        if (!result.ok) {
+          toast("error", `${result.message ?? "保存失败"}；草稿已保留`)
+          return false
+        }
+        finishShortcutsSave(result)
         return true
       }
       return await saveProviderPage(current.cardID ?? "")
@@ -661,17 +1052,32 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
     toast("success", "已保存到 cli.json")
   }
 
+  /** 快捷入口保存后：草稿回到新基线（含归一化后的空类别＝缺省显示）。 */
+  function finishShortcutsSave(result: SaveResult): void {
+    if (result.baseline) {
+      setBaseline(result.baseline)
+      setShortcuts(shortcutsOf(result.baseline) ?? {})
+    }
+    setShortcutsDirty(false)
+    toast("success", "已保存到 cli.json")
+  }
+
   function discardPage(id: string): void {
     if (id === "arrangement") {
       host.previewArrangement(undefined)
       setCardsDirty(false)
       return
     }
-    if (id === "appearance") {
+    if (id === "layout" || id === "colors") {
       const saved = appearanceOf(baseline())
       setAppearance(saved)
       setAppearanceDirty(false)
       host.setAppearanceDraft(undefined)
+      return
+    }
+    if (id === "shortcuts") {
+      setShortcuts(shortcutsBaseline() ?? {})
+      setShortcutsDirty(false)
       return
     }
     const cardID = id.slice("control:".length)
@@ -743,6 +1149,7 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
     host.setAppearanceDraft(undefined)
     setCardsDirty(false)
     setAppearanceDirty(false)
+    setShortcutsDirty(false)
     setOpened(false)
     if (focusBefore && !focusBefore.isDestroyed) focusBefore.focus()
     focusBefore = null
@@ -769,6 +1176,8 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
       setCardsDirty(false)
       setAppearanceDirty(false)
       host.setAppearanceDraft(undefined)
+      setShortcuts(shortcutsOf(after) ?? {})
+      setShortcutsDirty(false)
     }
   }
 
@@ -787,6 +1196,8 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
     setCardsDirty(false)
     setAppearanceDirty(false)
     host.setAppearanceDraft(undefined)
+    setShortcuts(shortcutsOf(raw) ?? {})
+    setShortcutsDirty(false)
   }
 
   /** 动作行（如额度原生设置）：先解决 dirty 并关闭本窗口，避免两个编辑器叠加。 */
@@ -829,7 +1240,7 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
       await readProvider(current.cardID)
       return
     }
-    // 排列／外观页：r 走宿主的重新读取（与页面上的「重新读取 cli.json」同一路径）。
+    // 排列／布局／颜色／快捷入口页：r 走宿主的重新读取（与页面上的「重新读取 cli.json」同一路径）。
     if ((await resolveDirty()) === "cancelled") return
     await rereadAction()
   }
@@ -866,6 +1277,8 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
       setCardsDirty(false)
       setAppearanceDirty(false)
       host.setAppearanceDraft(undefined)
+      setShortcuts(shortcutsOf(raw) ?? {})
+      setShortcutsDirty(false)
       for (const controls of providers()) void readProvider(controls.id)
     } finally {
       setOpening(false)
@@ -893,14 +1306,19 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
 
   function hint(): string {
     if (blocked()) return "处理中…"
+    const kind = currentPage().kind
     const keys =
       zone() === "rail"
         ? "↑↓／←→ 选择页面 · enter／tab 进入内容 · esc 关闭"
-        : currentPage().kind === "arrangement"
+        : kind === "arrangement"
           ? "←→ 移动卡片 · space 显隐 · tab 返回页面列表 · s 保存本页 · r 重新读取 · esc 返回页面列表"
-          : currentPage().kind === "appearance"
-            ? "←→ 切换形状 · space／enter 使用 · tab 返回页面列表 · s 保存本页 · r 重新读取 · esc 返回页面列表"
-            : "←→ 切换值 · enter 输入自定义值 · tab 返回页面列表 · s 保存本页 · r 重新读取 · esc 返回页面列表"
+          : kind === "layout"
+            ? "←→ 切换值 · space／enter 使用 · tab 返回页面列表 · s 保存本页 · r 重新读取 · esc 返回页面列表"
+            : kind === "colors"
+              ? "← 跟随主题／继承 · →／enter 输入颜色 · space 使用 · tab 返回页面列表 · s 保存本页 · r 重新读取 · esc 返回页面列表"
+              : kind === "shortcuts"
+                ? "←→／space 开关入口 · tab 返回页面列表 · s 保存本页 · r 重新读取 · esc 返回页面列表"
+                : "←→ 切换值 · enter 输入自定义值 · tab 返回页面列表 · s 保存本页 · r 重新读取 · esc 返回页面列表"
     const file = host.fileState()
     const suffix = pageDirty(currentPage().id)
       ? "本页有未保存修改"
@@ -918,7 +1336,9 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
       const extra = unloaded > 0 ? `，${unloaded} 张未加载` : ""
       return `${current.title} · 共 ${settings.order.length} 张，隐藏 ${settings.hidden.length} 张${extra}`
     }
-    if (current.kind === "appearance") return `${current.title} · 整体形状与卡片覆盖`
+    if (current.kind === "layout") return `${current.title} · 整体与每卡覆盖（形状、宽度、间距、行名、分隔线）`
+    if (current.kind === "colors") return `${current.title} · 六个角色 × 整体与每卡覆盖`
+    if (current.kind === "shortcuts") return `${current.title} · 三类 × 斜杠／命令面板，缺省显示`
     if (current.gone) return `${current.title} · 提供方已卸载，草稿无法保存`
     const marker = current.marker === "hidden" ? "（卡片已隐藏，仍可设置）" : current.marker === "unloaded" ? "（卡片未加载，仍可设置）" : ""
     return `${current.title} · 卡片自己的设置${marker}`
@@ -958,7 +1378,7 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
         const otherRows = siblings
           .filter((item) => item !== child && item !== messages)
           .reduce((total, item) => total + item.height, 0)
-        const next = Math.max(ROOM_MIN, Math.min(ROOM_MAX, parent.height - 1 - otherRows - (child.height - box.height)))
+        const next = Math.max(ROOM_MIN, parent.height - 1 - otherRows - (child.height - box.height))
         if (next !== room()) queueMicrotask(() => setRoom(next))
         return
       }
@@ -1001,10 +1421,8 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
     const narrow = () => width() < NARROW_WIDTH
     const items = () => railItems()
     /** 内容区实际可用宽：不设人为下限，交给行的收缩／堆叠处理。 */
-    const contentWidth = () => {
-      const rail = narrow() ? 0 : railRoomOf(items())
-      return Math.max(6, width() - rail)
-    }
+    /** 内容区实际可用宽：页面标签已移到顶部，内容占满整行。 */
+    const contentWidth = () => Math.max(6, width())
 
     return (
       <box
@@ -1051,6 +1469,8 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
           <text fg={theme().text.base} wrapMode="none" selectable={false}>
             <b>{TITLE}</b>
           </text>
+          <text fg={theme().text.muted} wrapMode="none" selectable={false}>{"  "}</text>
+          <PageStrip items={items()} chosen={page()} theme={theme()} width={Math.max(10, width() - 16)} pick={(key) => void requestPage(key)} />
           <box flexGrow={1} />
           <text fg={theme().text.feedback.warning.base} wrapMode="none" selectable={false}>
             {statusHint()}
@@ -1059,13 +1479,7 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
             {"  esc "}
           </text>
         </box>
-        <Show when={narrow()}>
-          <PageStrip items={items()} chosen={page()} theme={theme()} width={width()} pick={(key) => void requestPage(key)} />
-        </Show>
         <box flexDirection="row" flexGrow={1} flexBasis={0} minHeight={0} marginTop={1}>
-          <Show when={!narrow()}>
-            <Rail items={items()} chosen={page()} theme={theme()} pick={(key) => void requestPage(key)} />
-          </Show>
           <box flexDirection="column" flexGrow={1} flexBasis={0} minHeight={0} overflow="hidden">
             <text fg={theme().text.muted} wrapMode="none" selectable={false}>
               {bodyHeader()}
@@ -1097,9 +1511,17 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
         </box>
         <box flexDirection="column" marginTop={1} flexShrink={0}>
           <box flexDirection="row" flexWrap="wrap" gap={2}>
-            <text fg={pageDirty(currentPage().id) && !blocked() ? theme().text.action.primary.base : theme().text.muted} selectable={false} onMouseUp={() => void saveCurrentPage()}>保存本页</text>
-            <text fg={pageDirty(currentPage().id) && !blocked() ? theme().text.action.primary.base : theme().text.muted} selectable={false} onMouseUp={discardCurrentPage}>放弃修改</text>
-            <text fg={theme().text.muted} selectable={false} onMouseUp={() => void requestClose()}>关闭</text>
+            <text
+              fg={pageDirty(currentPage().id) && !blocked() ? (theme().text.action.primary.focused ?? theme().text.base) : theme().text.muted}
+              bg={pageDirty(currentPage().id) && !blocked() ? (theme().background?.action?.primary?.focused ?? theme().text.action.primary.base) : theme().background?.raised.high}
+              wrapMode="none"
+              selectable={false}
+              onMouseUp={() => void saveCurrentPage()}
+            >
+              {" 保存本页 "}
+            </text>
+            <text fg={theme().text.base} bg={theme().background?.raised.high} wrapMode="none" selectable={false} onMouseUp={discardCurrentPage}>{" 重置本页 "}</text>
+            <text fg={theme().text.base} bg={theme().background?.raised.high} wrapMode="none" selectable={false} onMouseUp={() => void requestClose()}>{" 关闭 "}</text>
           </box>
           <text fg={theme().text.muted} wrapMode="word" selectable={false}>
             {hint()}

@@ -10,18 +10,19 @@ import { createCliCardConfig, cliConfigError, inlineCliConfigActive, type CliCar
 import { createControlWindow } from "./control-window.tsx"
 import { appearanceOf } from "./ui/appearance.ts"
 import type { ControlFileState, ControlWindowHost, SaveResult } from "./ui/types.ts"
-import { createSidebarAppearancePublisher, type SidebarAppearance } from "./presentation.ts"
+import { createSidebarAppearancePublisher, createSidebarShortcutsPublisher, shortcutVisible, useSidebarShortcuts, type SidebarAppearance, type SidebarShortcuts } from "./presentation.ts"
 import {
   HOST_SETTINGS_KEY,
   LEGACY_SIDEBAR_CARD_LABELS,
   LEGACY_SIDEBAR_CARD_SETTINGS_KEY,
+  applySidebarAppearance,
+  applySidebarShortcuts,
   changeSidebarCard,
   completeSidebarCards,
   parseSidebarCards,
   readLegacyCandidate,
   sameSidebarCards,
-  setSidebarCardBar,
-  setSidebarSharedBar,
+  shortcutsOf,
   uninitializedHostCardSettings,
   type HostCardSettings,
   type LegacySidebarCardID,
@@ -54,6 +55,10 @@ export default Plugin.define({
     // 外观草稿：宿主 effect 发布给侧栏卡片（useSidebarBarShape）；undefined = 发布已保存值。
     const [appearanceDraft, setAppearanceDraft] = createSignal<SidebarAppearance | undefined>(undefined)
     const appearancePublisher = createSidebarAppearancePublisher()
+    // 快捷入口的唯一发布点：只发布已保存值（设置信号变化即刷新，命令注册方据此过滤入口）。
+    const shortcutsPublisher = createSidebarShortcutsPublisher()
+    // 命令注册处的响应式读取：宿主卸载时随 onCleanup 一起摘除监听。
+    const sidebarShortcuts = useSidebarShortcuts()
     let disposed = false
     let writes = 0
     let failures = 0
@@ -70,6 +75,10 @@ export default Plugin.define({
     // 侧栏外观的唯一发布点：窗口编辑中发布有效草稿，否则发布已保存值（含空值＝卡片自己的设置）。
     createEffect(() => {
       appearancePublisher.publish(appearanceDraft() ?? savedAppearance())
+    })
+    // 快捷入口发布：跟随已保存设置（保存／重新读取／导入后自动刷新）；启动时也会发布一次。
+    createEffect(() => {
+      shortcutsPublisher.publish(shortcutsOf(settings()) ?? {})
     })
     if (initial.issues.length) context.ui.toast.show({ title: "侧栏配置", message: initial.issues.join("；"), variant: "warning" })
 
@@ -179,9 +188,9 @@ export default Plugin.define({
     }
 
     /**
-     * 保存外观草稿：只写 bar/bars，order/hidden 原样取自磁盘当前值，
-     * 因此绝不会把排列草稿或外部顺序改动一起写进去。
-     * 用 host-settings 的 setSidebarSharedBar/setSidebarCardBar 构造：
+     * 保存外观草稿：整份写回展示字段（形状／宽度／布局／颜色），order/hidden 与快捷入口
+     * 原样取自磁盘当前值，因此绝不会把排列草稿或外部顺序改动一起写进去。
+     * 用 host-settings 的 applySidebarAppearance 构造：
      * 未设置的键整个省略（= 删除），空覆盖等同未设置。
      */
     async function saveAppearance(appearance: SidebarAppearance, baseline: SidebarCardSettings): Promise<SaveResult> {
@@ -193,11 +202,35 @@ export default Plugin.define({
       try {
         const outcome = await config.update((current) => {
           if (!sameSidebarCards(current, baseline)) throw new Error(FILE_CHANGED)
-          let next = setSidebarSharedBar(current, appearance.bar)
-          for (const [cardID, shape] of Object.entries(appearance.bars ?? {})) {
-            next = setSidebarCardBar(next, cardID, shape)
-          }
-          return { settings: next, result: "window-appearance" as const, save: true }
+          return { settings: applySidebarAppearance(current, appearance), result: "window-appearance" as const, save: true }
+        })
+        applyWriteStatus(outcome.status)
+        setPreview(undefined)
+        if (outcome.saved) writes++
+        return { ok: true, baseline: outcome.status.settings as SidebarCardSettings }
+      } catch (error) {
+        failures++
+        setLastError(cliConfigError(error))
+        return { ok: false, message: cliConfigError(error) }
+      } finally {
+        activeWrites--
+      }
+    }
+
+    /**
+     * 保存快捷入口草稿：整份替换 shortcuts（缺省类别／通道＝显示），
+     * order/hidden 与展示偏好原样取自磁盘当前值；冲突检测与另两条保存路径同一套。
+     */
+    async function saveShortcuts(shortcuts: SidebarShortcuts, baseline: SidebarCardSettings): Promise<SaveResult> {
+      if (disposed) return { ok: false, message: "宿主已卸载" }
+      if (inlineCliConfigActive()) {
+        return { ok: false, message: "OPENCODE_CLI_CONFIG_CONTENT 已设置；文件写入已只读降级，请先移除环境变量覆盖" }
+      }
+      activeWrites++
+      try {
+        const outcome = await config.update((current) => {
+          if (!sameSidebarCards(current, baseline)) throw new Error(FILE_CHANGED)
+          return { settings: applySidebarShortcuts(current, shortcuts), result: "window-shortcuts" as const, save: true }
         })
         applyWriteStatus(outcome.status)
         setPreview(undefined)
@@ -327,6 +360,7 @@ export default Plugin.define({
       refreshFromDisk,
       saveCards,
       saveAppearance,
+      saveShortcuts,
       savedAppearance,
       setAppearanceDraft,
       runImport: importSettings,
@@ -346,23 +380,34 @@ export default Plugin.define({
     const disposeCommands = context.ui.slot({
       append: "app",
       render: () => {
+        // 宿主直接操作入口（hostDirect）按已保存的快捷入口偏好过滤：
+        // slash／palette 任一一被关掉，对应命令就不注册那个键；主入口始终保留。
+        const slashVisible = () => shortcutVisible(sidebarShortcuts(), "hostDirect", "slash")
+        const paletteVisible = () => shortcutVisible(sidebarShortcuts(), "hostDirect", "palette")
+        const hostDirectKeys = (name: string): { slash?: { name: string; arguments: true }; palette?: true } => {
+          const keys: { slash?: { name: string; arguments: true }; palette?: true } = {}
+          if (slashVisible()) keys.slash = { name, arguments: true }
+          if (paletteVisible()) keys.palette = true
+          return keys
+        }
         context.keymap.layer(() => ({
           mode: "global",
           commands: [
-            { id: "sidebar-host-zh.cards", title: "侧栏宿主：管理卡片", description: "排列／显隐／外观及各卡展示设置，按页预览与保存", group: "侧栏", palette: true, slash: { name: "sidebar-cards" }, run: () => controlWindow.open() },
+            { id: "sidebar-host-zh.cards", title: "侧栏宿主：管理卡片", description: "排列／布局／颜色／快捷入口及各卡展示设置，按页预览与保存", group: "侧栏", palette: true, slash: { name: "sidebar-cards" }, run: () => controlWindow.open() },
             ...(["show", "hide", "up", "down"] as const).map((action) => ({
               id: `sidebar-host-zh.${action}`,
               title: `侧栏宿主：${{ show: "显示卡片", hide: "隐藏卡片", up: "卡片上移", down: "卡片下移" }[action]}`,
               description: `用法：/sidebar-host-${action} <卡片ID>`,
-              group: "侧栏", palette: true as const, slash: { name: `sidebar-host-${action}`, arguments: true as const },
+              group: "侧栏",
+              ...hostDirectKeys(`sidebar-host-${action}`),
               run: async (input?: string) => {
                 const id = (input ?? "").trim()
                 if (!id) { context.ui.toast.show({ title: "侧栏宿主", message: `用法：/sidebar-host-${action} <卡片ID>`, variant: "info" }); return }
                 await act(id, action)
               },
             })),
-            { id: "sidebar-host-zh.import", title: "侧栏宿主：导入旧设置", group: "侧栏", palette: true, slash: { name: "sidebar-host-import" }, run: importSettings },
-            { id: "sidebar-host-zh.status", title: "侧栏宿主：状态与诊断", group: "侧栏", palette: true, slash: { name: "sidebar-host-status" }, run: async () => {
+            { id: "sidebar-host-zh.import", title: "侧栏宿主：导入旧设置", group: "侧栏", ...hostDirectKeys("sidebar-host-import"), run: importSettings },
+            { id: "sidebar-host-zh.status", title: "侧栏宿主：状态与诊断", group: "侧栏", ...hostDirectKeys("sidebar-host-status"), run: async () => {
               await refreshStatus()
               if (!disposed) await context.ui.dialog.alert({ title: "侧栏宿主状态", message: statusText() })
             } },
@@ -376,6 +421,7 @@ export default Plugin.define({
       disposed = true
       controlWindow.dispose()
       appearancePublisher.dispose()
+      shortcutsPublisher.dispose()
       disposeListener()
       disposeSlot()
       disposeControlSlot()

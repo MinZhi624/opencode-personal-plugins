@@ -90,14 +90,28 @@ export function SkillPanel(props: SkillPanelProps) {
 
   const refresh = async (sessionID: string) => {
     const current = ++generation
-    try {
-      const result = await fetchSkillUsage(props.context, sessionID)
-      if (current === generation) { setUsed(result); setFailed(false) }
-    } catch {
-      // 读取失败不是“没有技能”：保留上一次成功结果并显示错误态，不伪装成空列表。
-      if (current === generation) setFailed(true)
-    } finally {
-      if (current === generation) setLoaded(true)
+    // 首次挂载时服务／会话可能仍在就绪；短暂失败不能卡到下一次执行事件。
+    // 每次重扫从第一页开始，避免分页中断后的局部结果或重复计数。
+    const delays = [250, 750, 1500]
+    for (let attempt = 0; attempt <= delays.length; attempt++) {
+      if (current !== generation) return
+      try {
+        const result = await fetchSkillUsage(props.context, sessionID)
+        if (current !== generation) return
+        setUsed(result)
+        setFailed(false)
+        setLoaded(true)
+        return
+      } catch {
+        if (current !== generation) return
+        if (attempt === delays.length) {
+          // 持续失败仍明确报错，保留同一会话上一次成功结果。
+          setFailed(true)
+          setLoaded(true)
+          return
+        }
+        await new Promise<void>((resolve) => setTimeout(resolve, delays[attempt]))
+      }
     }
   }
 
