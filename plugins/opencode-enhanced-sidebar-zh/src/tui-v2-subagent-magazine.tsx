@@ -166,6 +166,8 @@ export function SubAgentPanel(props: {
   }
   const ttlDays = () => effective().ttlDays
   const [expanded, setExpanded] = createSignal("")
+  // 二级展开：超过显示条数时临时展开全部；只影响当前卡片，不写设置存档。
+  const [showAll, setShowAll] = createSignal(false)
   const timer = setInterval(() => setTick((value) => value + 1), 1000)
   onCleanup(() => clearInterval(timer))
   // 过期自动清理：只删已结束且超过保留天数的，正在跑的不动
@@ -190,8 +192,19 @@ export function SubAgentPanel(props: {
     if (sortOrder() === "desc") return list.sort((a, b) => b.started - a.started)
     return list.sort((a, b) => a.started - b.started)
   })
-  const visibleEntries = createMemo(() => allEntries().slice(0, maxEntries()))
-  const hiddenCount = createMemo(() => Math.max(0, allEntries().length - visibleEntries().length))
+  const primaryEntries = createMemo(() => allEntries().slice(0, maxEntries()))
+  const overflowEntries = createMemo(() => allEntries().slice(maxEntries()))
+  const overflowCount = createMemo(() => overflowEntries().length)
+  // 二级分组的摘要：让“其余”这一层自带信息，而不是一条无差别的“展开全部”链接。
+  const overflowSummary = createMemo(() => {
+    const entries = overflowEntries()
+    const count = (statuses: Status[]) => entries.filter((entry) => statuses.includes(entry.status)).length
+    return [
+      { label: "已完成", value: count(["done", "cancelled"]) },
+      { label: "运行中", value: count(["running", "cancel_requested"]) },
+      { label: "失败", value: count(["error"]) },
+    ].filter((item) => item.value > 0).map((item) => `${item.label} ${item.value}`).join(" · ")
+  })
   // Status badges span records under the same root task tree, including nested agents.
   const taskEntries = createMemo(() => {
     void tick()
@@ -282,6 +295,38 @@ export function SubAgentPanel(props: {
     if (!cost) return "-"
     return `${cost}${status === "stale" ? "（旧数据）" : ""}`
   }
+  const EntryItem = (row: { entry: Entry; index: number; nested?: boolean }) => {
+    const entry = row.entry
+    const result = () => {
+      void tick()
+      return entry.childID ? props.runtime?.metrics.get(entry.childID) : undefined
+    }
+    const entryTokens = () => result()?.complete && result()?.hasUsage ? totalTokenBuckets(result()!.tokens) : null
+    return (
+      <box flexDirection="column" paddingLeft={row.nested ? 2 : 0}>
+        <Show when={!row.nested && row.index > 0 && withDivider()}><text fg={dividerColor()} wrapMode="none" selectable={false}>{"─".repeat(40)}</text></Show>
+        <box flexDirection="row" flexWrap="wrap" gap={1} onMouseDown={() => setExpanded((value) => value === entry.id ? "" : entry.id)}>
+          <text fg={color(entry.status)}>{dot(entry.status)}</text>
+          <text fg={bodyColor()}>{entry.title || entry.agent}</text>
+          <text fg={mutedColor()}>{duration(entry)}</text>
+          <Show when={expanded() !== entry.id && entryTokens() !== null && entryTokens()! > 0}><text fg={mutedColor()}>{formatTokenCount(entryTokens()!)}</text></Show>
+        </box>
+        <Show when={expanded() === entry.id}>
+        <box flexDirection="row" flexWrap="wrap" justifyContent="space-between"><text fg={mutedColor()}>代理</text><text fg={bodyColor()}>{entry.agent}</text></box>
+        <Show when={entry.childID && props.context.data.session.get(entry.childID)?.model}><box flexDirection="row" flexWrap="wrap" justifyContent="space-between"><text fg={mutedColor()}>模型</text><text fg={bodyColor()}>{(() => { const model = props.context.data.session.get(entry.childID!)!.model!; return `${model.providerID}/${model.id}` })()}</text></box></Show>
+        <box flexDirection="row" flexWrap="wrap" justifyContent="space-between"><text fg={mutedColor()}>状态</text><text fg={color(entry.status)}>{statusText(entry.status)}</text></box>
+        <Show when={entry.childID}><box flexDirection="row" flexWrap="wrap" justifyContent="space-between" onMouseDown={() => void copyText(entry.childID!)}><text fg={mutedColor()}>会话 ID</text><text fg={bodyColor()}>{entry.childID!.slice(0, 18)}… ⎘</text></box></Show>
+        <Show when={entryTokens() !== null}><box flexDirection="row" flexWrap="wrap" justifyContent="space-between"><text fg={mutedColor()}>Token 用量</text><text fg={bodyColor()}>{formatTokenCount(entryTokens()!)}</text></box></Show>
+        <Show when={result()?.complete && result()?.hasUsage}><box flexDirection="row" flexWrap="wrap" justifyContent="space-between"><text fg={mutedColor()}>费用</text><text fg={bodyColor()}>{formatCostUsd(result()!.usd, result()!)}</text></box></Show>
+        <Show when={entry.childID}><box flexDirection="row" flexWrap="wrap" gap={2}><text fg={titleColor()} onMouseDown={() => props.context.ui.router.navigate({ type: "session", sessionID: entry.childID! })}>→ 进入会话</text><Show when={entry.status === "running"}><text fg={warnColor()} onMouseDown={() => void cancel(entry)}>取消任务</text></Show></box></Show>
+        <box flexDirection="row" flexWrap="wrap" gap={2}>
+          <Show when={entry.status === "running" || entry.status === "cancel_requested"}><text fg={mutedColor()} onMouseDown={() => void dismissEntry(entry)}>标记完成</text></Show>
+          <text fg={mutedColor()} onMouseDown={() => void deleteEntry(entry)}>删除这条</text>
+        </box>
+        </Show>
+      </box>
+    )
+  }
   return (
     <box flexDirection="column" paddingLeft={indent()} gap={lineGap()}>
       <box flexDirection="row" flexWrap="wrap" gap={1} onMouseDown={() => void updateView((draft) => { draft.open = !draft.open })}>
@@ -299,38 +344,19 @@ export function SubAgentPanel(props: {
       </box>
       <Show when={view.open}>
         <Show when={!props.runtime}><text fg={mutedColor()}>共享会话数据不可用；子代理记录仍可操作</text></Show>
-        <Show when={hiddenCount() > 0}><text fg={mutedColor()}>列表另有 {hiddenCount()} 条未显示</text></Show>
-        <For each={visibleEntries()}>{(entry, index) => {
-            const result = () => {
-              void tick()
-               return entry.childID ? props.runtime?.metrics.get(entry.childID) : undefined
-            }
-            const entryTokens = () => result()?.complete && result()?.hasUsage ? totalTokenBuckets(result()!.tokens) : null
-            return (
-              <box flexDirection="column">
-                <Show when={index() > 0 && withDivider()}><text fg={dividerColor()} wrapMode="none" selectable={false}>{"─".repeat(40)}</text></Show>
-                <box flexDirection="row" flexWrap="wrap" gap={1} onMouseDown={() => setExpanded((value) => value === entry.id ? "" : entry.id)}>
-                  <text fg={color(entry.status)}>{dot(entry.status)}</text>
-                  <text fg={bodyColor()}>{entry.title || entry.agent}</text>
-                  <text fg={mutedColor()}>{duration(entry)}</text>
-                  <Show when={expanded() !== entry.id && entryTokens() !== null && entryTokens()! > 0}><text fg={mutedColor()}>{formatTokenCount(entryTokens()!)}</text></Show>
-                </box>
-                <Show when={expanded() === entry.id}>
-                <box flexDirection="row" flexWrap="wrap" justifyContent="space-between"><text fg={mutedColor()}>代理</text><text fg={bodyColor()}>{entry.agent}</text></box>
-                <Show when={entry.childID && props.context.data.session.get(entry.childID)?.model}><box flexDirection="row" flexWrap="wrap" justifyContent="space-between"><text fg={mutedColor()}>模型</text><text fg={bodyColor()}>{(() => { const model = props.context.data.session.get(entry.childID!)!.model!; return `${model.providerID}/${model.id}` })()}</text></box></Show>
-                <box flexDirection="row" flexWrap="wrap" justifyContent="space-between"><text fg={mutedColor()}>状态</text><text fg={color(entry.status)}>{statusText(entry.status)}</text></box>
-                <Show when={entry.childID}><box flexDirection="row" flexWrap="wrap" justifyContent="space-between" onMouseDown={() => void copyText(entry.childID!)}><text fg={mutedColor()}>会话 ID</text><text fg={bodyColor()}>{entry.childID!.slice(0, 18)}… ⎘</text></box></Show>
-                <Show when={entryTokens() !== null}><box flexDirection="row" flexWrap="wrap" justifyContent="space-between"><text fg={mutedColor()}>Token 用量</text><text fg={bodyColor()}>{formatTokenCount(entryTokens()!)}</text></box></Show>
-                <Show when={result()?.complete && result()?.hasUsage}><box flexDirection="row" flexWrap="wrap" justifyContent="space-between"><text fg={mutedColor()}>费用</text><text fg={bodyColor()}>{formatCostUsd(result()!.usd, result()!)}</text></box></Show>
-                <Show when={entry.childID}><box flexDirection="row" flexWrap="wrap" gap={2}><text fg={titleColor()} onMouseDown={() => props.context.ui.router.navigate({ type: "session", sessionID: entry.childID! })}>→ 进入会话</text><Show when={entry.status === "running"}><text fg={warnColor()} onMouseDown={() => void cancel(entry)}>取消任务</text></Show></box></Show>
-                <box flexDirection="row" flexWrap="wrap" gap={2}>
-                  <Show when={entry.status === "running" || entry.status === "cancel_requested"}><text fg={mutedColor()} onMouseDown={() => void dismissEntry(entry)}>标记完成</text></Show>
-                  <text fg={mutedColor()} onMouseDown={() => void deleteEntry(entry)}>删除这条</text>
-                </box>
-                </Show>
-              </box>
-            )
-        }}</For>
+        <Show when={allEntries().length === 0}><text fg={mutedColor()}>本会话暂无子代理记录</text></Show>
+        <For each={primaryEntries()}>{(entry, index) => <EntryItem entry={entry} index={index()} />}</For>
+        <Show when={overflowCount() > 0}>
+          {/* 二级分组：独立标题条 + 缩进的组内条目，避免和普通条目混在一起。 */}
+          <box flexDirection="row" flexWrap="wrap" gap={1} width="100%" backgroundColor={theme.background?.raised.high} onMouseDown={() => setShowAll((value) => !value)}>
+            <text fg={titleColor()}>{showAll() ? "▾" : "▸"}</text>
+            <text fg={titleColor()}><b>其余 {overflowCount()} 条</b></text>
+            <Show when={overflowSummary()}><text fg={mutedColor()}>{overflowSummary()}</text></Show>
+          </box>
+          <Show when={showAll()}>
+            <For each={overflowEntries()}>{(entry) => <EntryItem entry={entry} index={0} nested />}</For>
+          </Show>
+        </Show>
       </Show>
     </box>
   )
