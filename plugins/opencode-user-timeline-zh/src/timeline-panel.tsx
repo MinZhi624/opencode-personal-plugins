@@ -212,7 +212,6 @@ export function TimelinePanel(props: PanelProps) {
     return width > 0 ? Math.max(6, width - 10) : 26
   }
 
-  let timelineScroll: { focus: () => void; blur: () => void } | undefined
   let prevLocalCount = 0 // 本地缓存中用户消息数：下降（undo）触发全量重拉
   let initialSessionID = ""
   let generation = 0
@@ -222,20 +221,11 @@ export function TimelinePanel(props: PanelProps) {
   const isActive = (sessionID: string, current: number) =>
     generation === current && props.sessionID === sessionID
 
-  // 滚轮事件可能命中外层 sidebar 的 scrollbox（尤其是原生 hit grid 暂时没有
-  // 命中内部内容时会回退到当前 focus）。面板本身铺满可视宽度并捕获滚轮，
-  // 进入面板时把 fallback focus 交给内部 scrollbox，离开时再还给宿主。
+  // 只截停滚轮冒泡，不主动 focus/blur 内部 scrollbox：卡片在宿主侧栏里，
+  // 抢焦点会让 TUI 的会话输入失去焦点。滚轮仍由命中的 scrollbox 自己处理。
   function captureTimelineScroll(event: { stopPropagation: () => void }) {
     if (!open() || !scroll()) return
     event.stopPropagation()
-  }
-
-  function focusTimelineScroll() {
-    if (open() && scroll()) timelineScroll?.focus()
-  }
-
-  function blurTimelineScroll() {
-    timelineScroll?.blur()
   }
 
   function finishInitialLoad(sessionID: string) {
@@ -572,16 +562,12 @@ export function TimelinePanel(props: PanelProps) {
       flexShrink={0}
       alignSelf="stretch"
       width="100%"
-      zIndex={1}
       paddingLeft={1}
       paddingRight={1}
       onSizeChange={function (this: BoxRenderable) {
         if (this.width > 0 && this.width !== measured()) queueMicrotask(() => setMeasured(this.width))
       }}
       onMouseScroll={captureTimelineScroll}
-      onMouseOver={focusTimelineScroll}
-      onMouseOut={blurTimelineScroll}
-      onMouseDown={focusTimelineScroll}
     >
       <box flexDirection="row" gap={1} onMouseDown={toggleOpen}>
         <text fg={titleColor()}>{open() ? "▼" : "▶"}</text>
@@ -600,9 +586,7 @@ export function TimelinePanel(props: PanelProps) {
             >
               {/* 固定可视行数，剩余全部滚轮滚动；stickyScroll 保证新消息进来时保持在底部 */}
               <scrollbox
-                ref={(scrollBox) => {
-                  timelineScroll = scrollBox
-                }}
+                focusable={false}
                 height={visibleRows()}
                 width="100%"
                 alignSelf="stretch"
