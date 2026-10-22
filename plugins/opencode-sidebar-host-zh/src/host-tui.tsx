@@ -344,7 +344,12 @@ export default Plugin.define({
     }
 
     function SidebarHost(props: { sessionID: string }) {
-      return <box flexDirection="column" gap={1}>
+      // 卡片间距是宿主的全局布局值；未设置时保持原来的 1 空行。
+      const cardGap = () => {
+        const layout = (appearanceDraft() ?? savedAppearance()).layout
+        return typeof layout?.gap === "number" ? layout.gap : 1
+      }
+      return <box flexDirection="column" gap={cardGap()}>
         <For each={displayRecords()}>{(entry) => <box flexDirection="column">
           <ErrorBoundary fallback={() => <text>⚠ {entry.title} 渲染失败，已隔离</text>}>
             {entry.spec.render({ sessionID: props.sessionID }) as never}

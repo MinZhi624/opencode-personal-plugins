@@ -245,7 +245,7 @@ export const FIELDS = [
     runsOutField("statusLine", "提供商之后"),
     numberField("statusLine.width", "宽度", 0, [0, 1000], [0, 40, 60, 80], SHOW.width, {
         group: "宽度与滚动",
-        note: "仅设状态栏宽度，不承诺控制本地多行卡片布局",
+        note: "只影响状态栏；侧栏宽度随窗口",
     }),
     numberField("statusLine.autoScrollSeconds", "自动滚动", 0, [0, 600], [0, 5, 10], SHOW.scroll),
     listField("toast.afterReply", "每次回复后", "low", REPLY_TOASTS, SHOW.afterReply, {
@@ -272,26 +272,26 @@ export const FIELDS = [
     ...COLOR_FIELDS.slice(4),
     listField("layout.bar", "进度条样式", "blocks", BAR_SHAPES, SHOW.bar, {
         group: "进度条",
-        note: "所有位置的进度条样式联动",
+        note: "所有位置的额度条样式联动",
     }),
     listField("layout.barWidth", "进度条宽度", "fill", ["fill", 4, 6, 8, 10, 12], SHOW.barWidth, {
         valid: (value) => value === "fill" || isWhole(value, 1, 30),
         ...LAYOUT,
     }),
     switchField("layout.evenUse", "均匀使用参考线", false, {
-        note: "像“额度”页那样，在进度条中均匀使用应处的位置标出 ┃；各处联动",
+        note: "在进度条上标出均匀使用应处的位置；各处联动",
     }),
     numberField("layout.indent", "行缩进", 1, [0, 4], [0, 1, 2, 3], SHOW.indent, {
         group: "间距",
-        note: "不承诺控制本地多行卡片布局",
+        note: "仅侧栏额度行；每行左侧的空格数",
         ...LAYOUT,
     }),
     numberField("layout.labelWidth", "行名宽度", 8, [3, 20], [6, 8, 10, 12], unit("个字符"), {
-        note: "行名最多可占用",
+        note: "仅侧栏额度行；行名最多占用的列数，超出省略",
         ...LAYOUT,
     }),
     numberField("layout.providerGap", "提供商间距", 1, [0, 2], [0, 1], SHOW.gap, {
-        note: "不承诺控制本地多行卡片布局",
+        note: "仅侧栏额度面板；提供商之间的空行数",
         ...LAYOUT,
     }),
     listField("layout.separator", "分隔符", " · ", [" · ", " | ", " / ", "  "], SHOW.separator, {
@@ -302,27 +302,27 @@ export const FIELDS = [
         ...ALL_PLACES,
         group: "用词",
         preset: "words",
-        note: "本地额度卡固定显示双百分比；此处仅控制原生详细视图的文案",
+        note: "控制“剩余／已用”等用词；侧栏标题也跟随",
     }),
     serverField("words.reset", "重置时间", SHOW.reset, {
         ...ALL_PLACES,
-        note: "各处倒计时样式联动；绝对重置时间始终保留，“额度”页显示精确时间",
+        note: "控制倒计时的显示格式；各处联动",
         preset: "words",
     }),
     serverField("words.resetDecimals", "小数位", SHOW.decimals, {
         ...ALL_PLACES,
-        note: "用于小数位重置时间",
+        note: "小数格式保留的位数；例：1 位＝2.2h",
         values: [0, 1, 2],
     }),
     serverField("words.rowNames", "行名称", SHOW.rowNames, {
         ...ALL_PLACES,
-        note: "重命名的行保留你的名称；“额度”页显示完整名称；所有位置联动",
+        note: "控制行名用短名还是全名；重命名的行始终保留",
         preset: "words",
     }),
     serverField("words.detail", "额外行", SHOW.rows, {
         ...ALL_PLACES,
         group: "显示内容",
-        note: "整张卡片的排序与显隐以宿主 cli.json 为准",
+        note: "是否显示额外行；卡片排序与显隐由宿主管理",
     }),
     serverField("words.onlyCurrentModel", "提供商范围", SHOW.models, ALL_PLACES),
     serverField("words.sessionTokens", "会话 Token 计数", SHOW.tokens, ALL_PLACES),
@@ -383,7 +383,7 @@ export const PRESETS = {
     layout: {
         tab: "layout",
         title: "布局预设",
-        drives: "进度条宽度与 3 个间距行",
+        drives: "进度条宽度、行缩进、行名宽度与提供商间距",
         choices: {
             紧凑: layoutChoice(6, 1, 6, 0),
             舒适: layoutChoice("fill", 1, 8, 1),

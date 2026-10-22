@@ -226,12 +226,19 @@ export function sidebarTitle(words: Words): string {
  */
 function groupLine(group: Group, nowMs: number, width: number, withState: boolean): Line {
   const state = withState ? groupState(group, nowMs) : undefined;
+  // An account that already starts with a parenthesis keeps its own brackets,
+  // so "Plus · Codex CLI 登录" and "(Plus) extra" never render as "((…))".
+  const account = group.account
+    ? /^[（(]/u.test(group.account)
+      ? ` ${group.account}`
+      : ` (${group.account})`
+    : "";
   return {
     id: group.providerId,
     segments: clip(
       [
         { text: group.name, role: "provider", bold: true },
-        ...(group.account ? [{ text: ` (${group.account})`, role: "account" as const }] : []),
+        ...(account ? [{ text: account, role: "account" as const }] : []),
         ...(state ? [{ ...state, text: `  ${state.text}` }] : []),
       ],
       width,

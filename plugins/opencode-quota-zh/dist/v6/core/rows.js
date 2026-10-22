@@ -37,12 +37,36 @@ const GROUP_BRANDS = {
     opencode: ["OpenCode Zen"],
     "ollama-cloud": ["Ollama Cloud"],
 };
+/**
+ * The inside of one or more adjacent parentheses groups, joined by " · ".
+ * "（Codex CLI 登录）" → "Codex CLI 登录"; "(Plus)（Codex CLI 登录）" → "Plus · Codex CLI 登录".
+ */
+function unwrapGroups(text) {
+    const inside = [];
+    let rest = text.trim();
+    const group = /^[（(]\s*([^（()）]*?)\s*[）)]\s*/u;
+    while (rest) {
+        const match = group.exec(rest);
+        if (!match)
+            return undefined;
+        const value = (match[1] ?? "").trim();
+        if (value)
+            inside.push(value);
+        rest = rest.slice(match[0].length);
+    }
+    return inside.length > 0 ? inside.join(" · ") : undefined;
+}
 /** "(Pro)" → "Pro", ": Standard [code]" → "Standard". */
 function unwrap(text) {
     let result = text.trim().replace(/^:\s*/u, "");
-    const parens = /^\((.*)\)$/u.exec(result);
-    if (parens)
-        result = parens[1] ?? "";
+    const grouped = unwrapGroups(result);
+    if (grouped !== undefined)
+        result = grouped;
+    else {
+        const parens = /^\((.*)\)$/u.exec(result);
+        if (parens)
+            result = parens[1] ?? "";
+    }
     const withoutCode = result.replace(/\s*\[[^\]]*\]$/u, "").trim();
     return withoutCode || result.trim();
 }

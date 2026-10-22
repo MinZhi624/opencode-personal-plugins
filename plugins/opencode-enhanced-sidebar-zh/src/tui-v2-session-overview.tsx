@@ -130,7 +130,7 @@ export function SessionOverview(props: { context: Context; sessionID: string; ru
     if (fixed !== undefined) return fixed
     const tier = contextBarTier(percent())
     if (tier === "danger") return theme.text.feedback.error.base
-    if (tier === "warning") return theme.text.feedback.warning.base
+    if (tier === "warning") return colors().warn ?? theme.text.feedback.warning.base
     return theme.hue?.interactive?.[300] ?? theme.text.action.primary.base
   })
   const titleColor = () => colors().title ?? theme.text.action.primary.base

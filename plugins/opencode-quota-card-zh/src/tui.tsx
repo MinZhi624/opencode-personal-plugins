@@ -50,7 +50,7 @@ export default Plugin.define({
       save: async () => {},
       actions: [
         {
-          title: "打开原生额度设置（/quota_settings）",
+          title: "打开额度设置",
           run: () => {
             // 先确认命令可达再派发：opencode-quota-zh 的 TUI 插件未启用时该命令
             // 不在可达列表里，明确报错，不静默 dispatch 造成假成功。
@@ -66,7 +66,7 @@ export default Plugin.define({
           },
         },
       ],
-      note: "额度业务设置由原生额度窗口拥有（/quota_settings，需 opencode-quota-zh 启用）；侧栏进度条形状是本套侧栏专属展示偏好，与原生跨展示位置的形状设置作用域不同。",
+      note: "其余项见额度设置。",
     })
     return () => {
       disposeControls()

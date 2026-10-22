@@ -147,8 +147,9 @@ export function rowValueText(row) {
         return row.text;
     if (row.amount) {
         const amount = amountText(row.amount);
+        // The row label already says "余额"; a trailing "剩余" only repeats it.
         if (row.type === "balance")
-            return `${amount} 剩余`;
+            return amount;
         return row.type === "usage" ? `${amount} 已用` : amount;
     }
     if (row.remaining)

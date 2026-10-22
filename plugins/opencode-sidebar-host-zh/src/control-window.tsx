@@ -278,7 +278,7 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
         title: host.labelFor(id),
         value: () => `${index + 1} · ${hidden ? "已隐藏" : loaded ? "显示中" : "未加载"}`,
         tone: hidden ? ("warning" as const) : loaded ? ("success" as const) : ("muted" as const),
-        note: () => (hidden ? "偏好已保留；上移下移以完整序列为准" : loaded ? undefined : "卡片未加载，偏好已保留"),
+        note: () => (hidden ? "已隐藏" : loaded ? undefined : "未加载"),
         cycle: (delta: number) => moveCard(id, delta),
         run: () => toggleCard(id),
       }
@@ -287,17 +287,17 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
     lines.push({
       id: "action:import",
       group: "操作",
-      title: "导入旧设置到 cli.json",
+      title: "导入旧设置",
       value: () => "▸",
       run: () => void runImportAction(),
-      note: () => (file.configured ? "文件已有配置，不会覆盖" : "预览并确认后导入旧存档／legacySettings"),
+      note: () => (file.configured ? "已有配置，不覆盖" : "预览后导入"),
     })
     lines.push({
       id: "action:reread",
-      title: "重新读取 cli.json",
+      title: "重新读取",
       value: () => "▸",
       run: () => void rereadAction(),
-      note: () => "其他窗口或命令改了文件后，用它刷新基线",
+      note: () => "外部改动后刷新基线",
     })
     return lines
   }
@@ -358,12 +358,34 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
     })
   }
 
-  /** 真正渲染进度条的卡片：只给它们形状／宽度／布局覆盖控件。 */
-  const BAR_CARD_IDS: readonly string[] = ["quota", "sessionOverview", "subagents", "skill"]
+  /** 真正渲染进度条的卡片：只给它们形状／宽度控件。 */
+  const SHAPE_CARD_IDS: readonly string[] = ["quota", "sessionOverview"]
+  /** 进度条宽度由这些卡片自身消费；额度宽度归额度设置管理。 */
+  const WIDTH_CARD_IDS: readonly string[] = ["sessionOverview"]
+  /** 行内布局（缩进／附加行距／行名宽度／分隔线）由这些卡片消费。 */
+  const LAYOUT_CARD_IDS: readonly string[] = ["sessionOverview", "subagents", "skill"]
+  /** 角色颜色由这些卡片消费；额度颜色归额度设置管理。 */
+  const COLOR_CARD_IDS: readonly string[] = ["sessionOverview", "subagents", "skill"]
+  /** 各卡片实际消费的布局字段：卡片间距只作用于卡片之间，行名宽度只被子代理使用。 */
+  const LAYOUT_FIELDS_BY_CARD: Readonly<Record<string, readonly SidebarLayoutNumberField[]>> = {
+    sessionOverview: ["lineGap", "indent"],
+    subagents: ["lineGap", "indent", "labelWidth"],
+    skill: ["lineGap", "indent"],
+  }
+  /** 各卡片实际使用的颜色角色。 */
+  const COLOR_ROLES_BY_CARD: Readonly<Record<string, readonly SidebarColorRole[]>> = {
+    sessionOverview: ["title", "body", "muted", "divider", "bar", "warn"],
+    subagents: ["title", "body", "muted", "divider", "warn"],
+    skill: ["title", "body", "muted", "divider"],
+  }
 
-  /** 可覆盖的卡片：已注册且真的有进度条（隐藏的也可设置），按完整序列排列。 */
+  function loadedCards(ids: readonly string[]): string[] {
+    return host.fullSettings().order.filter((id) => isLoaded(id) && ids.includes(id))
+  }
+
+  /** 有卡片覆盖控件的卡片（隐藏的也可设置），按完整序列排列。 */
   function overrideIDs(): string[] {
-    return host.fullSettings().order.filter((id) => isLoaded(id) && BAR_CARD_IDS.includes(id))
+    return loadedCards([...new Set([...SHAPE_CARD_IDS, ...WIDTH_CARD_IDS, ...LAYOUT_CARD_IDS, ...COLOR_CARD_IDS])])
   }
 
   /** 其他卡片已保存的覆盖偏好：保留在草稿里（schema 不丢），但不展示无效控件。 */
@@ -375,14 +397,13 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
     return [...ids].filter((id) => !overrideIDs().includes(id))
   }
 
-  /** 单卡布局字段的当前生效值与来源：卡片覆盖 › 整体 › 未设置（渲染方决定）。 */
+  /** 单卡布局字段的来源：卡片覆盖 › 整体 › 未设置。 */
   function layoutNote(entry: SidebarLayout | undefined, field: SidebarLayoutNumberField | "divider"): string {
     const own = field === "divider" ? entry?.divider : entry?.[field]
-    if (own !== undefined) return `当前生效：${layoutFieldTitle(field, own, UNSET_TITLE)}（卡片覆盖）`
+    if (own !== undefined) return "卡片覆盖"
     const shared = appearance().layout
     const base = field === "divider" ? shared?.divider : shared?.[field]
-    if (base !== undefined) return `当前生效：${layoutFieldTitle(field, base, UNSET_TITLE)}（整体）`
-    return "未设置：由渲染方决定"
+    return base !== undefined ? "整体" : ""
   }
 
   function applyQuotaPreset(): void {
@@ -406,10 +427,10 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
       {
         id: "layout:preset",
         group: "预设",
-        title: "▸ 应用 Quota 风格预设",
+        title: "Quota 风格",
         value: () => "▸",
         run: () => applyQuotaPreset(),
-        note: () => "细线进度条填满可用宽度、卡片间距 1 空行、行名 12 字符、显示标题分隔线；颜色跟随主题。只写草稿，未保存。",
+        note: () => "细线 · 间距 1 · 行名 12 · 分隔线",
       },
       {
         id: "layout:bar",
@@ -417,14 +438,14 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
         title: "进度条形状",
         value: () => shapeTitle(draft.bar, UNSET_TITLE),
         cycle: (delta: number) => cycleBar(delta),
-        note: () => "所有侧栏卡片进度条的默认形状；none 只隐藏图形，不删除数字",
+        note: () => "额度／上下文；none 只隐藏图形",
       },
       {
         id: "layout:barWidth",
         title: "进度条宽度",
         value: () => widthTitle(draft.barWidth, UNSET_TITLE),
         cycle: (delta: number) => cycleBarWidth(delta),
-        note: () => "固定字符列数，或填满可用宽度（由渲染方量宽）",
+        note: () => "固定列数或填满；额度宽度见额度设置",
       },
     ]
     for (const field of LAYOUT_NUMBER_FIELDS) {
@@ -433,7 +454,8 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
         title: field.title,
         value: () => layoutFieldTitle(field.key, draft.layout?.[field.key], UNSET_TITLE),
         cycle: (delta: number) => cycleLayout(field.key, delta),
-        note: () => `范围 ${SIDEBAR_LAYOUT_LIMITS[field.key].min} – ${SIDEBAR_LAYOUT_LIMITS[field.key].max} ${field.unit}`,
+        note: () =>
+          `${SIDEBAR_LAYOUT_LIMITS[field.key].min} – ${SIDEBAR_LAYOUT_LIMITS[field.key].max} ${field.unit}`,
       })
     }
     lines.push({
@@ -441,50 +463,78 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
       title: "标题分隔线",
       value: () => dividerTitle(draft.layout?.divider, UNSET_TITLE),
       cycle: (delta: number) => cycleLayout("divider", delta),
-      note: () => "卡片标题下方的分隔线",
+      note: () => "标题下方",
     })
     for (const id of overrideIDs()) {
-      const resolvedBar = resolveSidebarBar(draftSettings, id)
-      const barSource = resolvedBar.source === "card-override" ? "卡片覆盖" : resolvedBar.source === "shared" ? "整体" : "卡片自己的设置"
-      const width = ownCardValue(draft.barWidths, id)
-      const entry = ownCardValue(draft.cardLayout, id)
-      lines.push({
-        id: `layout:bars:${id}`,
-        group: `卡片覆盖 · ${host.labelFor(id)}`,
-        title: "进度条形状",
-        value: () => shapeTitle(ownCardBar(draft.bars, id), INHERIT_TITLE),
-        cycle: (delta: number) => cycleBars(id, delta),
-        note: () => `当前生效：${shapeTitle(resolvedBar.shape, UNSET_TITLE)}（${barSource}）`,
-      })
-      lines.push({
-        id: `layout:barWidths:${id}`,
-        title: "进度条宽度",
-        value: () => widthTitle(width, INHERIT_TITLE),
-        cycle: (delta: number) => cycleBarWidths(id, delta),
-        note: () => `当前生效：${widthTitle(width ?? draft.barWidth, UNSET_TITLE)}（${width !== undefined ? "卡片覆盖" : draft.barWidth !== undefined ? "整体" : "卡片自己的设置"}）`,
-      })
-      for (const field of LAYOUT_NUMBER_FIELDS) {
+      const withShape = SHAPE_CARD_IDS.includes(id)
+      const withWidth = WIDTH_CARD_IDS.includes(id)
+      const withLayout = LAYOUT_CARD_IDS.includes(id)
+      let first = true
+      const group = () => {
+        const value = first ? `卡片覆盖 · ${host.labelFor(id)}` : undefined
+        first = false
+        return value
+      }
+      if (withShape) {
+        const resolvedBar = resolveSidebarBar(draftSettings, id)
+        const barSource = resolvedBar.source === "card-override" ? "卡片覆盖" : resolvedBar.source === "shared" ? "整体" : "卡片自身"
         lines.push({
-          id: `layout:card:${id}:${field.key}`,
-          title: field.title,
-          value: () => layoutFieldTitle(field.key, entry?.[field.key], INHERIT_TITLE),
-          cycle: (delta: number) => cycleCardLayout(id, field.key, delta),
-          note: () => layoutNote(entry, field.key),
+          id: `layout:bars:${id}`,
+          group: group(),
+          title: "进度条形状",
+          value: () => shapeTitle(ownCardBar(draft.bars, id), INHERIT_TITLE),
+          cycle: (delta: number) => cycleBars(id, delta),
+          note: () => barSource,
         })
       }
-      lines.push({
-        id: `layout:card:${id}:divider`,
-        title: "标题分隔线",
-        value: () => dividerTitle(entry?.divider, INHERIT_TITLE),
-        cycle: (delta: number) => cycleCardLayout(id, "divider", delta),
-        note: () => layoutNote(entry, "divider"),
-      })
+      if (withWidth) {
+        const width = ownCardValue(draft.barWidths, id)
+        lines.push({
+          id: `layout:barWidths:${id}`,
+          group: group(),
+          title: "进度条宽度",
+          value: () => widthTitle(width, INHERIT_TITLE),
+          cycle: (delta: number) => cycleBarWidths(id, delta),
+          note: () => (width !== undefined ? "卡片覆盖" : draft.barWidth !== undefined ? "整体" : "卡片自身"),
+        })
+      }
+      if (withLayout) {
+        const entry = ownCardValue(draft.cardLayout, id)
+        for (const field of LAYOUT_NUMBER_FIELDS) {
+          // 卡片间距是卡片之间的全局值；其余字段按卡片实际支持的范围显示。
+          if (field.key === "gap" || !LAYOUT_FIELDS_BY_CARD[id]?.includes(field.key)) continue
+          lines.push({
+            id: `layout:card:${id}:${field.key}`,
+            group: group(),
+            title: field.title,
+            value: () => layoutFieldTitle(field.key, entry?.[field.key], INHERIT_TITLE),
+            cycle: (delta: number) => cycleCardLayout(id, field.key, delta),
+            note: () => layoutNote(entry, field.key),
+          })
+        }
+        lines.push({
+          id: `layout:card:${id}:divider`,
+          group: group(),
+          title: "标题分隔线",
+          value: () => dividerTitle(entry?.divider, INHERIT_TITLE),
+          cycle: (delta: number) => cycleCardLayout(id, "divider", delta),
+          note: () => layoutNote(entry, "divider"),
+        })
+      }
+      if (id === "quota") {
+        lines.push({
+          id: "layout:quota:note",
+          info: true,
+          title: "其余项见额度设置。",
+          value: () => "",
+        })
+      }
     }
     const preserved = preservedOverrides(draft)
     lines.push({
       id: "layout:info",
       info: true,
-      title: `优先级：卡片覆盖 › 整体 › 卡片自己的设置；none 只隐藏进度条，不删除数字。${preserved.length > 0 ? ` 其他卡片已保存的偏好（${preserved.join("、")}）保留，但不显示控件。` : ""}`,
+      title: `优先级：覆盖 › 整体 › 卡片自身。${preserved.length > 0 ? ` 已保留其他偏好：${preserved.join("、")}。` : ""}`,
       value: () => "",
     })
     return lines
@@ -528,7 +578,7 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
     try {
       answer = await context.ui.dialog.prompt({
         title: `${COLOR_ROLE_TITLES[role]}颜色`,
-        description: "输入 #RGB 或 #RRGGBB（如 #fff 或 #1d4ed8）；取消保持原值",
+        description: "输入 #RGB 或 #RRGGBB；取消保持",
         value: entry?.[role] ?? "",
       })
     } finally {
@@ -552,11 +602,11 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
       {
         id: "colors:preset",
         group: "预设",
-        title: "▸ 预设：浅色／深色／高对比",
+        title: "颜色预设",
         value: () => COLOR_PRESETS[colorPreset()]!.title,
         cycle: (delta: number) => cycleColorPreset(delta),
         run: () => applyColorPreset(colorPreset()),
-        note: () => "把整套角色色写入草稿（未保存）；之后单个角色再改即成为自定义。",
+        note: () => "整套写入草稿",
       },
     ]
     let grouped = false
@@ -575,18 +625,18 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
       })
       grouped = true
     }
-    for (const id of overrideIDs()) {
+    for (const id of loadedCards(COLOR_CARD_IDS)) {
       const entry = ownCardValue(draft.cardColors, id)
       lines.push({
         id: `colors:card:${id}:preset`,
         group: `卡片覆盖 · ${host.labelFor(id)}`,
-        title: "▸ 预设：浅色／深色／高对比",
+        title: "颜色预设",
         value: () => COLOR_PRESETS[colorPreset()]!.title,
         cycle: (delta: number) => cycleColorPreset(delta, id),
         run: () => applyColorPreset(colorPreset(), id),
-        note: () => "把整套角色色写进这张卡的覆盖（未保存）。",
+        note: () => "整套写入此卡",
       })
-      for (const role of SIDEBAR_COLOR_ROLES) {
+      for (const role of COLOR_ROLES_BY_CARD[id] ?? SIDEBAR_COLOR_ROLES) {
         lines.push({
           id: `colors:card:${id}:${role}`,
           title: COLOR_ROLE_TITLES[role],
@@ -602,7 +652,7 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
     lines.push({
       id: "colors:info",
       info: true,
-      title: "← 回到跟随主题／继承（删除该值）；→ 或 enter 输入 #RGB／#RRGGBB。缺省角色由渲染方回退主题色；未设置的颜色保存时即从文件删除。",
+      title: "← 跟随主题 · → 输入颜色；额度颜色见额度设置",
       value: () => "",
     })
     return lines
@@ -643,12 +693,12 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
       {
         id: "shortcuts:preset",
         group: "预设",
-        title: "▸ 应用「仅主入口」预设",
+        title: "仅主入口",
         value: () => "▸",
         run: () => applyOnlyMainPreset(),
-        note: () => "三类附属入口的斜杠与命令面板全部关闭，只保留 /sidebar-cards 主入口。只写草稿，未保存。",
+        note: () => "关闭三类附属入口",
       },
-      { id: "shortcuts:info", info: true, title: "主入口 /sidebar-cards 常显，没有开关；这里只控制下列三类附属入口。", value: () => "" },
+      { id: "shortcuts:info", info: true, title: "主入口常显；以下为附属入口。", value: () => "" },
     ]
     for (const key of SIDEBAR_SHORTCUT_CATEGORY_KEYS) {
       let first = true
@@ -668,7 +718,7 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
     lines.push({
       id: "shortcuts:note",
       info: true,
-      title: "关闭后对应命令不再注册斜杠／命令面板入口；本进程保存后立即生效，其他窗口重启 TUI 后同步。",
+      title: "关闭后不再注册；保存后生效。",
       value: () => "",
     })
     return lines
@@ -766,7 +816,7 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
     if (state.status === "error") {
       return [
         { id: "error", info: true, warning: true, title: `读取失败：${state.error ?? "未知错误"}`, value: () => "" },
-        { id: "retry", title: "重新读取", value: () => "▸", run: () => void readProvider(controls.id) },
+        { id: "retry", action: true, title: "重新读取", value: () => "", run: () => void readProvider(controls.id) },
       ]
     }
     const lines: OptionLine[] = controls.fields.map((field) => {
@@ -788,7 +838,7 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
       lines.push({
         id: `preset:${index}`,
         group: index === 0 ? (controls.fields.length > 0 ? "预设" : undefined) : undefined,
-        title: `▸ 预设：${preset.title}`,
+        title: preset.title,
         value: () => "▸",
         run: () => applyPreset(controls, preset),
         note: () => preset.description,
@@ -798,9 +848,10 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
     for (const [index, action] of actions.entries()) {
       lines.push({
         id: `action:${index}`,
-        group: controls.fields.length > 0 ? "操作" : undefined,
+        group: index === 0 ? "操作" : undefined,
+        action: true,
         title: action.title,
-        value: () => "▸",
+        value: () => "",
         run: () => void runAction(controls, action),
       })
     }
@@ -828,8 +879,9 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
       },
       {
         id: "gone-discard",
+        action: true,
         title: "放弃本页草稿",
-        value: () => "▸",
+        value: () => "",
         run: () => {
           discardPage(`control:${cardID}`)
           toast("info", "已放弃本页草稿")
@@ -1309,19 +1361,19 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
     const kind = currentPage().kind
     const keys =
       zone() === "rail"
-        ? "↑↓／←→ 选择页面 · enter／tab 进入内容 · esc 关闭"
+        ? "↑↓ 页面 · enter 内容 · esc 关闭"
         : kind === "arrangement"
-          ? "←→ 移动卡片 · space 显隐 · tab 返回页面列表 · s 保存本页 · r 重新读取 · esc 返回页面列表"
+          ? "←→ 排序 · space 显隐 · s 保存 · tab 返回 · esc 返回"
           : kind === "layout"
-            ? "←→ 切换值 · space／enter 使用 · tab 返回页面列表 · s 保存本页 · r 重新读取 · esc 返回页面列表"
+            ? "←→ 切换 · enter 使用 · s 保存 · tab 返回 · esc 返回"
             : kind === "colors"
-              ? "← 跟随主题／继承 · →／enter 输入颜色 · space 使用 · tab 返回页面列表 · s 保存本页 · r 重新读取 · esc 返回页面列表"
+              ? "← 跟随 · → 输入 · s 保存 · tab 返回 · esc 返回"
               : kind === "shortcuts"
-                ? "←→／space 开关入口 · tab 返回页面列表 · s 保存本页 · r 重新读取 · esc 返回页面列表"
-                : "←→ 切换值 · enter 输入自定义值 · tab 返回页面列表 · s 保存本页 · r 重新读取 · esc 返回页面列表"
+                ? "←→ 开关 · s 保存 · tab 返回 · esc 返回"
+                : "←→ 切换 · enter 输入 · s 保存 · tab 返回 · esc 返回"
     const file = host.fileState()
     const suffix = pageDirty(currentPage().id)
-      ? "本页有未保存修改"
+      ? "未保存"
       : file.writable
         ? ""
         : `cli.json 只读：${file.reason}`
@@ -1336,12 +1388,12 @@ export function createControlWindow(host: ControlWindowHost): ControlWindow {
       const extra = unloaded > 0 ? `，${unloaded} 张未加载` : ""
       return `${current.title} · 共 ${settings.order.length} 张，隐藏 ${settings.hidden.length} 张${extra}`
     }
-    if (current.kind === "layout") return `${current.title} · 整体与每卡覆盖（形状、宽度、间距、行名、分隔线）`
-    if (current.kind === "colors") return `${current.title} · 六个角色 × 整体与每卡覆盖`
-    if (current.kind === "shortcuts") return `${current.title} · 三类 × 斜杠／命令面板，缺省显示`
-    if (current.gone) return `${current.title} · 提供方已卸载，草稿无法保存`
-    const marker = current.marker === "hidden" ? "（卡片已隐藏，仍可设置）" : current.marker === "unloaded" ? "（卡片未加载，仍可设置）" : ""
-    return `${current.title} · 卡片自己的设置${marker}`
+    if (current.kind === "layout") return `${current.title} · 整体与每卡覆盖`
+    if (current.kind === "colors") return `${current.title} · 整体与每卡覆盖`
+    if (current.kind === "shortcuts") return `${current.title} · 三类入口`
+    if (current.gone) return `${current.title} · 已卸载，不可保存`
+    const marker = current.marker === "hidden" ? "（已隐藏，仍可设置）" : current.marker === "unloaded" ? "（未加载，仍可设置）" : ""
+    return `${current.title} · 卡片设置${marker}`
   }
 
   function statusHint(): string {

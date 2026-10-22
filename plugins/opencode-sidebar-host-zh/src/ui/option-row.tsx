@@ -23,6 +23,8 @@ export interface OptionLine {
   run?: () => void
   note?: () => string
   detail?: () => string
+  /** 动作行：整行按按钮显示，标题不再按值列宽度截断。 */
+  action?: boolean
   /** 标题上方的分组标题（只在该组第一行给出）。 */
   group?: string
   /** 纯信息行：不参与选择、不高亮。 */
@@ -77,6 +79,42 @@ export function OptionRow(props: {
           {line.title}
         </text>
       </box>
+    )
+  }
+
+  if (line.action || (line.run !== undefined && line.cycle === undefined)) {
+    return (
+      <>
+        <Show when={line.group}>
+          <box paddingTop={1}>
+            <text
+              fg={props.theme.text.action.primary.base}
+              attributes={TextAttributes.BOLD}
+              wrapMode="none"
+              selectable={false}
+            >
+              {` ${line.group}`}
+            </text>
+          </box>
+        </Show>
+        <box
+          id={`sidebar-cards.${line.id}`}
+          paddingLeft={stack() ? 1 : 3}
+          flexShrink={1}
+          onMouseDown={props.press}
+          onMouseUp={props.use}
+        >
+          <text
+            fg={props.active ? props.theme.text.action.primary.base : props.theme.text.base}
+            bg={props.active ? props.theme.background?.raised.high : undefined}
+            attributes={props.active ? TextAttributes.BOLD : TextAttributes.NONE}
+            wrapMode="word"
+            selectable={false}
+          >
+            {`[ ${line.title} ]`}
+          </text>
+        </box>
+      </>
     )
   }
 

@@ -50,7 +50,7 @@ export function registerSkillCardControls(
       { key: "skillPanelMaxUsed", title: "最多显示", choices: MAX_USED_CHOICES, min: SKILL_PANEL_MAX_USED_MIN, max: SKILL_PANEL_MAX_USED_MAX, integer: true },
       { key: "skillPanelDefaultOpen", title: "初始展开", choices: OPEN_CHOICES },
     ],
-    note: "保存在 cli.json 本插件条目的 options（最多显示填 0 或正整数，0 表示不列项目）；保存后本窗口立即生效，其他窗口重启 TUI。",
+    note: "保存在 cli.json；保存后生效。",
     async read(): Promise<CardControlValues> {
       // 文件优先：读到的就是保存后的权威值，失败（条目缺失／重复／环境变量覆盖）直接抛出。
       const options = await config.read()

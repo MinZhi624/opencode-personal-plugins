@@ -48,7 +48,7 @@ export const SHAPE_CHOICES: readonly (SidebarBarShape | undefined)[] = [undefine
 /** 覆盖行“继承整体”的显示词。 */
 export const INHERIT_TITLE = "继承"
 /** 整体行“不设置”的显示词。 */
-export const UNSET_TITLE = "卡片自己的设置"
+export const UNSET_TITLE = "卡片自身"
 
 /** 覆盖表副本：只复制自有可枚举条目，`__proto__` 等键落成自有数据属性。 */
 export function copyBars(bars: Record<string, SidebarBarShape> | undefined): Record<string, SidebarBarShape> {

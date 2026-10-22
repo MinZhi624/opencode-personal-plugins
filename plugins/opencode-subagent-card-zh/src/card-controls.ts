@@ -62,18 +62,18 @@ export function registerSubagentCardControls(context: Context): () => void {
     id: SUBAGENT_CARD_ID,
     title: "子代理管理",
     fields: [
-      { key: "sortOrder", title: "排序方式", choices: SORT_CHOICES, description: "列表内条目顺序；与 /subagent-sort 同一份设置。" },
-      { key: "maxEntries", title: "显示条数", choices: MAX_ENTRIES_CHOICES, min: 1, max: 50, integer: true, description: "列表最多显示几条；与 /subagent-max 同一份设置。" },
-      { key: "ttlDays", title: "保留期限", choices: TTL_CHOICES, description: "只清理已结束记录，运行中的永远保留；与 /subagent-ttl 同一份设置。" },
+      { key: "sortOrder", title: "排序方式", choices: SORT_CHOICES, description: "列表顺序" },
+      { key: "maxEntries", title: "显示条数", choices: MAX_ENTRIES_CHOICES, min: 1, max: 50, integer: true, description: "最多显示条数" },
+      { key: "ttlDays", title: "保留期限", choices: TTL_CHOICES, description: "只清理已结束记录" },
     ],
-    note: "展示设置改动按页草稿保存；下面的操作即时执行。标记完成只把记录标为完成，绝不取消实际任务。",
+    note: "展示设置按页保存；操作即时执行。",
     actions: [
       {
-        title: "标记运行记录为完成（不取消实际任务）",
+        title: "标记完成（不取消任务）",
         run: () => markSubagentRunningDone(context, activeSessionID(context)),
       },
       {
-        title: "清空当前会话记录",
+        title: "清空本会话记录",
         run: () => clearSubagentSessionRecords(context, activeSessionID(context)),
       },
     ],
