@@ -521,6 +521,11 @@ export function TimelinePanel(props: PanelProps) {
   const groups = createMemo(() => groupNodes(readyNodes()))
   // 滚动模式显示全部；静态回退只显示最新 N 条消息，并保留日期标题。
   const shownGroups = createMemo(() => (scroll() ? groups() : latestGroups(groups(), visibleRows())))
+  // 日期标题也算一行；内容不足 visibleRows 时让 scrollbox 收缩，避免底部留空。
+  const contentLines = createMemo(() =>
+    shownGroups().reduce((total, group) => total + 1 + group.nodes.length, 0),
+  )
+  const scrollHeight = () => Math.max(1, Math.min(visibleRows(), contentLines()))
   const latestID = createMemo(() => readyNodes()[readyNodes().length - 1]?.id ?? "")
 
   /** 单个节点行（滚动 / 静态两种容器共用）。 */
@@ -587,7 +592,7 @@ export function TimelinePanel(props: PanelProps) {
               {/* 固定可视行数，剩余全部滚轮滚动；stickyScroll 保证新消息进来时保持在底部 */}
               <scrollbox
                 focusable={false}
-                height={visibleRows()}
+                height={scrollHeight()}
                 width="100%"
                 alignSelf="stretch"
                 stickyScroll
