@@ -21,7 +21,7 @@
 | `opencode-sidebar-host-zh` / `opencode-session-data` | TUI | 排序／显隐宿主和独立共享会话统计 | [README.md](plugins/opencode-sidebar-host-zh/README.md) |
 | `opencode-quota-card-zh` / `opencode-session-overview-zh` / `opencode-subagent-card-zh` / `opencode-skill-panel` | TUI | 可分别启停的额度、上下文、子代理、技能卡片 | [README.md](plugins/opencode-quota-card-zh/README.md) |
 | `opencode-user-timeline-zh` | TUI | 用户消息节点时间线，支持滚轮浏览与点击定位 | [README.zh.md](plugins/opencode-user-timeline-zh/README.zh.md) |
-| `opencode-matt-workshop` | Server | Drafter、Foreman、Tinker 与 Workflow Skill | [README.md](plugins/opencode-matt-workshop/README.md) |
+| `opencode-matt-workshop` | Server + TUI | Drafter、Foreman、Tinker、Workflow Skill 与模型预设（`/preset`、`/web-preset`） | [README.md](plugins/opencode-matt-workshop/README.md) |
 | `gpt-reset-credits` | Server | ChatGPT 重置卡查询与确认兑换 | [README.md](plugins/gpt-reset-credits/README.md) |
 
 ## 核心设计原则
@@ -83,7 +83,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 | 组 | 内容 | 说明 |
 | --- | --- | --- |
-| `workshop` | `opencode-matt-workshop` | 工作流：Drafter / Tinker / Foreman、四个 Worker、25 个 Workflow Skill |
+| `workshop` | `opencode-matt-workshop` | 工作流：Drafter / Tinker / Foreman、四个 Worker、25 个 Workflow Skill、模型预设与网页编排台 |
 | `sidebar` | `opencode-quota-zh`、`opencode-sidebar-host-zh`、`opencode-session-data` 与五张卡片 | 侧栏与额度：`/quota` 命令、卡片和共享会话统计都在此组 |
 | `alone` | `gpt-reset-credits` | 独立插件；需要 Python 3.10+ |
 

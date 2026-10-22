@@ -1,15 +1,50 @@
 import { Plugin } from "@opencode/plugin";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { WorkshopPresetRpc } from "../shared/rpc.js";
 import { manifest } from "./catalog.js";
 import { buildWorkshopAgents, mergePermissions } from "./agents.js";
 import { WORKSHOP_SKILLS_PATH } from "./config.js";
 import { parseWorkshopOptions } from "./options.js";
+import { buildPresetState, baseAgentPresets } from "./presets/state.js";
+import { effectiveAgentOverrides, readPresetFile, resolvePreset, resolvePresetPath, validatePresetFile, writePresetFile, } from "./presets/store.js";
 export default Plugin.define({
     id: "opencode-matt-workshop",
     async setup(context) {
-        const definitions = buildWorkshopAgents(parseWorkshopOptions(context.options));
+        const options = parseWorkshopOptions(context.options);
+        const presetFilePath = resolvePresetPath(options.presetsFile);
+        const baseAgents = baseAgentPresets(options.agents);
+        let availableModels;
+        const refreshCatalog = async () => {
+            try {
+                const models = await context.model.list();
+                availableModels = new Set(models.data
+                    .filter((model) => model.enabled !== false)
+                    .map((model) => `${model.providerID}/${model.id}`));
+            }
+            catch (error) {
+                // 模型目录读不到时保留一层原样链，不让插件启动失败。
+                console.warn("[opencode-matt-workshop] 读取模型目录失败，预设链将不做可用性裁剪", error);
+                availableModels = undefined;
+            }
+        };
+        const definitionsForCurrentPreset = () => {
+            const read = readPresetFile(presetFilePath);
+            if (read.error) {
+                console.warn(`[opencode-matt-workshop] ${read.error}；本次继续使用插件 options 中的模型`);
+            }
+            const effective = resolvePreset(read.file, baseAgents, availableModels);
+            return buildWorkshopAgents({
+                ...options,
+                agents: {
+                    ...options.agents,
+                    ...effectiveAgentOverrides(effective),
+                },
+            });
+        };
+        await refreshCatalog();
         await context.agent.transform((editor) => {
+            const definitions = definitionsForCurrentPreset();
             for (const [id, definition] of Object.entries(definitions)) {
                 editor.update(id, (agent) => {
                     agent.description = definition.description;
@@ -35,6 +70,55 @@ export default Plugin.define({
             }
             editor.default("tinker");
         });
+        const state = () => buildPresetState(context, presetFilePath, baseAgents);
+        let notifyChange = async () => { };
+        const registration = await context.rpc.register(WorkshopPresetRpc, {
+            state: async () => state(),
+            save: async (input) => {
+                const payload = input;
+                const active = typeof payload.active === "string" && payload.active.length > 0 ? payload.active : undefined;
+                if (active && !Object.hasOwn(payload.presets, active)) {
+                    throw new Error(`要应用的预设不存在：${active}`);
+                }
+                const file = validatePresetFile({
+                    version: 1,
+                    ...(active ? { active } : {}),
+                    presets: payload.presets,
+                });
+                writePresetFile(presetFilePath, file);
+                await refreshCatalog();
+                await context.agent.reload();
+                const next = await state();
+                await notifyChange(next.active);
+                return next;
+            },
+            activate: async (input) => {
+                const name = String(input.name ?? "").trim();
+                if (!name)
+                    throw new Error("预设名不能为空");
+                const read = readPresetFile(presetFilePath);
+                if (read.error)
+                    throw new Error(read.error);
+                const isBase = name === "base";
+                if (!isBase && !Object.hasOwn(read.file.presets, name)) {
+                    throw new Error(`预设不存在：${name}`);
+                }
+                const next = {
+                    version: 1,
+                    ...(isBase ? {} : { active: name }),
+                    presets: read.file.presets,
+                };
+                writePresetFile(presetFilePath, next);
+                await refreshCatalog();
+                await context.agent.reload();
+                const result = await state();
+                await notifyChange(result.active);
+                return result;
+            },
+        });
+        notifyChange = async (active) => {
+            await registration.events.emit("changed", { active });
+        };
         const skills = await Promise.all(manifest.skills.map(async (item) => {
             const path = join(WORKSHOP_SKILLS_PATH, item.name, "SKILL.md");
             const content = await readFile(path, "utf8");

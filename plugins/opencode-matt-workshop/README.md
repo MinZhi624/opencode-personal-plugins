@@ -225,6 +225,60 @@ Git 提交 / 暂存 / 推送 / 改写历史仍然只在你明确要求具体动�
 
 这些模型只是推荐，不是运行时默认值。未配置时，每个角色继承 OpenCode 当前模型。DeepSeek V4 Flash 不能接收图片或 PDF；附件任务应临时覆盖为支持附件的模型。`opencode-go/mimo-v2.5` 无 variant 档（只有默认），配置时省略 `variant` 字段；有 variant 档的模型（如 deepseek-v4-flash 的 low/high/max）才写 variant。
 
+### 模型预设（首版）
+
+同一份插件现在提供三个入口：
+
+| 入口 | 用途 |
+| --- | --- |
+| `/preset` | 打开预设页：`↑↓` 选择、`Enter` 应用、`Esc` 返回 |
+| `/apply-preset <名字>` | 直接应用命名预设，不经过预设页 |
+| `/web-preset` | 启动只绑定 `127.0.0.1` 的网页编辑器，并在浏览器打开 |
+| 侧栏「模型预设」卡片 | 显示当前预设与七个角色的实际模型；点标题等同 `/preset` |
+
+安装侧栏宿主时，卡片以稳定 ID `workshopPreset` 注册，可在 `/sidebar-cards` 中排序或隐藏；未检测到宿主时退回直接追加侧栏内容。
+
+网页编辑器是模型分配编排台：左侧预设列表，中间七个 Workshop 角色，右侧按视觉／免费／上下文筛选的模型库。点模型卡片把它加入当前角色候选链；每个角色可以排序、删除、写自定义 `provider/model`、填 `variant`。预设支持 `extends` 继承，网页首版不提供继承编辑，但会正确解析已有配置。
+
+**保存语义**
+
+- “保存”只写预设文件；不改变正在运行的 Agent。
+- “保存并应用”写入并把该预设设为 `active`，随后 Server 调用 `agent.reload()`。新派发的子代理使用新模型；已有会话保持原模型。TUI 若当前停在会话页，会尝试把当前会话的模型切到该角色在预设中的首项。
+- 角色候选链按顺序保存；加载时取第一个仍在 OpenCode 模型目录中的项。运行中的失败回退不在首版范围。
+- 非推理字段（prompt、permission、skills 等）仍由插件代码和 `options.agents` 决定；预设只覆盖 `model` / `variant`。
+
+**预设文件**
+
+默认路径 `~/.config/opencode/opencode-matt-workshop/presets.json`（遵守 `XDG_CONFIG_HOME`）。可用插件选项 `presetsFile` 指定其他路径。文件缺失时，所有角色继续使用 `options.agents`；网页可先创建并保存第一套预设。
+
+```jsonc
+{
+  "version": 1,
+  "active": "cheap",
+  "presets": {
+    "base": {
+      "agents": {
+        "tinker": {
+          "models": ["opencode-go/deepseek-v4.1-flash", "opencode-go/mimo-v2.5"],
+          "variant": "high"
+        }
+      }
+    },
+    "cheap": {
+      "extends": "base",
+      "agents": {
+        "maker": { "models": ["opencode-go/mimo-v2.5"] },
+        "inspector": { "models": ["opencode-go/deepseek-v4.1-flash"] }
+      }
+    }
+  }
+}
+```
+
+角色键固定为 `drafter`、`tinker`、`foreman`、`maker`、`inspector`、`archivist`、`surveyor`；未知键会被拒绝。继承循环、缺失父预设、非法 `provider/model` 都在写入前校验。写入使用同目录临时文件 + `rename`，失败时保留原文件。
+
+网页编辑器由 TUI 进程按需启动，使用随机端口和一次性 token；关闭 TUI 后服务随之停止。远程 Server 场景下，RPC 仍发往 Server，预设文件写在 Server 所在机器。
+
 ## How to use
 
 ### 使用流程一览

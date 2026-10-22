@@ -21,6 +21,8 @@ const runtimeOverrideSchema = z
 
 const workshopOptionsSchema = z
   .object({
+    /** 预设文件路径；省略时使用 ~/.config/opencode/opencode-matt-workshop/presets.json。 */
+    presetsFile: z.string().min(1).optional(),
     agents: z
       .object({
         drafter: runtimeOverrideSchema.optional(),

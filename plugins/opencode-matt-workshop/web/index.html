@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Matt Workshop · 模型分配编排台</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="ambient" aria-hidden="true"></div>
+
+    <header class="topbar">
+      <div class="brand">
+        <div class="mark">MW</div>
+        <div class="brand-copy">
+          <h1>matt-workshop <span>· 模型分配编排台</span></h1>
+          <p>把模型放到角色上，保存预设；由 Server 插件重载 Agent。当前版本按链顺序取第一个可用模型。</p>
+        </div>
+      </div>
+      <div class="top-actions">
+        <div class="file-chip" id="file-chip" title="预设文件路径">未连接</div>
+        <button class="btn ghost" id="copy-json">复制 JSON</button>
+        <button class="btn ghost" id="refresh">刷新</button>
+        <button class="btn" id="save">保存</button>
+        <button class="btn primary" id="save-apply">保存并应用</button>
+      </div>
+    </header>
+
+    <main class="shell">
+      <aside class="rail">
+        <div class="rail-head">
+          <span class="eyebrow">// PRESETS</span>
+          <button class="icon-btn" id="new-preset" title="新建预设">+</button>
+        </div>
+        <div class="preset-list" id="preset-list"></div>
+        <div class="rail-actions">
+          <button class="btn small" id="duplicate-preset">复制当前</button>
+          <button class="btn small danger" id="delete-preset">删除</button>
+        </div>
+
+        <div class="rail-meta">
+          <div><span>当前应用</span><b id="active-name">base</b></div>
+          <div><span>角色覆盖</span><b id="role-count">0 / 7</b></div>
+          <div><span>模型库</span><b id="model-count">0</b></div>
+        </div>
+
+        <div class="rail-hint">
+          <p>“保存”只写文件，不改当前 Agent。</p>
+          <p>“保存并应用”会写入并请求 Server 热重载；新派发的子代理使用新模型，已有会话保持原模型。</p>
+          <p>预设里的模型链按顺序保存；加载时取第一个仍在模型库中的项。</p>
+        </div>
+      </aside>
+
+      <section class="board">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">// AGENT PERSONAS</span>
+            <h2>角色模型分配</h2>
+            <p>点选角色，再从右侧模型库加入；也可以直接输入 <code>provider/model</code>。每个角色可排多条候选链。</p>
+          </div>
+          <div class="selected-role" id="selected-role">未选择角色</div>
+        </div>
+        <div class="error-banner" id="error-banner" hidden></div>
+        <div class="role-list" id="role-list"></div>
+      </section>
+
+      <aside class="library">
+        <div class="library-head">
+          <div>
+            <span class="eyebrow">// MODEL LIBRARY</span>
+            <h2>模型库</h2>
+          </div>
+          <span class="count" id="library-count">0</span>
+        </div>
+        <input id="search" class="search" placeholder="搜索模型 / provider / 能力…" autocomplete="off" />
+        <div class="filters" id="filters">
+          <button data-filter="all" class="chip active">全部</button>
+          <button data-filter="vision" class="chip">视觉</button>
+          <button data-filter="free" class="chip">免费</button>
+          <button data-filter="big" class="chip">大上下文</button>
+        </div>
+        <div class="model-list" id="model-list"></div>
+      </aside>
+    </main>
+
+    <footer class="statusbar">
+      <div class="status-left"><span class="dot" id="dirty-dot"></span><span id="status-text">正在连接本地预设服务…</span></div>
+      <div class="status-path" id="file-path"></div>
+    </footer>
+
+    <div class="toast" id="toast" hidden></div>
+
+    <div class="modal" id="modal" hidden>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <span class="eyebrow">// PRESET</span>
+        <h3 id="modal-title">新建预设</h3>
+        <p id="modal-desc"></p>
+        <input id="modal-input" autocomplete="off" />
+        <div class="modal-actions">
+          <button class="btn ghost" id="modal-cancel">取消</button>
+          <button class="btn primary" id="modal-ok">确定</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

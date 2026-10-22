@@ -7,7 +7,7 @@ export const GROUPS = [
   {
     id: "workshop",
     title: "工作流（Matt Workshop）",
-    summary: "Drafter / Tinker / Foreman、四个 Worker、25 个 Workflow Skill",
+    summary: "Drafter / Tinker / Foreman、四个 Worker、25 个 Workflow Skill、模型预设与网页编排台",
     requiresPython: false,
     plugins: ["opencode-matt-workshop"],
     opencodeEntries: `    {
