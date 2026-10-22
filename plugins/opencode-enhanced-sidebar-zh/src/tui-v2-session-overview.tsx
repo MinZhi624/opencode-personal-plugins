@@ -79,7 +79,9 @@ export function SessionOverview(props: { context: Context; sessionID: string; ru
   })
   const messages = createMemo(() => {
     void tick()
-    return props.context.data.session.message.list(props.sessionID)
+    // 宿主可能原地填充消息数组；复制快照，避免 memo 因引用相同吞掉刷新。
+    // 仍只读取服务端已有用量，生成中的空记录不会替换上一轮准确值。
+    return [...props.context.data.session.message.list(props.sessionID)]
   })
   type Message = ReturnType<typeof messages>[number]
   type AssistantMessage = Extract<Message, { type: "assistant" }>
@@ -134,7 +136,6 @@ export function SessionOverview(props: { context: Context; sessionID: string; ru
   const titleColor = () => colors().title ?? theme.text.action.primary.base
   const bodyColor = () => colors().body ?? theme.text.base
   const mutedColor = () => colors().muted ?? theme.text.muted
-  const warnColor = () => colors().warn ?? theme.text.feedback.warning.base
   const dividerColor = () => colors().divider ?? theme.text.muted
   const indent = () => Math.max(0, layout().indent ?? 0)
   const lineGap = () => Math.max(0, layout().lineGap ?? 0)
@@ -144,7 +145,7 @@ export function SessionOverview(props: { context: Context; sessionID: string; ru
     return (
       <box flexDirection="row" flexWrap="wrap" justifyContent="space-between" paddingLeft={indent()}>
         <text fg={mutedColor()}>{props2.label}</text>
-        <text fg={props2.unavailable ? warnColor() : props2.muted ? mutedColor() : bodyColor()}>{props2.value}</text>
+        <text fg={props2.muted ? mutedColor() : bodyColor()}>{props2.value}</text>
       </box>
     )
   }
