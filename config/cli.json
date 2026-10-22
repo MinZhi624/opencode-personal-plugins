@@ -7,13 +7,14 @@
       "package": "./opencode-zh-bundle/plugins/opencode-sidebar-host-zh",
       "options": {
         "sidebarCards": {
-          "order": ["sessionOverview", "quota", "subagents", "skill"],
+          "order": ["sessionOverview", "timeline", "quota", "subagents", "skill"],
           "hidden": []
         }
       }
     },
     "./opencode-zh-bundle/plugins/opencode-quota-card-zh",
     "./opencode-zh-bundle/plugins/opencode-session-overview-zh",
+    { "package": "./opencode-zh-bundle/plugins/opencode-user-timeline-zh", "options": { "visibleRows": 8, "scroll": true } },
     {
       "package": "./opencode-zh-bundle/plugins/opencode-subagent-card-zh",
       "options": {

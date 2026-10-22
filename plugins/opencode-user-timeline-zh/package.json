@@ -1,0 +1,16 @@
+{
+  "name": "opencode-user-timeline-zh",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenCode 2 TUI 侧栏卡片：当前会话的用户消息节点时间线，支持滚轮浏览与点击定位。",
+  "exports": {
+    "./tui": "./tui.ts"
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "@opentui/core": ">=0.5.17",
+    "@opentui/solid": ">=0.5.17",
+    "solid-js": ">=1.9.0"
+  }
+}

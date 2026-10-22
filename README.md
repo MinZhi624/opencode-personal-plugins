@@ -13,13 +13,14 @@
 
 ## 简介
 
-本包不重写 OpenCode，而是在若干开源项目基础上做 OpenCode 适配、中文化与本地整合。侧栏功能由独立宿主、共享会话统计和四张可分别启停的卡片组成：
+本包不重写 OpenCode，而是在若干开源项目基础上做 OpenCode 适配、中文化与本地整合。侧栏功能由独立宿主、共享会话统计和五张可分别启停的卡片组成：
 
 | 插件 | 加载面 | 用途 | 独立说明 |
 | --- | --- | --- | --- |
 | `opencode-quota-zh` | Server + TUI | Provider 额度后台和独立命令（关闭卡片后仍工作） | [README.zh.md](plugins/opencode-quota-zh/README.zh.md) |
 | `opencode-sidebar-host-zh` / `opencode-session-data` | TUI | 排序／显隐宿主和独立共享会话统计 | [README.md](plugins/opencode-sidebar-host-zh/README.md) |
 | `opencode-quota-card-zh` / `opencode-session-overview-zh` / `opencode-subagent-card-zh` / `opencode-skill-panel` | TUI | 可分别启停的额度、上下文、子代理、技能卡片 | [README.md](plugins/opencode-quota-card-zh/README.md) |
+| `opencode-user-timeline-zh` | TUI | 用户消息节点时间线，支持滚轮浏览与点击定位 | [README.zh.md](plugins/opencode-user-timeline-zh/README.zh.md) |
 | `opencode-matt-workshop` | Server | Drafter、Foreman、Tinker 与 Workflow Skill | [README.md](plugins/opencode-matt-workshop/README.md) |
 | `gpt-reset-credits` | Server | ChatGPT 重置卡查询与确认兑换 | [README.md](plugins/gpt-reset-credits/README.md) |
 
@@ -48,6 +49,7 @@
 | OpenCode SubAgent Magazine | <https://github.com/Hotakus/opencode-subagent-magazine> | 增强侧边栏的子代理监控与 KV 持久化 |
 | opencode-enhanced-sidebar | <https://github.com/nt-cubic/opencode-enhanced-sidebar> | `opencode-enhanced-sidebar-zh` 的界面来源 |
 | opencode-plugins（`opencode-quota-extended`） | <https://github.com/arandevcode/opencode-plugins> | `opencode-quota-zh` 的额度卡片与 CLI 部分 |
+| opencode-user-timeline | <https://github.com/huahai0202/opencode-user-timeline> | `opencode-user-timeline-zh` 的用户消息节点面板 |
 | Matt Pocock Skills | <https://github.com/mattpocock/skills> | Workshop 的 Workflow Skill 来源 |
 | models.dev | <https://models.dev/> | API 标价估算的公开价格目录 |
 
@@ -82,7 +84,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 | 组 | 内容 | 说明 |
 | --- | --- | --- |
 | `workshop` | `opencode-matt-workshop` | 工作流：Drafter / Tinker / Foreman、四个 Worker、25 个 Workflow Skill |
-| `sidebar` | `opencode-quota-zh`、`opencode-sidebar-host-zh`、`opencode-session-data` 与四张卡片 | 侧栏与额度：`/quota` 命令、卡片和共享会话统计都在此组 |
+| `sidebar` | `opencode-quota-zh`、`opencode-sidebar-host-zh`、`opencode-session-data` 与五张卡片 | 侧栏与额度：`/quota` 命令、卡片和共享会话统计都在此组 |
 | `alone` | `gpt-reset-credits` | 独立插件；需要 Python 3.10+ |
 
 组之间无依赖，可任意组合；组内依赖插件（含隐藏共享库 `opencode-enhanced-sidebar-zh`）随组整体安装。
@@ -97,15 +99,17 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 > [!IMPORTANT]
 > OpenCode v2 会重载受监视的配置与插件；未受监视的本地依赖变更后请重启服务。
-> 升级自聚合侧栏时，必须在 `cli.json` 删除 `opencode-enhanced-sidebar-zh` 条目再加入新宿主和四张卡片；不能同时启用两套展示。安装器默认不修改已有配置。
+> 升级自聚合侧栏时，必须在 `cli.json` 删除 `opencode-enhanced-sidebar-zh` 条目再加入新宿主和五张卡片；不能同时启用两套展示。安装器默认不修改已有配置。
 
 新宿主的跨插件 JSX 注册通过同一 TUI 进程内的自有版本化接合处实现，并非 OpenCode 官方保证的跨插件 API；仅按 OpenCode 2.0.18 验证，升级须重新验收。接合处契约与迁移注意见 [`opencode-sidebar-host-zh`](plugins/opencode-sidebar-host-zh/README.md) 与 [`opencode-quota-card-zh`](plugins/opencode-quota-card-zh/README.md)。
 
-侧栏排列以全局 `cli.json` 中唯一宿主条目的 `options.sidebarCards` 为准：`order` 为稳定卡片 ID 数组（如 `sessionOverview`、`quota`、`subagents`、`skill`），`hidden` 为隐藏 ID 数组。统一窗口与直接命令写回同一文件；失败时只读降级并给出手动片段，不另存排序。改过的文件属于用户自定义，重装默认保留，不会重置顺序。旧 storage 仅可显式导入，不能覆盖已有文件设置。第三方接入见 [对接指南](plugins/opencode-sidebar-host-zh/INTEGRATION.md)，不提供任意插件自动适配。
+侧栏排列以全局 `cli.json` 中唯一宿主条目的 `options.sidebarCards` 为准：`order` 为稳定卡片 ID 数组（如 `sessionOverview`、`timeline`、`quota`、`subagents`、`skill`），`hidden` 为隐藏 ID 数组。统一窗口与直接命令写回同一文件；失败时只读降级并给出手动片段，不另存排序。改过的文件属于用户自定义，重装默认保留，不会重置顺序。旧 storage 仅可显式导入，不能覆盖已有文件设置。第三方接入见 [对接指南](plugins/opencode-sidebar-host-zh/INTEGRATION.md)，不提供任意插件自动适配。
+
+用户节点卡片（`timeline`）默认位于上下文之后、子代理之前，显示 8 行，可在 `/sidebar-cards` 调整行数与浏览方式；标题行可折叠。它不再注册 `Alt+U` / `/nodes`，显隐统一由 `/sidebar-cards` 或 `/sidebar-host-show|hide timeline` 管理。点击节点复用宿主导航命令定位，未加载的历史消息会先显示定位遮罩。
 
 ### 统一展示控制窗口
 
-`/sidebar-cards` 是本套卡片的统一入口：排列、显隐、整体进度条样式、单卡覆盖，以及四张卡片各自适用的展示选项都在同一窗口按页管理；窗口与卡片统一主题、标题、间距与中文对齐，但各卡片保留适合自身内容的布局。编辑即时预览，显式保存才持久化；放弃恢复对应页已保存状态；有未保存修改时关闭或切页会要求保存／放弃／继续编辑，不静默丢失。保存失败保留草稿并明确报错，成功以重新读取文件后的结果为准。宿主偏好与侧栏形状偏好写入上述宿主条目，技能私有选项写入技能条目，均保留其他插件条目与注释，检测到外部修改时提示冲突、不静默覆盖；上下文展开状态、子代理排序／条数／保留期限继续由各自插件的会话存储拥有，统一窗口只经各所有者已有的读写能力保存，不建立第二份存储。
+`/sidebar-cards` 是本套卡片的统一入口：排列、显隐、整体进度条样式、单卡覆盖，以及五张卡片各自适用的展示选项都在同一窗口按页管理；窗口与卡片统一主题、标题、间距与中文对齐，但各卡片保留适合自身内容的布局。编辑即时预览，显式保存才持久化；放弃恢复对应页已保存状态；有未保存修改时关闭或切页会要求保存／放弃／继续编辑，不静默丢失。保存失败保留草稿并明确报错，成功以重新读取文件后的结果为准。宿主偏好与侧栏形状偏好写入上述宿主条目，技能私有选项写入技能条目，均保留其他插件条目与注释，检测到外部修改时提示冲突、不静默覆盖；上下文展开状态、子代理排序／条数／保留期限继续由各自插件的会话存储拥有，统一窗口只经各所有者已有的读写能力保存，不建立第二份存储。
 
 `/sidebar-host-show|hide|up|down <卡片ID>` 等直接命令保持即时保存语义，与窗口草稿是两套交互。本包不承诺跨窗口热同步：其他窗口未同步时重启其 TUI，或重新打开 `/sidebar-cards` 重新读取。
 

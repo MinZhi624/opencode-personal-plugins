@@ -14,6 +14,12 @@
 - 成本和 models.dev 定价逻辑源自 `@slkiser/opencode-quota`。
 - 相关许可证位于 `plugins/opencode-enhanced-sidebar-zh/LICENSES/`。
 
+## opencode-user-timeline-zh
+
+- 基于 `opencode-user-timeline` 0.2.3（commit `f1364dd`）移植，接入本套侧栏宿主。
+- 上游使用 MIT 许可证；许可证文本：`plugins/opencode-user-timeline-zh/LICENSE`。
+- 本包修改了侧栏出口、显隐归属、主题配色与卡片控制接入；跳转逻辑保留上游实现。
+
 ## opencode-matt-workshop
 
 - `skills/` 是 Matt Pocock 全部 promoted engineering 与 productivity skills 的适配版本（上游 v1.2.3）。

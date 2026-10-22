@@ -47,7 +47,7 @@ export const GROUPS = [
   {
     id: "sidebar",
     title: "侧栏（含额度后台 quota-zh）",
-    summary: "额度／会话概览／子代理／技能卡片、宿主与共享会话统计（/quota 命令也在此组）",
+    summary: "额度／会话概览／用户节点／子代理／技能卡片、宿主与共享会话统计（/quota 命令也在此组）",
     requiresPython: false,
     // 固定最低 OpenCode 版本：侧栏的额度后台（v6 RPC）与会话统计的 sessionUsage 读法
     // 从 2.0.26 起可用，本地核对到 2.0.28。声明的是“最低可用版本”，
@@ -59,6 +59,7 @@ export const GROUPS = [
       "opencode-session-data",
       "opencode-quota-card-zh",
       "opencode-session-overview-zh",
+      "opencode-user-timeline-zh",
       "opencode-subagent-card-zh",
       "opencode-skill-panel",
       "opencode-enhanced-sidebar-zh",
@@ -71,13 +72,14 @@ export const GROUPS = [
       "package": "./opencode-zh-bundle/plugins/opencode-sidebar-host-zh",
       "options": {
         "sidebarCards": {
-          "order": ["sessionOverview", "quota", "subagents", "skill"],
+          "order": ["sessionOverview", "timeline", "quota", "subagents", "skill"],
           "hidden": []
         }
       }
     },
     "./opencode-zh-bundle/plugins/opencode-quota-card-zh",
     "./opencode-zh-bundle/plugins/opencode-session-overview-zh",
+    { "package": "./opencode-zh-bundle/plugins/opencode-user-timeline-zh", "options": { "visibleRows": 8, "scroll": true } },
     {
       "package": "./opencode-zh-bundle/plugins/opencode-subagent-card-zh",
       "options": {
@@ -89,7 +91,7 @@ export const GROUPS = [
     { "package": "./opencode-zh-bundle/plugins/opencode-skill-panel", "options": { "skillPanelMaxUsed": 8, "skillPanelDefaultOpen": true } }`,
     configNotes: [
       "opencode.jsonc：plugins 中的 opencode-quota-zh 条目（Server 入口）",
-      "cli.json：opencode-quota-zh、opencode-session-data、opencode-sidebar-host-zh、opencode-quota-card-zh、opencode-session-overview-zh、opencode-subagent-card-zh、opencode-skill-panel 七个条目",
+      "cli.json：opencode-quota-zh、opencode-session-data、opencode-sidebar-host-zh、opencode-quota-card-zh、opencode-session-overview-zh、opencode-user-timeline-zh、opencode-subagent-card-zh、opencode-skill-panel 八个条目",
     ],
   },
   {
