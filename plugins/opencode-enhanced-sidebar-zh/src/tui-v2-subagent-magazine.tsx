@@ -4,6 +4,7 @@ import "@opentui/solid/preload"
 import { Plugin } from "@opencode/plugin/tui"
 import type { Context } from "@opencode/plugin/tui/context"
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js"
+import type { BoxRenderable } from "@opentui/core"
 import { copyText } from "./clipboard.ts"
 import { createSessionCostSummary } from "./metrics/session-cost-summary.ts"
 import type { SessionCostSummary } from "./metrics/session-cost-summary.ts"
@@ -12,6 +13,7 @@ import { formatCostUsd } from "./metrics/token-cost.ts"
 import { createV2Metrics } from "./v2-runtime.ts"
 import { useCardControlPreview } from "../../opencode-sidebar-host-zh/src/card-controls.ts"
 import { shortcutVisible, useSidebarDisplay, useSidebarShortcuts } from "../../opencode-sidebar-host-zh/src/presentation.ts"
+import { columnsOf, fit } from "../../opencode-sidebar-host-zh/src/ui/text.ts"
 
 export type SubagentSortOrder = "desc" | "asc"
 
@@ -279,6 +281,15 @@ export function SubAgentPanel(props: {
   const lineGap = () => display().layout.lineGap
   const labelWidth = () => display().layout.labelWidth
   const withDivider = () => display().layout.divider === true
+  // 面板宽度测量：条目行靠它把标题截到「● 标题 时长 Tokens」一行放得下。
+  const [measured, setMeasured] = createSignal(0)
+  // 单行预算：实测宽度（减去缩进与嵌套缩进）里，可变文本最多占几列。
+  // 首帧还没测到宽度时按 26 列兜底（与用户节点卡同一策略），测得后立即精确。
+  const lineBudget = (fixedColumns: number, gutter = 0) => {
+    const width = measured()
+    if (width <= 0) return 26
+    return Math.max(4, width - indent() - gutter - fixedColumns)
+  }
   const summaryTokensText = () => {
     if (!summary) return "-"
     const status = summary.descendantTokenStatus()
@@ -302,16 +313,28 @@ export function SubAgentPanel(props: {
       return entry.childID ? props.runtime?.metrics.get(entry.childID) : undefined
     }
     const entryTokens = () => result()?.complete && result()?.hasUsage ? totalTokenBuckets(result()!.tokens) : null
+    const tokensText = () => (expanded() !== entry.id && entryTokens() !== null && entryTokens()! > 0 ? formatTokenCount(entryTokens()!) : undefined)
+    // 「● 标题 时长 Tokens」必须留在同一行：标题按剩余列数截断出省略号。
+    // 不用 flexWrap="wrap"——标题过长时它会把行尾的 Token 挤到下一行，屏幕上出现孤立的数字行。
+    const titleText = () => {
+      const tokens = tokensText()
+      const fixed =
+        columnsOf(dot(entry.status)) + columnsOf(duration(entry)) + (tokens === undefined ? 0 : columnsOf(tokens)) +
+        (tokens === undefined ? 2 : 3) // 元素之间 gap 1 列
+      return fit(entry.title || entry.agent, lineBudget(fixed, row.nested ? 2 : 0))
+    }
     return (
       <box flexDirection="column" paddingLeft={row.nested ? 2 : 0}>
         <Show when={!row.nested && row.index > 0 && withDivider()}><text fg={dividerColor()} wrapMode="none" selectable={false}>{"─".repeat(40)}</text></Show>
-        <box flexDirection="row" flexWrap="wrap" gap={1} onMouseDown={() => setExpanded((value) => value === entry.id ? "" : entry.id)}>
-          <text fg={color(entry.status)}>{dot(entry.status)}</text>
-          <text fg={bodyColor()}>{entry.title || entry.agent}</text>
-          <text fg={mutedColor()}>{duration(entry)}</text>
-          <Show when={expanded() !== entry.id && entryTokens() !== null && entryTokens()! > 0}><text fg={mutedColor()}>{formatTokenCount(entryTokens()!)}</text></Show>
+        <box flexDirection="row" gap={1} onMouseDown={() => setExpanded((value) => value === entry.id ? "" : entry.id)}>
+          <text fg={color(entry.status)} flexShrink={0}>{dot(entry.status)}</text>
+          <text fg={bodyColor()} wrapMode="none" flexShrink={1}>{titleText()}</text>
+          <text fg={mutedColor()} flexShrink={0}>{duration(entry)}</text>
+          <Show when={tokensText() !== undefined}><text fg={mutedColor()} flexShrink={0}>{tokensText()}</text></Show>
         </box>
         <Show when={expanded() === entry.id}>
+        {/* 标题被截断时在详情里补全；word 换行是段落式展开，不会再掉出孤立的行。 */}
+        <Show when={titleText() !== (entry.title || entry.agent)}><text fg={bodyColor()} wrapMode="word">{entry.title || entry.agent}</text></Show>
         <box flexDirection="row" flexWrap="wrap" justifyContent="space-between"><text fg={mutedColor()}>代理</text><text fg={bodyColor()}>{entry.agent}</text></box>
         <Show when={entry.childID && props.context.data.session.get(entry.childID)?.model}><box flexDirection="row" flexWrap="wrap" justifyContent="space-between"><text fg={mutedColor()}>模型</text><text fg={bodyColor()}>{(() => { const model = props.context.data.session.get(entry.childID!)!.model!; return `${model.providerID}/${model.id}` })()}</text></box></Show>
         <box flexDirection="row" flexWrap="wrap" justifyContent="space-between"><text fg={mutedColor()}>状态</text><text fg={color(entry.status)}>{statusText(entry.status)}</text></box>
@@ -328,7 +351,14 @@ export function SubAgentPanel(props: {
     )
   }
   return (
-    <box flexDirection="column" paddingLeft={indent()} gap={lineGap()}>
+    <box
+      flexDirection="column"
+      paddingLeft={indent()}
+      gap={lineGap()}
+      onSizeChange={function (this: BoxRenderable) {
+        if (this.width > 0 && this.width !== measured()) queueMicrotask(() => setMeasured(this.width))
+      }}
+    >
       <box flexDirection="row" flexWrap="wrap" gap={1} onMouseDown={() => void updateView((draft) => { draft.open = !draft.open })}>
         <text fg={titleColor()}>{view.open ? "▼" : "▶"}</text>
         <text fg={titleColor()}><b>子代理</b></text>
@@ -348,10 +378,11 @@ export function SubAgentPanel(props: {
         <For each={primaryEntries()}>{(entry, index) => <EntryItem entry={entry} index={index()} />}</For>
         <Show when={overflowCount() > 0}>
           {/* 二级分组：独立标题条 + 缩进的组内条目，避免和普通条目混在一起。 */}
-          <box flexDirection="row" flexWrap="wrap" gap={1} width="100%" backgroundColor={theme.background?.raised.high} onMouseDown={() => setShowAll((value) => !value)}>
-            <text fg={titleColor()}>{showAll() ? "▾" : "▸"}</text>
-            <text fg={titleColor()}><b>其余 {overflowCount()} 条</b></text>
-            <Show when={overflowSummary()}><text fg={mutedColor()}>{overflowSummary()}</text></Show>
+          <box flexDirection="row" gap={1} width="100%" backgroundColor={theme.background?.raised.high} onMouseDown={() => setShowAll((value) => !value)}>
+            <text fg={titleColor()} flexShrink={0}>{showAll() ? "▾" : "▸"}</text>
+            <text fg={titleColor()} flexShrink={0}><b>其余 {overflowCount()} 条</b></text>
+            {/* 摘要同样按剩余列数截断：过长时不再被折行挤成孤立的一段。 */}
+            <Show when={overflowSummary()}><text fg={mutedColor()} wrapMode="none" flexShrink={1}>{fit(overflowSummary(), lineBudget(columnsOf(`其余 ${overflowCount()} 条`) + 3))}</text></Show>
           </box>
           <Show when={showAll()}>
             <For each={overflowEntries()}>{(entry) => <EntryItem entry={entry} index={0} nested />}</For>
