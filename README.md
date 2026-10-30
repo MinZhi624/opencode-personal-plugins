@@ -1,4 +1,4 @@
-# OpenCode 中文插件整合包
+# Min_Zhi整合包
 
 <p align="center">OpenCode 本地中文插件整合包：额度、Token 用量、API 标价估算与工程工作流。</p>
 
@@ -67,8 +67,9 @@ Linux / macOS / WSL：
 
 ```bash
 bash install.sh                 # ↑↓ 移动、空格勾选、Enter 确认（预选上次安装的组合）
-bash install.sh --all           # 安装全部组，跳过提问
+bash install.sh --all           # 安装全部组与全部侧栏卡片，跳过提问
 bash install.sh --only workshop,sidebar
+bash install.sh --only sidebar --cards timeline,skill   # 只装宿主与时间线／技能卡片
 ```
 
 Windows PowerShell：
@@ -83,16 +84,18 @@ Set-ExecutionPolicy -Scope Process Bypass
 | 组 | 内容 | 说明 |
 | --- | --- | --- |
 | `workshop` | `opencode-matt-workshop` | 工作流：Drafter / Tinker / Foreman、四个 Worker、25 个 Workflow Skill、模型预设与网页编排台 |
-| `sidebar` | `opencode-quota-zh`、`opencode-sidebar-host-zh`、`opencode-session-data` 与五张卡片 | 侧栏与额度：`/quota` 命令、卡片和共享会话统计都在此组 |
+| `sidebar` | 宿主、额度后台、共享会话统计与可选五张卡片 | 侧栏与额度：一屏内分组勾选卡片 |
 | `alone` | `gpt-reset-credits` | 独立插件；需要 Python 3.10+ |
 
-组之间无依赖，可任意组合；组内依赖插件（含隐藏共享库 `opencode-enhanced-sidebar-zh`）随组整体安装。
-想要 `/quota` 命令需安装 `sidebar` 组。
+侧栏卡片与组件组在同一个彩色分组列表里选择：`↑↓` 移动、空格勾选、`Enter` 确认。勾选任意卡片会自动点亮「侧栏」并带上宿主 `opencode-sidebar-host-zh`、额度后台 `opencode-quota-zh` 与共享会话统计 `opencode-session-data`；`sessionOverview` 与 `subagents` 另带隐藏共享库 `opencode-enhanced-sidebar-zh`。取消「侧栏」会同时清空卡片。非交互安装用 `--cards timeline,skill` 指定（`--cards none` 只装侧栏基础），省略时默认全部卡片。
+
+组之间无依赖，可任意组合；侧栏基础随 `sidebar` 组安装，勾选卡片只额外补对应插件。
+`/quota` 命令随侧栏基础安装，不勾选任何卡片也可用。
 非交互环境（CI／重定向）请显式使用 `--all` 或 `--only` / `--without`，
 不带参数会报错退出而不静默全装。
 交互终端安装结束后会显示结果并等待按 Enter 退出；非交互安装不会等待。
 
-安装器会自动把本包条目合并到已有 OpenCode 配置：只补缺失的插件条目与键，保留你已有的设置和注释，写前备份为 `.bak.<时间戳>`；`--replace-config` 可改为整体替换。减少组件组时不会自动删除已有配置条目。
+安装器会自动把本包条目合并到已有 OpenCode 配置：只补缺失的插件条目与键，保留你已有的设置和注释，写前备份为 `.bak.<时间戳>`；`--replace-config` 可改为整体替换。减少组件组或卡片时不会自动删除已有配置条目。
 
 > [!IMPORTANT]
 > OpenCode v2 会重载受监视的配置与插件；未受监视的本地依赖变更后请重启服务。
@@ -117,9 +120,9 @@ Set-ExecutionPolicy -Scope Process Bypass
 ## 更新
 
 1. 关闭 OpenCode。
-2. 重新运行安装器（`install.sh` / `install.ps1`）。交互模式预选上次安装的组件组；用 `--only` / `--without` 可增减组。
+2. 重新运行安装器（`install.sh` / `install.ps1`）。交互模式预选上次安装的组件与卡片，侧栏分组内直接勾选；用 `--only` / `--without` / `--cards` 可增减。
 3. 已有配置会自动合并：只补缺失的插件条目与键，保留已有设置和注释，写前备份为 `.bak.<时间戳>`。
-4. 减少组件组时，bundle 保留未选组的插件文件；已有配置不会自动删除条目，需要停用请从 `opencode.jsonc` / `cli.json` 的 `plugins` 数组删除对应条目。
+4. 减少组件组或卡片时，bundle 保留未选插件文件；已有配置不会自动删除条目，需要停用请从 `opencode.jsonc` / `cli.json` 的 `plugins` 数组删除对应条目。
 5. 重启 OpenCode。
 
 ## 常用命令
