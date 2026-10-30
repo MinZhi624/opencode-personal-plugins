@@ -6,16 +6,30 @@
  */
 import { randomBytes } from "node:crypto"
 import { spawn } from "node:child_process"
-import { readFile } from "node:fs/promises"
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises"
 import { createServer, type IncomingMessage, type Server } from "node:http"
+import { homedir } from "node:os"
 import { fileURLToPath } from "node:url"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import type { Context } from "@opencode/plugin/tui/context"
 import type { PresetDefinition } from "../shared/presets.ts"
 import { activatePreset, fetchPresetState, savePresetDefinitions } from "./rpc-client.ts"
 
 const WEB_ROOT = fileURLToPath(new URL("../web/", import.meta.url))
 const MAX_BODY_BYTES = 2 * 1024 * 1024
+// 网页偏好（隐藏模型）不属于预设语义，单独存放；由本机 TUI 宿主读写，不进 presets.json。
+const UI_PREFS_PATH = join(
+  process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config"),
+  "opencode",
+  "opencode-matt-workshop",
+  "ui.json",
+)
+const MODEL_REF = /^[^/\s]+\/[^/\s]+$/
+const MAX_HIDDEN_MODELS = 500
+
+interface UiPrefs {
+  readonly hiddenModels: readonly string[]
+}
 
 interface RunningServer {
   readonly url: string
@@ -115,6 +129,14 @@ async function handleRequest(
     return writeJson(response, 200, await fetchPresetState(context))
   }
 
+  if (request.method === "GET" && path === "/api/prefs") {
+    return writeJson(response, 200, await readUiPrefs())
+  }
+
+  if (request.method === "POST" && path === "/api/prefs") {
+    return writeJson(response, 200, await writeUiPrefs(await readJson(request)))
+  }
+
   if (request.method === "POST" && path === "/api/activate") {
     const body = (await readJson(request)) as { name?: unknown }
     const name = typeof body?.name === "string" ? body.name.trim() : ""
@@ -154,6 +176,37 @@ async function serveAsset(
     "x-content-type-options": "nosniff",
   })
   response.end(content)
+}
+
+function normalizeHiddenModels(values: readonly unknown[]): string[] {
+  const result = new Set<string>()
+  for (const value of values) {
+    if (typeof value === "string" && MODEL_REF.test(value)) result.add(value)
+  }
+  return [...result]
+}
+
+async function readUiPrefs(): Promise<UiPrefs> {
+  try {
+    const parsed = JSON.parse(await readFile(UI_PREFS_PATH, "utf8")) as { hiddenModels?: unknown }
+    const values = Array.isArray(parsed?.hiddenModels) ? parsed.hiddenModels : []
+    return { hiddenModels: normalizeHiddenModels(values) }
+  } catch {
+    return { hiddenModels: [] }
+  }
+}
+
+async function writeUiPrefs(body: unknown): Promise<UiPrefs> {
+  const input = body as { hiddenModels?: unknown }
+  if (!Array.isArray(input?.hiddenModels)) throw new Error("hiddenModels 必须是字符串数组")
+  const hiddenModels = normalizeHiddenModels(input.hiddenModels)
+  if (hiddenModels.length > MAX_HIDDEN_MODELS) throw new Error(`隐藏模型不能超过 ${MAX_HIDDEN_MODELS} 个`)
+  const directory = dirname(UI_PREFS_PATH)
+  await mkdir(directory, { recursive: true })
+  const temp = join(directory, `.${randomBytes(6).toString("hex")}.ui.tmp`)
+  await writeFile(temp, `${JSON.stringify({ hiddenModels }, null, 2)}\n`)
+  await rename(temp, UI_PREFS_PATH)
+  return { hiddenModels }
 }
 
 function header(request: IncomingMessage, name: string): string | undefined {

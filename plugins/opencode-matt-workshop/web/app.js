@@ -6,6 +6,7 @@
  */
 const TOKEN = new URLSearchParams(location.search).get("token") || ""
 const ROLE_IDS = ["drafter", "tinker", "foreman", "maker", "inspector", "archivist", "surveyor"]
+const HIDDEN_KEY = "matt-workshop.hidden-models"
 
 const app = {
   state: null,
@@ -17,6 +18,7 @@ const app = {
   filter: "all",
   query: "",
   saving: false,
+  hidden: new Set(readLocalHidden()),
 }
 
 const el = {
@@ -33,6 +35,7 @@ const el = {
   selectedRole: document.getElementById("selected-role"),
   search: document.getElementById("search"),
   filters: document.getElementById("filters"),
+  hiddenFilter: document.getElementById("hidden-filter"),
   errorBanner: document.getElementById("error-banner"),
   statusText: document.getElementById("status-text"),
   dirtyDot: document.getElementById("dirty-dot"),
@@ -88,6 +91,48 @@ function formatContext(value) {
 function formatCost(model) {
   if (model.free) return "免费"
   return `$${model.inputCost}/$${model.outputCost} per 1M`
+}
+
+function readLocalHidden() {
+  try {
+    const raw = localStorage.getItem(HIDDEN_KEY)
+    const list = raw ? JSON.parse(raw) : []
+    return Array.isArray(list)
+      ? list.filter((key) => typeof key === "string" && key.includes("/"))
+      : []
+  } catch {
+    return []
+  }
+}
+
+function writeLocalHidden() {
+  try {
+    localStorage.setItem(HIDDEN_KEY, JSON.stringify([...app.hidden]))
+  } catch {
+    // 隐私模式禁用存储时忽略；服务端 ui.json 仍是主存储。
+  }
+}
+
+async function loadPrefs() {
+  try {
+    const data = await api("/api/prefs")
+    if (Array.isArray(data?.hiddenModels)) {
+      app.hidden = new Set(
+        data.hiddenModels.filter((key) => typeof key === "string" && key.includes("/")),
+      )
+      writeLocalHidden()
+    }
+  } catch {
+    // 旧版宿主没有 /api/prefs；继续使用 localStorage。
+  }
+}
+
+function persistHidden() {
+  writeLocalHidden()
+  void api("/api/prefs", {
+    method: "POST",
+    body: JSON.stringify({ hiddenModels: [...app.hidden] }),
+  }).catch(() => {})
 }
 
 function roleById(id) {
@@ -475,10 +520,37 @@ function removeChainItem(roleID, index) {
   showToast(`已从 ${role?.label ?? roleID} 移除 ${modelLabel(model)}`, "success")
 }
 
+function toggleHiddenModel(key) {
+  const wasHidden = app.hidden.has(key)
+  if (wasHidden) app.hidden.delete(key)
+  else app.hidden.add(key)
+  persistHidden()
+  if (!wasHidden) {
+    renderModels()
+    showToast(`已隐藏 ${modelLabel(key)}；可在「已隐藏」找回`, "info")
+    return
+  }
+  showToast(`已找回 ${modelLabel(key)}`, "success")
+  if (app.filter === "hidden" && app.hidden.size === 0) setFilter("all")
+  else renderModels()
+}
+
+function setFilter(filter) {
+  app.filter = filter
+  for (const item of el.filters.querySelectorAll("[data-filter]")) {
+    item.classList.toggle("active", item.dataset.filter === filter)
+  }
+  renderModels()
+}
+
 function renderModels() {
   const models = app.state?.models ?? []
   const query = app.query.trim().toLowerCase()
-  const filtered = models.filter((model) => {
+  const hiddenTotal = models.filter((model) => app.hidden.has(modelKey(model))).length
+  const hiddenView = app.filter === "hidden"
+  // 普通视图排除隐藏项；「已隐藏」视图只看隐藏项，用于找回。
+  const pool = models.filter((model) => hiddenView === app.hidden.has(modelKey(model)))
+  const filtered = pool.filter((model) => {
     const key = modelKey(model)
     if (query && !`${model.name} ${key} ${model.providerName}`.toLowerCase().includes(query)) return false
     if (app.filter === "vision" && !model.vision) return false
@@ -487,11 +559,21 @@ function renderModels() {
     return true
   })
 
-  el.libraryCount.textContent = `${filtered.length}/${models.length}`
+  el.hiddenFilter.textContent = hiddenTotal > 0 ? `已隐藏 ${hiddenTotal}` : "已隐藏"
+  el.libraryCount.textContent = hiddenView
+    ? `${filtered.length}/${hiddenTotal}`
+    : `${filtered.length}/${models.length - hiddenTotal}`
   el.modelCount.textContent = String(models.length)
 
   if (filtered.length === 0) {
-    el.modelList.innerHTML = `<div class="empty-state">没有匹配的模型。</div>`
+    const message = hiddenView
+      ? hiddenTotal === 0
+        ? "还没有隐藏的模型。在模型卡片上点「隐藏」即可屏蔽。"
+        : "没有匹配的已隐藏模型。"
+      : hiddenTotal > 0 && hiddenTotal === models.length
+        ? "所有模型都被隐藏了；切到「已隐藏」可找回。"
+        : "没有匹配的模型。"
+    el.modelList.innerHTML = `<div class="empty-state">${message}</div>`
     return
   }
 
@@ -500,6 +582,7 @@ function renderModels() {
   let lastProvider = null
   el.modelList.innerHTML = filtered.map((model) => {
     const key = modelKey(model)
+    const hidden = app.hidden.has(key)
     const providerLabel = model.providerName !== lastProvider
       ? `<div class="provider-label">${escapeHtml(model.providerName)}</div>`
       : ""
@@ -509,16 +592,23 @@ function renderModels() {
       model.free ? `<span class="badge free">免费</span>` : "",
       model.status !== "active" ? `<span class="badge">${escapeHtml(model.status)}</span>` : "",
       inChain.has(key) ? `<span class="in-chain-mark">✓ 已在链中</span>` : "",
+      hidden ? `<span class="badge hidden">已隐藏</span>` : "",
     ].join("")
-    return `${providerLabel}<button class="model-card ${inChain.has(key) ? "in-chain" : ""}" draggable="true" data-model="${escapeHtml(key)}" title="点击加入${escapeHtml(selected?.label ?? "选中角色")}；也可拖到左侧任意角色">
+    const title = hidden
+      ? "点击找回该模型；找回后即可加入角色"
+      : `点击加入${selected?.label ?? "选中角色"}；也可拖到左侧任意角色`
+    return `${providerLabel}<div class="model-card ${inChain.has(key) ? "in-chain" : ""} ${hidden ? "hidden-model" : ""}" role="button" tabindex="0" draggable="${hidden ? "false" : "true"}" data-model="${escapeHtml(key)}" title="${escapeHtml(title)}">
       <div class="model-top">
         <span class="model-name">${escapeHtml(model.name || model.id)}</span>
         <span class="provider">${escapeHtml(model.providerID)}</span>
       </div>
       <div class="model-id">${escapeHtml(key)}</div>
       <div class="model-badges">${badges}</div>
-      <div class="model-meta">ctx ${formatContext(model.context)} · ${formatCost(model)}</div>
-    </button>`
+      <div class="model-meta">
+        <span>ctx ${formatContext(model.context)} · ${formatCost(model)}</span>
+        <button class="model-hide" data-hide="${escapeHtml(key)}" title="${hidden ? "恢复到模型库" : "从模型库隐藏，可在「已隐藏」找回"}">${hidden ? "找回" : "隐藏"}</button>
+      </div>
+    </div>`
   }).join("")
 }
 
@@ -595,6 +685,16 @@ function hydrate(state, options = {}) {
   app.state = state
   app.presets = structuredClone(state.presets ?? {})
   app.active = state.active ?? null
+  // 模型目录变化后清掉已不存在的隐藏项，避免隐藏列表里留下幽灵条目。
+  const modelKeys = new Set((state.models ?? []).map(modelKey))
+  let pruned = false
+  for (const key of [...app.hidden]) {
+    if (!modelKeys.has(key)) {
+      app.hidden.delete(key)
+      pruned = true
+    }
+  }
+  if (pruned) persistHidden()
   const names = Object.keys(app.presets)
   if (names.length === 0) {
     app.presets = { default: { agents: {} } }
@@ -613,7 +713,8 @@ function hydrate(state, options = {}) {
 
 async function load() {
   try {
-    hydrate(await api("/api/state"))
+    const [state] = await Promise.all([api("/api/state"), loadPrefs()])
+    hydrate(state)
   } catch (error) {
     el.statusText.textContent = `连接失败：${error.message}`
     el.dirtyDot.className = "dot error"
@@ -857,6 +958,11 @@ el.roleList.addEventListener("drop", (event) => {
 })
 
 el.modelList.addEventListener("dragstart", (event) => {
+  // 隐藏项不参与拖拽；「隐藏 / 找回」按钮自身也不应触发卡片拖拽。
+  if (event.target.closest("[data-hide]") || app.filter === "hidden") {
+    event.preventDefault()
+    return
+  }
   const card = event.target.closest("[data-model]")
   if (!card) return
   beginDrag(event, { kind: "model", model: card.dataset.model })
@@ -909,19 +1015,35 @@ function addCustom(roleID, value) {
 }
 
 el.modelList.addEventListener("click", (event) => {
+  const hide = event.target.closest("[data-hide]")
+  if (hide) {
+    toggleHiddenModel(hide.dataset.hide)
+    return
+  }
   const card = event.target.closest("[data-model]")
   if (!card) return
+  // 在「已隐藏」视图里，点卡片本身也视为找回。
+  if (app.filter === "hidden") {
+    toggleHiddenModel(card.dataset.model)
+    return
+  }
   addModel(card.dataset.model)
+})
+
+el.modelList.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return
+  if (event.target.closest("[data-hide]")) return
+  const card = event.target.closest("[data-model]")
+  if (!card) return
+  event.preventDefault()
+  if (app.filter === "hidden") toggleHiddenModel(card.dataset.model)
+  else addModel(card.dataset.model)
 })
 
 el.filters.addEventListener("click", (event) => {
   const chip = event.target.closest("[data-filter]")
   if (!chip) return
-  app.filter = chip.dataset.filter
-  for (const item of el.filters.querySelectorAll("[data-filter]")) {
-    item.classList.toggle("active", item === chip)
-  }
-  renderModels()
+  setFilter(chip.dataset.filter)
 })
 
 el.search.addEventListener("input", () => {
