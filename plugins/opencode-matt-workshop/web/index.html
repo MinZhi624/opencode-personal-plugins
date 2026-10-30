@@ -14,7 +14,7 @@
         <div class="mark">MW</div>
         <div class="brand-copy">
           <h1>matt-workshop <span>· 模型分配编排台</span></h1>
-          <p>把模型放到角色上，保存预设；由 Server 插件重载 Agent。当前版本按链顺序取第一个可用模型。</p>
+          <p>把模型拖到角色上（或点击加入），保存预设；由 Server 插件重载 Agent。当前版本按链顺序取第一个可用模型。</p>
         </div>
       </div>
       <div class="top-actions">
@@ -56,7 +56,7 @@
           <div>
             <span class="eyebrow">// AGENT PERSONAS</span>
             <h2>角色模型分配</h2>
-            <p>点选角色，再从右侧模型库加入；也可以直接输入 <code>provider/model</code>。每个角色可排多条候选链。</p>
+            <p>把右侧模型拖到任意角色卡片即可加入，落在链中某个位置就插在那里；链内条目也能拖动排序或跨角色移动。variant 从模型的预设档位中选择。</p>
           </div>
           <div class="selected-role" id="selected-role">未选择角色</div>
         </div>
@@ -79,6 +79,7 @@
           <button data-filter="free" class="chip">免费</button>
           <button data-filter="big" class="chip">大上下文</button>
         </div>
+        <p class="library-hint"><b>拖拽</b>模型到左侧角色；把链内条目拖回这里即可移除。点击则加入当前选中角色。</p>
         <div class="model-list" id="model-list"></div>
       </aside>
     </main>
@@ -89,6 +90,7 @@
     </footer>
 
     <div class="toast" id="toast" hidden></div>
+    <div class="drag-banner" aria-hidden="true">松手加入角色 · 链内拖动排序 · 跨角色拖动移动</div>
 
     <div class="modal" id="modal" hidden>
       <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">

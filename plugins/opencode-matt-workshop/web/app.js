@@ -24,6 +24,8 @@ const el = {
   presetList: document.getElementById("preset-list"),
   roleList: document.getElementById("role-list"),
   modelList: document.getElementById("model-list"),
+  library: document.querySelector(".library"),
+  dragBanner: document.querySelector(".drag-banner"),
   libraryCount: document.getElementById("library-count"),
   modelCount: document.getElementById("model-count"),
   roleCount: document.getElementById("role-count"),
@@ -196,7 +198,7 @@ function slotBadges(id, variant, source) {
 
 function slotHtml(role, id, index, chain, info) {
   const variant = info.variant
-  return `<div class="model-slot ${index === 0 ? "first" : "fallback"}">
+  return `<div class="model-slot ${index === 0 ? "first" : "fallback"}" draggable="true" data-slot-role="${role.id}" data-slot-index="${index}" data-slot-model="${escapeHtml(id)}" title="拖动排序；拖到其他角色可移动">
     <span class="idx">${index + 1}</span>
     <div class="model-main">
       <div class="model-name">${escapeHtml(modelLabel(id))}</div>
@@ -211,13 +213,47 @@ function slotHtml(role, id, index, chain, info) {
   </div>`
 }
 
+function variantOptions(roleID) {
+  const info = chainInfo(roleID)
+  const seen = new Set()
+  const values = []
+  for (const id of info.chain) {
+    for (const variant of modelById(id)?.variants ?? []) {
+      if (variant && !seen.has(variant)) {
+        seen.add(variant)
+        values.push(variant)
+      }
+    }
+  }
+  return values
+}
+
+function variantSelectHtml(role, info) {
+  const modelVariants = variantOptions(role.id)
+  const overrideVariant = info.override?.variant ?? ""
+  const inherited = app.state?.base?.[role.id]?.variant ?? ""
+  const values = [...modelVariants]
+  const custom = overrideVariant && !values.includes(overrideVariant)
+  if (custom) values.push(overrideVariant)
+  const inheritLabel = inherited ? `继承 · ${inherited}` : "继承 · 默认"
+  const options = values.map((value) => {
+    const label = value === overrideVariant && custom ? `${value}（自定义）` : value
+    return `<option value="${escapeHtml(value)}" ${value === overrideVariant ? "selected" : ""}>${escapeHtml(label)}</option>`
+  }).join("")
+  return `<select class="variant-select ${overrideVariant ? "overridden" : ""}" data-variant="${role.id}" title="variant 选项来自该角色候选模型的能力；选择「自定义…」可手填。">
+    <option value="" ${overrideVariant ? "" : "selected"}>${escapeHtml(inheritLabel)}</option>
+    ${options}
+    <option value="__custom__">自定义…</option>
+  </select>`
+}
+
 function renderRoles() {
   const roles = app.state?.roles ?? []
   el.roleList.innerHTML = roles.map((role) => {
     const info = chainInfo(role.id)
     const slots = info.chain.map((id, index) => slotHtml(role, id, index, info.chain, info)).join("")
-    const chain = slots || `<div class="chain-empty">尚未分配模型。从右侧模型库点选，或输入自定义 id。</div>`
-    const hint = info.source === "base" ? "继承 base" : info.source === "preset" ? "本地覆盖" : "未配置"
+    const chain = slots || `<div class="chain-empty">尚未分配模型。把右侧模型拖到这里，或点选模型卡片加入。</div>`
+    const hint = info.source === "preset" ? "本地覆盖" : info.override ? "variant 覆盖" : info.source === "base" ? "继承 base" : "未配置"
     return `<article class="role-card ${app.selectedRole === role.id ? "selected" : ""}" data-role="${role.id}" style="--role-color:${escapeHtml(role.color)}">
       <div class="role-accent"></div>
       <div class="role-main">
@@ -228,7 +264,7 @@ function renderRoles() {
             <span class="mode-badge ${role.mode === "primary" ? "primary" : ""}">${role.mode}</span>
           </div>
           <div class="role-tools">
-            <input class="variant-input" data-variant="${role.id}" value="${escapeHtml(info.variant ?? "")}" placeholder="variant" title="可选：思考强度 / reasoning variant" />
+            ${variantSelectHtml(role, info)}
             <button class="link-btn" data-reset="${role.id}" title="删除本预设对该角色的覆盖，恢复 base">还原</button>
           </div>
         </div>
@@ -309,6 +345,136 @@ function moveSlot(roleID, index, delta) {
   setChain(roleID, next)
 }
 
+let dragPayload = null
+let dropMarker = null
+const DRAG_HINT_DEFAULT = "松手加入角色 · 链内拖动排序 · 跨角色拖动移动"
+const DRAG_HINT_REMOVE = "松手从候选链移除该模型"
+
+function setRemoveZone(active) {
+  el.library.classList.toggle("remove-zone", active)
+  document.body.classList.toggle("remove-target", active)
+  el.dragBanner.textContent = active ? DRAG_HINT_REMOVE : DRAG_HINT_DEFAULT
+}
+
+function beginDrag(event, payload) {
+  dragPayload = payload
+  const data = JSON.stringify(payload)
+  event.dataTransfer.effectAllowed = payload.kind === "slot" ? "move" : "copyMove"
+  event.dataTransfer.setData("application/x-workshop-drag", data)
+  // Firefox 需要 text/plain 才允许开始拖拽。
+  event.dataTransfer.setData("text/plain", payload.model)
+  document.body.classList.add("is-dragging")
+}
+
+function endDrag() {
+  dragPayload = null
+  clearDropMarker()
+  setRemoveZone(false)
+  document.body.classList.remove("is-dragging")
+  for (const node of document.querySelectorAll(".dragging")) node.classList.remove("dragging")
+}
+
+function clearDropMarker() {
+  dropMarker = null
+  for (const node of document.querySelectorAll(".role-card.drop-target")) node.classList.remove("drop-target")
+  for (const node of document.querySelectorAll(".drop-before, .drop-after, .drop-empty")) {
+    node.classList.remove("drop-before", "drop-after", "drop-empty")
+  }
+}
+
+function dropIndexInChain(chainEl, clientY) {
+  const slots = [...(chainEl?.querySelectorAll(".model-slot") ?? [])]
+  for (let index = 0; index < slots.length; index += 1) {
+    const rect = slots[index].getBoundingClientRect()
+    if (clientY < rect.top + rect.height / 2) return index
+  }
+  return slots.length
+}
+
+function setDropMarker(card, index) {
+  if (dropMarker && dropMarker.card === card && dropMarker.index === index) return
+  clearDropMarker()
+  const chainEl = card.querySelector(".chain")
+  const slots = [...(chainEl?.querySelectorAll(".model-slot") ?? [])]
+  card.classList.add("drop-target")
+  if (slots.length === 0) {
+    const empty = chainEl?.querySelector(".chain-empty")
+    if (empty) empty.classList.add("drop-empty")
+  } else if (index < slots.length) {
+    slots[index].classList.add("drop-before")
+  } else {
+    slots[slots.length - 1].classList.add("drop-after")
+  }
+  dropMarker = { card, index }
+}
+
+function applyDrop(payload, targetRoleID, index) {
+  const targetRole = roleById(targetRoleID)
+  if (!targetRole) return
+  const target = chainInfo(targetRoleID)
+
+  if (payload.kind === "model") {
+    if (target.chain.includes(payload.model)) {
+      showToast(`${targetRole.label} 的候选链里已经有 ${modelLabel(payload.model)}`, "warning")
+      return
+    }
+    const next = [...target.chain]
+    next.splice(Math.max(0, Math.min(index, next.length)), 0, payload.model)
+    app.selectedRole = targetRoleID
+    setChain(targetRoleID, next)
+    renderSelectedRole()
+    showToast(`已加入 ${targetRole.label}：${modelLabel(payload.model)}`, "success")
+    return
+  }
+
+  const source = chainInfo(payload.roleID)
+  const model = source.chain[payload.index]
+  if (!model) return
+
+  if (payload.roleID === targetRoleID) {
+    const next = source.chain.filter((_, position) => position !== payload.index)
+    let at = index
+    if (payload.index < index) at -= 1
+    at = Math.max(0, Math.min(at, next.length))
+    if (at === payload.index) return
+    next.splice(at, 0, model)
+    app.selectedRole = targetRoleID
+    setChain(targetRoleID, next)
+    renderSelectedRole()
+    return
+  }
+
+  if (target.chain.includes(model)) {
+    showToast(`${targetRole.label} 的候选链里已经有 ${modelLabel(model)}`, "warning")
+    return
+  }
+  const sourceNext = source.chain.filter((_, position) => position !== payload.index)
+  setChain(payload.roleID, sourceNext)
+  const targetNext = [...chainInfo(targetRoleID).chain]
+  targetNext.splice(Math.max(0, Math.min(index, targetNext.length)), 0, model)
+  app.selectedRole = targetRoleID
+  setChain(targetRoleID, targetNext)
+  renderSelectedRole()
+  showToast(`已把 ${modelLabel(model)} 移到 ${targetRole.label}`, "success")
+}
+
+function removeChainItem(roleID, index) {
+  const role = roleById(roleID)
+  const info = chainInfo(roleID)
+  const model = info.chain[index]
+  if (!model) return
+  const remaining = info.chain.filter((_, position) => position !== index)
+  // 预设无法表达空链；删掉最后一个只会回退到 base，模型看起来又回来了。
+  if (remaining.length === 0 && baseChain(roleID).length > 0) {
+    showToast(`${role?.label ?? roleID} 只剩 base 模型，预设无法保存空链；请用「还原」或改 base 配置。`, "warning")
+    return
+  }
+  app.selectedRole = roleID
+  setChain(roleID, remaining)
+  renderSelectedRole()
+  showToast(`已从 ${role?.label ?? roleID} 移除 ${modelLabel(model)}`, "success")
+}
+
 function renderModels() {
   const models = app.state?.models ?? []
   const query = app.query.trim().toLowerCase()
@@ -344,7 +510,7 @@ function renderModels() {
       model.status !== "active" ? `<span class="badge">${escapeHtml(model.status)}</span>` : "",
       inChain.has(key) ? `<span class="in-chain-mark">✓ 已在链中</span>` : "",
     ].join("")
-    return `${providerLabel}<button class="model-card ${inChain.has(key) ? "in-chain" : ""}" data-model="${escapeHtml(key)}" title="加入 ${escapeHtml(selected?.label ?? "选中角色")}">
+    return `${providerLabel}<button class="model-card ${inChain.has(key) ? "in-chain" : ""}" draggable="true" data-model="${escapeHtml(key)}" title="点击加入${escapeHtml(selected?.label ?? "选中角色")}；也可拖到左侧任意角色">
       <div class="model-top">
         <span class="model-name">${escapeHtml(model.name || model.id)}</span>
         <span class="provider">${escapeHtml(model.providerID)}</span>
@@ -617,8 +783,26 @@ el.roleList.addEventListener("focusin", (event) => {
 })
 
 el.roleList.addEventListener("change", (event) => {
-  const variant = event.target.closest("[data-variant]")
-  if (variant) setVariant(variant.dataset.variant, variant.value)
+  const select = event.target.closest("[data-variant]")
+  if (!select) return
+  const roleID = select.dataset.variant
+  if (select.value !== "__custom__") {
+    setVariant(roleID, select.value)
+    return
+  }
+  const current = chainInfo(roleID).override?.variant ?? ""
+  void askText({
+    title: "自定义 variant",
+    desc: "写入当前预设；留空取消。选择「继承」可恢复 base。",
+    value: current,
+    ok: "保存",
+  }).then((value) => {
+    if (value === null) {
+      renderRoles()
+      return
+    }
+    setVariant(roleID, value)
+  })
 })
 
 el.roleList.addEventListener("keydown", (event) => {
@@ -628,6 +812,85 @@ el.roleList.addEventListener("keydown", (event) => {
   event.preventDefault()
   addCustom(custom.dataset.custom, custom.value)
 })
+
+el.roleList.addEventListener("dragstart", (event) => {
+  const slot = event.target.closest("[data-slot-role]")
+  if (!slot) return
+  beginDrag(event, {
+    kind: "slot",
+    roleID: slot.dataset.slotRole,
+    index: Number(slot.dataset.slotIndex),
+    model: slot.dataset.slotModel,
+  })
+  slot.classList.add("dragging")
+})
+
+el.roleList.addEventListener("dragenter", (event) => {
+  if (!dragPayload) return
+  if (event.target.closest(".role-card")) event.preventDefault()
+})
+
+el.roleList.addEventListener("dragover", (event) => {
+  if (!dragPayload) return
+  const card = event.target.closest(".role-card")
+  if (!card) return
+  event.preventDefault()
+  event.dataTransfer.dropEffect = dragPayload.kind === "slot" ? "move" : "copy"
+  setDropMarker(card, dropIndexInChain(card.querySelector(".chain"), event.clientY))
+})
+
+el.roleList.addEventListener("dragleave", (event) => {
+  if (!dragPayload) return
+  if (event.relatedTarget && el.roleList.contains(event.relatedTarget)) return
+  clearDropMarker()
+})
+
+el.roleList.addEventListener("drop", (event) => {
+  if (!dragPayload) return
+  const card = event.target.closest(".role-card")
+  if (!card) return
+  event.preventDefault()
+  const payload = dragPayload
+  const index = dropIndexInChain(card.querySelector(".chain"), event.clientY)
+  clearDropMarker()
+  applyDrop(payload, card.dataset.role, index)
+})
+
+el.modelList.addEventListener("dragstart", (event) => {
+  const card = event.target.closest("[data-model]")
+  if (!card) return
+  beginDrag(event, { kind: "model", model: card.dataset.model })
+  card.classList.add("dragging")
+})
+
+el.library.addEventListener("dragenter", (event) => {
+  if (dragPayload?.kind !== "slot") return
+  event.preventDefault()
+  setRemoveZone(true)
+})
+
+el.library.addEventListener("dragover", (event) => {
+  if (dragPayload?.kind !== "slot") return
+  event.preventDefault()
+  event.dataTransfer.dropEffect = "move"
+})
+
+el.library.addEventListener("dragleave", (event) => {
+  if (dragPayload?.kind !== "slot") return
+  if (event.relatedTarget && el.library.contains(event.relatedTarget)) return
+  setRemoveZone(false)
+})
+
+el.library.addEventListener("drop", (event) => {
+  if (dragPayload?.kind !== "slot") return
+  event.preventDefault()
+  const payload = dragPayload
+  setRemoveZone(false)
+  removeChainItem(payload.roleID, payload.index)
+})
+
+window.addEventListener("dragend", endDrag)
+window.addEventListener("drop", endDrag)
 
 function addCustom(roleID, value) {
   const id = value.trim()
