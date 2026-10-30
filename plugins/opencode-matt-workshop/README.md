@@ -431,6 +431,6 @@ OpenCode v2 会重载受监视的配置与插件；未受监视的本地依赖�
 - **源码目录与运行目录分离。** `vendor/`、`src/`、`local-skills/` 与 `docs/` 内部设计都只属于源码仓库；运行包只含 `dist/`、`skills/`、`licenses/`、`skill-manifest.json` 与入口文件。
 - 其余取舍见上文[设计原则](#设计原则总结)。
 
-合并到已有 OpenCode 配置的方法见 [`docs/MERGE_EXISTING_CONFIG.md`](../../docs/MERGE_EXISTING_CONFIG.md)。
+合并到已有 OpenCode 配置由安装器自动完成：只补缺失的插件条目与键，保留已有设置和注释，写前备份。
 
 这是非官方 OpenCode adapter。Matt Pocock 的 vendored Skills 保留上游 MIT 许可证和 provenance。

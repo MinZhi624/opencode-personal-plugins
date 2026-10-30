@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 $SourceDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-foreach ($Command in @("opencode", "node", "npm")) {
+foreach ($Command in @("node", "npm")) {
   if (-not (Get-Command $Command -ErrorAction SilentlyContinue)) {
     throw "缺少命令：$Command"
   }

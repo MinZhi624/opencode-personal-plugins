@@ -32,7 +32,7 @@ await Promise.all([
   copy("package.json"), copy("package-lock.json"), copy(".npmrc"), copy("README.md"), copy("LICENSE"), copy("THIRD_PARTY_NOTICES.md"), copy("install.sh"), copy("install.ps1"),
   copy("scripts/install-main.mjs", "scripts/install-main.mjs"),
   copy("scripts/install-groups.mjs", "scripts/install-groups.mjs"),
-  copy("docs/MERGE_EXISTING_CONFIG.md", "docs/MERGE_EXISTING_CONFIG.md"), copy("docs/TROUBLESHOOTING.md", "docs/TROUBLESHOOTING.md"), copy("docs/sidebar-ui-manual-acceptance.md", "docs/sidebar-ui-manual-acceptance.md"),
+  copy("docs/TROUBLESHOOTING.md", "docs/TROUBLESHOOTING.md"),
 ])
 await copy("plugins/opencode-matt-workshop/dist", "plugins/opencode-matt-workshop/dist")
 await copy("plugins/opencode-matt-workshop/skills", "plugins/opencode-matt-workshop/skills")

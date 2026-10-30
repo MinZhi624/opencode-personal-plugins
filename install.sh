@@ -10,7 +10,6 @@ require_command() {
   fi
 }
 
-require_command opencode
 require_command node
 require_command npm
 

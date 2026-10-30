@@ -39,10 +39,6 @@ export const GROUPS = [
     "explore": { "disabled": true }
   }`,
     cliEntries: "",
-    configNotes: [
-      "opencode.jsonc：plugins 中的 opencode-matt-workshop 条目（含 options.agents）",
-      "opencode.jsonc：default_agent 与 agents 块",
-    ],
   },
   {
     id: "sidebar",
@@ -89,10 +85,6 @@ export const GROUPS = [
       }
     },
     { "package": "./opencode-zh-bundle/plugins/opencode-skill-panel", "options": { "skillPanelMaxUsed": 8, "skillPanelDefaultOpen": true } }`,
-    configNotes: [
-      "opencode.jsonc：plugins 中的 opencode-quota-zh 条目（Server 入口）",
-      "cli.json：opencode-quota-zh、opencode-session-data、opencode-sidebar-host-zh、opencode-quota-card-zh、opencode-session-overview-zh、opencode-user-timeline-zh、opencode-subagent-card-zh、opencode-skill-panel 八个条目",
-    ],
   },
   {
     id: "alone",
@@ -106,10 +98,6 @@ export const GROUPS = [
     { "action": "gpt-reset-credits.redeem", "resource": "*", "effect": "ask" }
   ]`,
     cliEntries: "",
-    configNotes: [
-      "opencode.jsonc：plugins 中的 gpt-reset-credits 条目",
-      "opencode.jsonc：permissions 中的 gpt-reset-credits.query / redeem 两条",
-    ],
   },
 ]
 
@@ -138,47 +126,4 @@ export function renderCli(ids) {
   if (entries.length) out += `\n${entries.join(",\n")}\n`
   out += `  ]\n}\n`
   return out
-}
-
-export function renderMergeDoc({ ids, removedIds, timestamp }) {
-  const selected = ids.map((id) => groupById(id))
-  const removed = removedIds.map((id) => groupById(id))
-  const opencodeEntries = OPENCODE_ENTRY_ORDER.filter((id) => ids.includes(id)).map((id) => groupById(id).opencodeEntries)
-  const opencodeExtras = OPENCODE_EXTRAS_ORDER.filter((id) => ids.includes(id)).map((id) => groupById(id).opencodeExtras).filter(Boolean)
-  const cliEntries = selected.map((group) => group.cliEntries).filter(Boolean)
-
-  return `# 按本次安装选择生成的配置合并片段
-
-- 生成时间：${timestamp}
-- 本次选择：${ids.join("、") || "（无）"}
-- 通用合并方法与注意事项见 [MERGE_EXISTING_CONFIG.md](./MERGE_EXISTING_CONFIG.md)。
-
-安装器默认不修改已有 OpenCode 配置。请把下列片段合并到现有配置；未选组的条目不要添加。
-
-## opencode.jsonc（服务端）
-
-plugins 数组（按选择裁剪）：
-
-\`\`\`jsonc
-${opencodeEntries.join(",\n")}
-\`\`\`
-${opencodeExtras.length ? `
-附加键：
-
-\`\`\`jsonc
-${opencodeExtras.join(",\n")}
-\`\`\`
-` : ""}
-## cli.json（终端）
-
-plugins 数组（按选择裁剪）：
-
-\`\`\`jsonc
-${cliEntries.join(",\n") || "（此选择无需 cli.json 条目）"}
-\`\`\`
-
-## 本次未选组需要删除的条目${removed.length ? "" : "（无）"}
-
-${removed.length ? removed.flatMap((group) => group.configNotes.map((note) => `- ${note}`)).join("\n") : "本次没有相对上次安装减少的组。"}
-`
 }

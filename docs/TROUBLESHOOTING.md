@@ -4,12 +4,12 @@
 
 选择性安装减少组件组后，若配置里仍有该组条目，插件会继续加载（bundle 保留未选组的文件）；
 若手动删过 bundle 里的插件目录而配置条目还在，OpenCode 会报找不到插件路径。
-按 bundle `docs/MERGE-SELECTED.md` 的"未选组需要删除的条目"清单删除对应条目，或重跑安装器
+按配置里该组的条目从 `opencode.jsonc` / `cli.json` 的 `plugins` 数组删除，或重跑安装器
 并用 `--replace-config` 写入按当前选择生成的模板（会先备份）。
 
 ## 版本或配置不兼容
 
-本包跨插件侧栏接合处按 OpenCode 2.0.18 验证；额度后端 `opencode-quota-zh` 固定上游 v6，要求 OpenCode 2.0.26+ 与 SDK `@opencode/plugin` 2.0.31。确认 `opencode --version`，并检查：
+本包跨插件侧栏接合处按 OpenCode 2.0.18 验证；额度后端 `opencode-quota-zh` 固定上游 v6，建议 OpenCode 2.0.26+ 与 SDK `@opencode/plugin` 2.0.31。确认 `opencode --version`，并检查：
 
 - 服务端配置为 ~/.config/opencode/opencode.json(c)，键名为 plugins。
 - 终端配置为 ~/.config/opencode/cli.json，schema 为 https://opencode.ai/v2/cli.json。
@@ -88,5 +88,5 @@ npm audit fix --force。
 
 ## Windows
 
-需要 Node.js 26.4+（随附 OpenTUI 声明 node >=26.4.0）和 Python 3.10+。可用 OPENCODE_PYTHON 指向 Python 可执行文件；
+推荐 Node.js 26.4+（随附 OpenTUI 声明 node >=26.4.0）；低于该版本只提示，不阻塞安装。Python 3.10+ 用于 `gpt-reset-credits`，可用 OPENCODE_PYTHON 指向 Python 可执行文件；
 不要在变量中附加参数。

@@ -1,20 +1,23 @@
 #!/usr/bin/env node
 // 选择性安装主流程。install.sh / install.ps1 只做命令探测后转入本文件，
-// 选择、环境检查、复制、npm ci、配置生成与写入决策全部在此共享实现。
+// 选择、版本提示、复制、npm ci、配置合并与写入决策全部在此共享实现。
 import { spawnSync } from "node:child_process"
-import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join, resolve, sep } from "node:path"
 import readline from "node:readline/promises"
 import { clearScreenDown, cursorTo, emitKeypressEvents, moveCursor } from "node:readline"
 import { fileURLToPath } from "node:url"
-import { GROUPS, GROUP_IDS, groupById, renderCli, renderMergeDoc, renderOpencode } from "./install-groups.mjs"
+import { GROUPS, GROUP_IDS, groupById, renderCli, renderOpencode } from "./install-groups.mjs"
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const CONFIG_HOME = process.env.XDG_CONFIG_HOME || join(homedir(), ".config")
 const CONFIG_ROOT = join(CONFIG_HOME, "opencode")
 const BUNDLE_DIR = join(CONFIG_ROOT, "opencode-zh-bundle")
 const STATE_DIR = join(BUNDLE_DIR, "install-state")
+// 合并配置需要 jsonc-parser；它在 npm ci 之后动态加载，
+// 这样从没有 node_modules 的 bundle 目录首次运行安装器也不会在模块加载期失败。
+let jsonc = null
 
 class UserError extends Error {}
 class UsageError extends UserError {}
@@ -39,8 +42,8 @@ function usage() {
 组件组：
 ${GROUPS.map((g) => `  ${g.id.padEnd(9)} ${g.title} — ${g.summary}`).join("\n")}
 
-说明：组之间无依赖；依赖插件随组整体安装。侧栏组需要 OpenCode >= 2.0.26；Node.js 需要 26.4+（随附 OpenTUI 声明 node >=26.4.0）。
-已有配置默认保留，安装器只会打印需增删的条目。`)
+说明：组之间无依赖；依赖插件随组整体安装。版本检查只提示、不阻塞安装。
+已有配置会自动合并：只补充缺失的插件条目与键，保留你已有的设置和注释；写前备份为 .bak.<时间戳>。`)
 }
 
 function parseArgs(argv) {
@@ -194,17 +197,16 @@ function pickGroups(preselected) {
   return pickGroupsByKeys(preselected)
 }
 
-function checkNodeVersion() {
+function warnNodeVersion() {
   const [major, minor] = process.versions.node.split(".").map(Number)
-  // 与根 package.json 的 engines 一致：>=26.4.0。
-  // 采用该下限是因为随附 @opentui/core@0.5.17 自身声明 node >=26.4.0，
-  // bundle 基线对齐它，避免更低 Node 触发 engine 告警或运行时缺 API。
+  // 参考随附 @opentui/core 的 engines 声明。只提示，不阻塞安装：
+  // 用户明确要求安装流程不再因版本下限直接退出。
   const ok =
     Number.isInteger(major) &&
     Number.isInteger(minor) &&
     (major > 26 || (major === 26 && minor >= 4))
   if (!ok) {
-    throw new UserError(`Node.js ${process.versions.node} 过旧；需要 26.4.0 或更高版本（随附 OpenTUI 声明 node >=26.4.0）。`)
+    console.warn(`提示：Node.js ${process.versions.node} 低于随附 OpenTUI 声明的 26.4.0；安装继续，运行异常时再升级。`)
   }
 }
 
@@ -228,28 +230,25 @@ function compareSemver(a, b) {
   return a.patch - b.patch
 }
 
-// 组可在 install-groups.mjs 用 minOpenCode 声明固定最低版本（形如 ">=2.0.26"）。
-// 安装器只认这一种写法：没有协商、没有覆盖开关，也不把“读不到的版本”当成满足。
-function checkOpenCodeVersion(ids, versionText) {
+// 组可在 install-groups.mjs 用 minOpenCode 声明建议最低版本（形如 ">=2.0.26"）。
+// 安装器只提示、不阻塞：版本解析失败或低于建议值都继续安装。
+function warnOpenCodeVersion(ids, versionText) {
   const demands = ids.map((id) => groupById(id)).filter((group) => group.minOpenCode)
   if (!demands.length) return
-  const summary = demands.map((group) => `${group.id} 组需要 OpenCode ${group.minOpenCode}`).join("；")
+  const summary = demands.map((group) => `${group.id} 组建议 OpenCode ${group.minOpenCode}`).join("；")
   const version = parseSemver(versionText)
-  // 只有读不出三维版本号（命令无输出、dev 构建号、非 SemVer 形态）才响亮失败；
-  // 能解析出的预发布版照常按 SemVer 主次 patch 比较，不另立“预发布一律禁止”的政策。
   if (!version) {
-    throw new UserError(
-      `无法可靠确认 OpenCode 版本（opencode --version 输出：${versionText ? `"${versionText}"` : "空"}）。${summary}。请先确认实际版本后再安装。`,
-    )
+    console.warn(`提示：无法确认 OpenCode 版本（opencode --version 输出：${versionText ? `"${versionText}"` : "空"}）。${summary}。安装继续。`)
+    return
   }
   for (const group of demands) {
     const minimum = parseSemver(group.minOpenCode)
     if (!minimum) continue
     const order = compareSemver(version, minimum)
-    // SemVer：同号预发布低于正式版，所以 2.0.26-beta < 2.0.26，踩线要拒；
-    // 数值上更高的预发布（2.0.28-dev > 2.0.26）满足下限，但这仍只是版本下限，不是运行兼容验收。
+    // SemVer：同号预发布低于正式版，所以 2.0.26-beta < 2.0.26。
     if (order < 0 || (order === 0 && version.prerelease)) {
-      throw new UserError(`OpenCode ${versionText} 过旧；${summary}。`)
+      console.warn(`提示：OpenCode ${versionText} 低于建议版本；${summary}。安装继续。`)
+      return
     }
   }
 }
@@ -262,21 +261,24 @@ function resolvePython() {
 
   for (const candidate of candidates) {
     const probe = spawnSync(candidate.cmd, [...candidate.args, "--version"], { encoding: "utf8" })
-    if (probe.error && probe.error.code === "ENOENT") continue
     if (probe.error) continue
     return candidate
   }
-  throw new UserError("找不到 Python。请安装 Python 3.10+，或把 OPENCODE_PYTHON 设为 Python 可执行文件路径。")
+  console.warn("提示：找不到 Python；gpt-reset-credits 的查询/兑换会不可用。安装继续，需要时再安装 Python 3.10+。")
+  return null
 }
 
-function checkPythonVersion(python) {
+function warnPythonVersion(python) {
   const check = spawnSync(
     python.cmd,
     [...python.args, "-c", "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)"],
     { encoding: "utf8" },
   )
-  if (check.status === 1) throw new UserError("Python 版本过旧；gpt-reset-credits 需要 Python 3.10+。")
-  if (check.status !== 0) throw new UserError(`Python 检查失败：${python.cmd}`)
+  if (check.status === 1) {
+    console.warn("提示：Python 低于 3.10；gpt-reset-credits 可能无法运行。安装继续。")
+  } else if (check.status !== 0) {
+    console.warn(`提示：Python 检查失败（${python.cmd}）；安装继续。`)
+  }
 }
 
 function readState() {
@@ -287,16 +289,110 @@ function readState() {
   }
 }
 
-function readPrevTemplate(name) {
-  try {
-    return readFileSync(join(STATE_DIR, `template-${name}`))
-  } catch {
-    return null
-  }
-}
-
 function sameBytes(a, b) {
   return a !== null && b !== null && Buffer.compare(Buffer.from(a), Buffer.from(b)) === 0
+}
+
+function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+}
+
+function entryIdentity(entry) {
+  if (typeof entry === "string") return `str:${entry}`
+  if (isPlainObject(entry) && typeof entry.package === "string") return `pkg:${entry.package}`
+  if (isPlainObject(entry) && typeof entry.action === "string") return `perm:${entry.action}:${entry.resource ?? "*"}`
+  return `json:${JSON.stringify(entry)}`
+}
+
+function valueAt(text, path) {
+  let value = jsonc.parse(text, undefined, { allowTrailingComma: true })
+  for (const key of path) {
+    if (value === null || typeof value !== "object") return undefined
+    value = value[key]
+  }
+  return value
+}
+
+function applyMergeEdit(text, path, value) {
+  const edits = jsonc.modify(text, path, value, {
+    formattingOptions: { insertSpaces: true, tabSize: 2, eol: "\n" },
+  })
+  return jsonc.applyEdits(text, edits)
+}
+
+// 只补缺失项：已有键、已有插件条目（含其 options）和已有数组元素一律保留。
+// 这样用户的模型预设、卡片顺序与自定义设置不会被安装器覆盖。
+function mergeMissing(text, path, templateValue) {
+  const existing = valueAt(text, path)
+  if (existing === undefined) return applyMergeEdit(text, path, templateValue)
+  if (isPlainObject(templateValue) && isPlainObject(existing)) {
+    let next = text
+    for (const [key, value] of Object.entries(templateValue)) {
+      next = mergeMissing(next, [...path, key], value)
+    }
+    return next
+  }
+  if (Array.isArray(templateValue) && Array.isArray(existing)) {
+    let next = text
+    for (const item of templateValue) {
+      const current = valueAt(next, path)
+      if (!current.some((entry) => entryIdentity(entry) === entryIdentity(item))) {
+        next = applyMergeEdit(next, [...path, -1], item)
+      }
+    }
+    return next
+  }
+  return text
+}
+
+function mergeConfigText(text, templateText) {
+  const template = JSON.parse(templateText)
+  let merged = text
+  for (const [key, value] of Object.entries(template)) {
+    merged = mergeMissing(merged, [key], value)
+  }
+  return merged.endsWith("\n") ? merged : `${merged}\n`
+}
+
+function installConfig({ label, template, preferred, candidates, replaceConfig, stamp }) {
+  const existing = candidates.filter((path) => existsSync(path))
+  if (existing.length === 0) {
+    writeFileSync(preferred, template)
+    console.log(`已安装 ${label}：${preferred}`)
+    return
+  }
+  if (existing.length > 1) {
+    console.warn(`提示：同时存在 ${existing.join("、")}；合并到 ${preferred}。`)
+  }
+  const target = existsSync(preferred) ? preferred : existing[0]
+  const current = readFileSync(target, "utf8")
+  if (sameBytes(current, template)) {
+    console.log(`${label} 已是本包模板：${target}`)
+    return
+  }
+  if (replaceConfig) {
+    const backup = `${target}.bak.${stamp}`
+    cpSync(target, backup, { force: true })
+    console.log(`已备份：${backup}`)
+    writeFileSync(target, template)
+    console.log(`已替换 ${label}：${target}`)
+    return
+  }
+  let merged
+  try {
+    merged = mergeConfigText(current, template)
+  } catch (error) {
+    throw new UserError(`合并 ${label} 失败（${target}）：${error.message}`)
+  }
+  if (sameBytes(merged, current)) {
+    console.log(`${label} 已包含本包条目：${target}`)
+    return
+  }
+  const backup = `${target}.bak.${stamp}`
+  cpSync(target, backup, { force: true })
+  writeFileSync(target, merged)
+  console.log(`已备份：${backup}`)
+  console.log(`已合并 ${label}：${target}`)
 }
 
 function copyTree(from, to) {
@@ -327,43 +423,6 @@ function run(cmd, args, cwd, shell = process.platform === "win32") {
 
 function capture(cmd, args, shell = process.platform === "win32") {
   return (spawnSync(cmd, args, { encoding: "utf8", shell }).stdout || "").trim()
-}
-
-function installConfig({ label, template, preferred, candidates, prevTemplate, replaceConfig, stamp }) {
-  const existing = candidates.filter((path) => existsSync(path))
-  if (existing.length === 0) {
-    writeFileSync(preferred, template)
-    console.log(`已安装 ${label}：${preferred}`)
-    return
-  }
-  if (existing.length === 1 && sameBytes(readFileSync(existing[0]), template)) {
-    console.log(`${label} 已是本包模板：${existing[0]}`)
-    return
-  }
-  if (existing.length === 1 && sameBytes(readFileSync(existing[0]), prevTemplate)) {
-    for (const path of existing) {
-      const backup = `${path}.bak.${stamp}`
-      rmSync(backup, { force: true })
-      renameSync(path, backup)
-      console.log(`已备份：${backup}`)
-    }
-    writeFileSync(preferred, template)
-    console.log(`已更新 ${label}（与上次安装模板一致）：${preferred}`)
-    return
-  }
-  if (replaceConfig) {
-    for (const path of existing) {
-      const backup = `${path}.bak.${stamp}`
-      rmSync(backup, { force: true })
-      renameSync(path, backup)
-      console.log(`已备份：${backup}`)
-    }
-    writeFileSync(preferred, template)
-    console.log(`已替换 ${label}：${preferred}`)
-    return
-  }
-  console.log(`保留已有 ${label}：${existing.join(", ")}`)
-  return true
 }
 
 async function main() {
@@ -405,13 +464,13 @@ async function main() {
   if (!ids.length) throw new UserError("至少选择一组。")
 
   const needsPython = ids.some((id) => groupById(id).requiresPython)
-  checkNodeVersion()
+  warnNodeVersion()
   const python = needsPython ? resolvePython() : null
-  if (python) checkPythonVersion(python)
+  if (python) warnPythonVersion(python)
 
   const opencodeVersion = capture("opencode", ["--version"])
   console.log(`OpenCode：${opencodeVersion || "未知版本"}`)
-  checkOpenCodeVersion(ids, opencodeVersion)
+  warnOpenCodeVersion(ids, opencodeVersion)
   console.log(`Node.js：${process.version}`)
   if (python) console.log(`Python：${capture(python.cmd, [...python.args, "--version"], false) || "未知版本"}`)
   console.log(`本次安装组：${ids.join("、")}`)
@@ -429,30 +488,34 @@ async function main() {
   const npmStatus = run("npm", ["ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"], BUNDLE_DIR)
   if (npmStatus !== 0) throw new UserError("npm ci 失败。")
 
+  try {
+    jsonc = await import("jsonc-parser")
+  } catch (error) {
+    throw new UserError(`无法加载配置合并依赖 jsonc-parser：${error.message}`)
+  }
+
   const stamp = timestamp()
   const opencodeTemplate = renderOpencode(ids)
   const cliTemplate = renderCli(ids)
   mkdirSync(STATE_DIR, { recursive: true })
   mkdirSync(CONFIG_ROOT, { recursive: true })
 
-  let needsMerge = installConfig({
+  installConfig({
     label: "OpenCode 配置",
     template: opencodeTemplate,
     preferred: join(CONFIG_ROOT, "opencode.jsonc"),
     candidates: [join(CONFIG_ROOT, "opencode.jsonc"), join(CONFIG_ROOT, "opencode.json")],
-    prevTemplate: readPrevTemplate("opencode.jsonc"),
     replaceConfig: opts.replaceConfig,
     stamp,
   })
-  needsMerge = installConfig({
+  installConfig({
     label: "CLI 配置",
     template: cliTemplate,
     preferred: join(CONFIG_ROOT, "cli.json"),
     candidates: [join(CONFIG_ROOT, "cli.json")],
-    prevTemplate: readPrevTemplate("cli.json"),
     replaceConfig: opts.replaceConfig,
     stamp,
-  }) || needsMerge
+  })
 
   writeFileSync(join(STATE_DIR, "template-opencode.jsonc"), opencodeTemplate)
   writeFileSync(join(STATE_DIR, "template-cli.json"), cliTemplate)
@@ -460,26 +523,16 @@ async function main() {
     join(STATE_DIR, "selection.json"),
     `${JSON.stringify({ format: 1, groups: ids, installedAt: new Date().toISOString() }, null, 2)}\n`,
   )
-  writeFileSync(
-    join(BUNDLE_DIR, "docs", "MERGE-SELECTED.md"),
-    renderMergeDoc({ ids, removedIds, timestamp: stamp }),
-  )
 
   console.log("")
   console.log(`Bundle 已安装到：${BUNDLE_DIR}`)
   if (removedIds.length) {
-    console.log(`本次减少了组：${removedIds.join("、")}。bundle 保留其插件文件，配置条目删除后才真正停用；`)
-    console.log(`需删除的条目清单见：${join(BUNDLE_DIR, "docs", "MERGE-SELECTED.md")}`)
+    console.log(`本次减少了组：${removedIds.join("、")}。bundle 保留其插件文件，已有配置条目未被改动；`)
+    console.log("如需停用这些组，请从 opencode.jsonc / cli.json 的 plugins 数组删除对应条目。")
   }
-  if (needsMerge) {
-    console.log("检测到已有配置，尚未自动修改。请按以下文档合并插件条目：")
-    console.log(`  ${join(BUNDLE_DIR, "docs", "MERGE-SELECTED.md")}`)
-    console.log(`  ${join(BUNDLE_DIR, "docs", "MERGE_EXISTING_CONFIG.md")}`)
-  } else {
-    console.log("配置已就绪。")
-  }
-  console.log(needsMerge ? "插件文件安装完成；配置尚需手工合并。" : "安装完成！")
-  console.log("配置就绪后请启动 OpenCode 进行人工验收；受监视的插件和配置支持 v2 重载。")
+  console.log("配置已就绪。")
+  console.log("安装完成！")
+  console.log("启动 OpenCode 后受监视的插件和配置支持 v2 重载。")
   if (process.stdin.isTTY && process.stdout.isTTY) {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
     try {

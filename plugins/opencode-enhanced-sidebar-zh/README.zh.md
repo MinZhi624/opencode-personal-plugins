@@ -2,7 +2,7 @@
 
 中文 OpenCode 增强侧边栏的第一阶段实现，融合上下文、TPS、子代理和 API 标价估算。
 **本目录的 `tui.ts` 是旧聚合入口，仅作回退，不要与第二阶段宿主及独立卡片同时加载。**
-第二阶段安装及迁移见仓库根目录的 `config/cli.json`、`docs/MERGE_EXISTING_CONFIG.md`。
+第二阶段安装及迁移见仓库根目录的 `config/cli.json`；安装器会自动合并缺失条目。
 历史模块中曾提供两个 TUI 插件定义：
 
 - `opencode-session-overview-zh`：上下文、缓存命中、TPS，以及本会话、子代理、任务树三行花费。

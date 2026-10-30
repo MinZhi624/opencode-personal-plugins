@@ -5,7 +5,7 @@
 <p align="center">
   <a href="#版本记录"><img alt="版本" src="https://img.shields.io/badge/版本-v1.0.0-blue?style=flat-square" /></a>
   <a href="https://opencode.ai/v2/docs/"><img alt="OpenCode" src="https://img.shields.io/badge/OpenCode-2.0.18-blue?style=flat-square" /></a>
-  <a href="https://nodejs.org/"><img alt="Node.js" src="https://img.shields.io/badge/Node.js-%E2%89%A526.4-339933?style=flat-square" /></a>
+  <a href="https://nodejs.org/"><img alt="Node.js" src="https://img.shields.io/badge/Node.js-%E6%8E%A8%E8%8D%9026.4%2B-339933?style=flat-square" /></a>
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" /></a>
 </p>
 
@@ -57,12 +57,11 @@
 
 ## 快速开始
 
-环境要求：
+环境要求（不满足只提示，不阻塞安装）：
 
-- Node.js 26.4 或更高版本、npm
-- Python 3.10 或更高版本（仅安装 `alone` 组的 `gpt-reset-credits` 时需要）
-- OpenCode：跨插件侧栏接合处按 **2.0.18** 验证；额度后端 `opencode-quota-zh` 固定上游 v6，要求 OpenCode **2.0.26+** 与 SDK `@opencode/plugin` **2.0.31**（以更高者为准并须人工验收）
-- Node 基线取 26.4+：随附 OpenTUI `0.5.17` 自身声明 `node >=26.4.0`，bundle 基线与之对齐，不再保留低版本 Node 的 engine 告警风险
+- Node.js 与 npm（推荐 26.4+）
+- Python 3.10+（仅安装 `alone` 组的 `gpt-reset-credits` 时需要）
+- OpenCode（侧栏组建议 2.0.26+，`opencode-quota-zh` 固定上游 v6）
 
 Linux / macOS / WSL：
 
@@ -93,15 +92,13 @@ Set-ExecutionPolicy -Scope Process Bypass
 不带参数会报错退出而不静默全装。
 交互终端安装结束后会显示结果并等待按 Enter 退出；非交互安装不会等待。
 
-安装器默认不会覆盖已有 OpenCode 配置；按本次选择裁剪的合并片段生成在 bundle 的
-`docs/MERGE-SELECTED.md`，通用合并方法见 [`docs/MERGE_EXISTING_CONFIG.md`](docs/MERGE_EXISTING_CONFIG.md)。
-本包生成且之后未改过的配置会在下次安装时自动备份并更新。
+安装器会自动把本包条目合并到已有 OpenCode 配置：只补缺失的插件条目与键，保留你已有的设置和注释，写前备份为 `.bak.<时间戳>`；`--replace-config` 可改为整体替换。减少组件组时不会自动删除已有配置条目。
 
 > [!IMPORTANT]
 > OpenCode v2 会重载受监视的配置与插件；未受监视的本地依赖变更后请重启服务。
-> 升级自聚合侧栏时，必须在 `cli.json` 删除 `opencode-enhanced-sidebar-zh` 条目再加入新宿主和五张卡片；不能同时启用两套展示。安装器默认不修改已有配置。
+> 升级自聚合侧栏时，必须在 `cli.json` 删除 `opencode-enhanced-sidebar-zh` 条目再加入新宿主和五张卡片；不能同时启用两套展示。安装器会自动补充缺失条目，但不会自动删除旧条目。
 
-新宿主的跨插件 JSX 注册通过同一 TUI 进程内的自有版本化接合处实现，并非 OpenCode 官方保证的跨插件 API；仅按 OpenCode 2.0.18 验证，升级须重新验收。接合处契约与迁移注意见 [`opencode-sidebar-host-zh`](plugins/opencode-sidebar-host-zh/README.md) 与 [`opencode-quota-card-zh`](plugins/opencode-quota-card-zh/README.md)。
+新宿主的跨插件 JSX 注册通过同一 TUI 进程内的自有版本化接合处实现，并非 OpenCode 官方保证的跨插件 API；按 OpenCode 2.0.18 验证，升级后如遇异常请见排障文档。接合处契约与迁移注意见 [`opencode-sidebar-host-zh`](plugins/opencode-sidebar-host-zh/README.md) 与 [`opencode-quota-card-zh`](plugins/opencode-quota-card-zh/README.md)。
 
 侧栏排列以全局 `cli.json` 中唯一宿主条目的 `options.sidebarCards` 为准：`order` 为稳定卡片 ID 数组（如 `sessionOverview`、`timeline`、`quota`、`subagents`、`skill`），`hidden` 为隐藏 ID 数组。统一窗口与直接命令写回同一文件；失败时只读降级并给出手动片段，不另存排序。改过的文件属于用户自定义，重装默认保留，不会重置顺序。旧 storage 仅可显式导入，不能覆盖已有文件设置。第三方接入见 [对接指南](plugins/opencode-sidebar-host-zh/INTEGRATION.md)，不提供任意插件自动适配。
 
@@ -115,14 +112,14 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 进度条形状可选 `blocks`、`shades`、`line`、`squares`、`dots`、`none`（`none` 只去掉图形，数值仍显示）。优先级为明确的单卡覆盖 > 明确的整体样式 > 卡片原有设置或默认形状，界面标明继承来源；首次使用不批量重写旧配置。该样式只作用于本套侧栏，不改变 `/quota` 报表、状态栏、Home footer 或通知；额度条仍表示剩余比例，上下文条仍表示已用比例，子代理和技能没有虚构进度。
 
-侧栏额度是 Quota 原生展示经本地 Adapter 接入宿主的唯一一份（稳定身份 `quota`），遵循宿主顺序与显隐，采用原生行布局，不再以旧固定 20 格、多行结构和已用／剩余双百分比为准；原生数据、重置、刷新与错误状态按原规则呈现，未知不显示为零。额度设置仍由 `~/.config/opencode/opencode-quota/settings.jsonc` 单一所有者管理，`/quota`、`/quota_settings` 等原生入口保留；隐藏卡片、禁用卡片插件、停用额度后台是三种互相独立的操作。使用与人工验收交接见 [侧栏统一展示控制：使用说明与人工验收](docs/sidebar-ui-manual-acceptance.md)。
+侧栏额度是 Quota 原生展示经本地 Adapter 接入宿主的唯一一份（稳定身份 `quota`），遵循宿主顺序与显隐，采用原生行布局，不再以旧固定 20 格、多行结构和已用／剩余双百分比为准；原生数据、重置、刷新与错误状态按原规则呈现，未知不显示为零。额度设置仍由 `~/.config/opencode/opencode-quota/settings.jsonc` 单一所有者管理，`/quota`、`/quota_settings` 等原生入口保留；隐藏卡片、禁用卡片插件、停用额度后台是三种互相独立的操作。
 
 ## 更新
 
 1. 关闭 OpenCode。
 2. 重新运行安装器（`install.sh` / `install.ps1`）。交互模式预选上次安装的组件组；用 `--only` / `--without` 可增减组。
-3. 已有配置默认保留，按提示用 `docs/MERGE-SELECTED.md` 的片段合并；本包生成且未改过的配置会自动备份并更新。
-4. 减少组件组时，bundle 保留未选组的插件文件（已有配置不会指向缺失路径）；按 `docs/MERGE-SELECTED.md` 的清单删除配置条目后该组才真正停用。
+3. 已有配置会自动合并：只补缺失的插件条目与键，保留已有设置和注释，写前备份为 `.bak.<时间戳>`。
+4. 减少组件组时，bundle 保留未选组的插件文件；已有配置不会自动删除条目，需要停用请从 `opencode.jsonc` / `cli.json` 的 `plugins` 数组删除对应条目。
 5. 重启 OpenCode。
 
 ## 常用命令
@@ -163,14 +160,14 @@ Workshop（`workshop` 组）把上游 Matt Pocock Skills `v1.2.3` 的 25 个 Pro
 
 ## 故障排查
 
-1. 确认 OpenCode 版本为 2.0.18，且使用 `cli.json` 而非旧 `tui.json(c)`。
+1. 确认使用支持 v2 的 OpenCode，且使用 `cli.json` 而非旧 `tui.json(c)`。
 2. 运行 `/quota_status` 检查 Provider、价格快照来源与未定价模型。
 3. Token 报告为空时，先启动 OpenCode 生成 `opencode.db`，再运行一个有模型用量的会话。
 4. 常见症状与解决方案见 [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md)。
 
 ## 卸载
 
-只想停用部分功能时，重跑安装器并去掉对应组，再按 bundle `docs/MERGE-SELECTED.md` 的清单删除配置条目。
+只想停用部分功能时，重跑安装器并去掉对应组，再从 `opencode.jsonc` / `cli.json` 的 `plugins` 数组删除对应条目。
 
 完全卸载：从 `opencode.json(c)` 和 `cli.json` 的 `plugins` 列表删除本包条目，删除：
 
@@ -185,7 +182,7 @@ Workshop（`workshop` 组）把上游 Matt Pocock Skills `v1.2.3` 的 25 个 Pro
 当前版本 **1.0.0**，与 `package.json` 及各插件 `package.json` 的 `version` 字段一致；root README 徽章随该版本号更新。
 
 - 公开文档只覆盖用法与核心设计原则；内部设计与讨论记录不随安装包分发，安装后可用的文档见 bundle 的 `docs/`。
-- OpenCode 兼容基线为 2.0.18；升级 OpenCode 后须按上文重新验收自有接合处。
+- OpenCode 兼容性以实际运行结果为准；升级 OpenCode 后如遇异常，先查排障文档。
 
 ## 许可证与声明
 
