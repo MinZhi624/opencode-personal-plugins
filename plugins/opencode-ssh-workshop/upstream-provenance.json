@@ -1,0 +1,18 @@
+{
+  "repository": "https://github.com/PedroKlein/opencode-ssh-session.git",
+  "version": "0.3.0",
+  "tag": "v0.3.0",
+  "commit": "c1c9d7c23e22daa4ea4429c071addc6141169efa",
+  "commitRole": "release: v0.3.0 (main branch HEAD at vendoring time)",
+  "verified": {
+    "method": "git clone, git rev-parse HEAD, then copy of the working tree minus .git and .github",
+    "at": "2026-10-22",
+    "snapshotMatchesCommit": true
+  },
+  "snapshot": "vendor/opencode-ssh-session",
+  "snapshotDigestAlgorithm": "sha256 over each file, concatenated as <relative posix path>\\0<sha256-of-file or 'link:<target>'>\\0, paths sorted",
+  "snapshotDigest": "65f4b45cf36d503ce6b3481d3f04fdb977bd0caeadf157030366a81aa8dd04fd",
+  "license": "MIT",
+  "licenseFile": "vendor/opencode-ssh-session/LICENSE",
+  "adaptation": "The vendored tree is the unmodified upstream snapshot, kept for provenance and future diffs. It is V1 plugin code and is NOT loaded at runtime. The V2 implementation in src/ reuses the session layer (marker protocol, mutex, reader, shell quoting, connection manager) with two changes: Bun process/file APIs replaced by node:child_process and node:fs, and connections keyed by root session so SSH subagents share their parent's connection. See ../docs/adr/0002-additive-v2-ssh-extension.md."
+}

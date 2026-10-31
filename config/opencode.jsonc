@@ -16,7 +16,8 @@
           "surveyor": { "model": "opencode-go/mimo-v2.5" }
         }
       }
-    }
+    },
+    "./opencode-zh-bundle/plugins/opencode-ssh-workshop"
   ],
   "default_agent": "tinker",
   "agents": {
@@ -27,6 +28,13 @@
     "inspector": { "mode": "subagent"},
     "archivist": { "mode": "subagent" },
     "surveyor": { "mode": "subagent" },
+    "ssh-drafter": { "mode": "primary" },
+    "ssh-tinker": { "mode": "primary" },
+    "ssh-foreman": { "mode": "primary" },
+    "ssh-maker": { "mode": "subagent"},
+    "ssh-inspector": { "mode": "subagent"},
+    "ssh-archivist": { "mode": "subagent"},
+    "ssh-surveyor": { "mode": "subagent" },
     "build": { "disabled": true },
     "plan": { "disabled": true },
     "general": { "disabled": true },

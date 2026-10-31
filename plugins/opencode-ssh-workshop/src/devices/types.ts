@@ -1,0 +1,157 @@
+/**
+ * 设备档案：可跨本机项目复用的连接信息。
+ *
+ * 只保存连接所需的**非秘密**信息：地址、用户、端口、密钥文件路径与可选的
+ * 远端工作目录。不保存密码、私钥内容或任何认证材料——沿用上游
+ * 「仅密钥／SSH agent 认证」的既有边界。
+ */
+export interface DeviceProfile {
+  id: string
+  /** 显示名兼别名，例如「开发服务器」。 */
+  name: string
+  /** IP 或主机名。 */
+  host: string
+  user: string | null
+  port: number | null
+  /** 私钥文件路径，只存路径不存内容。 */
+  identityFile: string | null
+  /** 追加的原始 ssh 参数，例如 `-J jump.example.com`。 */
+  options: string | null
+  /** 可选的远端工作目录。 */
+  remoteDirectory: string | null
+  createdAt: number
+  updatedAt: number
+  lastConnectedAt: number | null
+}
+
+/** 设备档案的可写字段（不含 id / 时间戳）。 */
+export interface DeviceInput {
+  name: string
+  host: string
+  user?: string | null
+  port?: number | null
+  identityFile?: string | null
+  options?: string | null
+  remoteDirectory?: string | null
+}
+
+/** 校验规整后的形状：所有字段都确定，没有 `undefined`。 */
+export interface NormalizedDevice {
+  name: string
+  host: string
+  user: string | null
+  port: number | null
+  identityFile: string | null
+  options: string | null
+  remoteDirectory: string | null
+}
+
+export class DeviceError extends Error {
+  constructor(readonly issue: string) {
+    super(issue)
+    this.name = "DeviceError"
+  }
+}
+
+function clean(value: unknown): string | null {
+  if (typeof value !== "string") return null
+  const trimmed = value.trim()
+  return trimmed ? trimmed : null
+}
+
+function cleanNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isInteger(value)) return value
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value.trim())
+    if (Number.isInteger(parsed)) return parsed
+  }
+  return null
+}
+
+/** 校验并规整用户输入；不做的只是「猜」——字段缺失一律留空。 */
+export function normalizeDeviceInput(input: Partial<DeviceInput>): NormalizedDevice {
+  const name = clean(input.name)
+  if (!name) throw new DeviceError("设备名称不能为空。")
+
+  const host = clean(input.host)
+  if (!host) throw new DeviceError("设备地址不能为空。")
+
+  const port = input.port === undefined || input.port === null ? null : cleanNumber(input.port)
+  if (input.port !== undefined && input.port !== null && port === null) {
+    throw new DeviceError("端口必须是整数。")
+  }
+  if (port !== null && (port < 1 || port > 65535)) {
+    throw new DeviceError("端口必须在 1–65535 之间。")
+  }
+
+  return {
+    name,
+    host,
+    user: clean(input.user),
+    port,
+    identityFile: clean(input.identityFile),
+    options: clean(input.options),
+    remoteDirectory: clean(input.remoteDirectory),
+  }
+}
+
+/** 组装 `ssh` 的目标参数，例如 `axiang@192.168.1.20`。 */
+export function deviceTarget(device: Pick<DeviceProfile, "user" | "host">): string {
+  return device.user ? `${device.user}@${device.host}` : device.host
+}
+
+/** 组装追加的 ssh 参数，例如 `-p 2222 -i ~/.ssh/id_ed25519`。 */
+export function deviceOptions(
+  device: Pick<DeviceProfile, "port" | "identityFile" | "options">,
+): string | undefined {
+  const parts: string[] = []
+  if (device.port) parts.push("-p", String(device.port))
+  if (device.identityFile) parts.push("-i", device.identityFile)
+  if (device.options) parts.push(device.options)
+  return parts.length ? parts.join(" ") : undefined
+}
+
+/**
+ * 尝试把一次手工连接的目标拆成档案字段：`user@host` 可分出用户，
+ * `-p` 可分出端口、`-i` 可分出密钥。拆不出来的（如 SSH config 别名）留空，
+ * 让用户自己补——不猜。
+ */
+export function profileFromTarget(
+  host: string,
+  options?: string,
+): Pick<DeviceProfile, "host" | "user" | "port" | "identityFile" | "options"> {
+  let user: string | null = null
+  let target = host.trim()
+  const at = target.lastIndexOf("@")
+  if (at > 0) {
+    user = target.slice(0, at)
+    target = target.slice(at + 1)
+  }
+
+  let port: number | null = null
+  let identityFile: string | null = null
+  const rest: string[] = []
+  const tokens = options?.trim() ? options.trim().split(/\s+/) : []
+  for (let i = 0; i < tokens.length; i += 1) {
+    const token = tokens[i]!
+    if (token === "-p" && tokens[i + 1]) {
+      const parsed = Number(tokens[++i])
+      if (Number.isInteger(parsed)) port = parsed
+    } else if (token.startsWith("-p") && token.length > 2) {
+      const parsed = Number(token.slice(2))
+      if (Number.isInteger(parsed)) port = parsed
+    } else if (token === "-i" && tokens[i + 1]) {
+      identityFile = tokens[++i]
+    } else {
+      rest.push(token)
+    }
+  }
+
+  return {
+    host: target,
+    user,
+    port,
+    identityFile,
+    options: rest.length ? rest.join(" ") : null,
+  }
+}

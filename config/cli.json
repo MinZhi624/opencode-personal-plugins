@@ -23,6 +23,7 @@
         "subagentsTtlDays": 3
       }
     },
-    { "package": "./opencode-zh-bundle/plugins/opencode-skill-panel", "options": { "skillPanelMaxUsed": 8, "skillPanelDefaultOpen": true } }
+    { "package": "./opencode-zh-bundle/plugins/opencode-skill-panel", "options": { "skillPanelMaxUsed": 8, "skillPanelDefaultOpen": true } },
+    "./opencode-zh-bundle/plugins/opencode-ssh-workshop"
   ]
 }

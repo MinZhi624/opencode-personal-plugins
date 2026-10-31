@@ -5,9 +5,10 @@ import { spawn, spawnSync } from "node:child_process"
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join, resolve, sep } from "node:path"
+import { createRequire } from "node:module"
 import readline from "node:readline/promises"
 import { clearScreenDown, cursorTo, emitKeypressEvents, moveCursor } from "node:readline"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import {
   GROUPS,
   GROUP_IDS,
@@ -17,6 +18,7 @@ import {
   renderCli,
   renderOpencode,
   resolveSelection,
+  validateGroupDependencies,
 } from "./install-groups.mjs"
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..")
@@ -31,6 +33,14 @@ let clack = null
 
 class UserError extends Error {}
 class UsageError extends UserError {}
+
+function ensureGroupDependencies(ids) {
+  try {
+    return validateGroupDependencies(ids)
+  } catch (error) {
+    throw new UserError(error instanceof Error ? error.message : String(error))
+  }
+}
 
 function timestamp() {
   const pad = (n) => String(n).padStart(2, "0")
@@ -56,10 +66,11 @@ ${GROUPS.map((g) => `  ${g.id.padEnd(9)} ${g.title} — ${g.summary}`).join("\n"
 侧栏卡片（选择 sidebar 组时）：
 ${SIDEBAR_CARDS.map((card) => `  ${card.id.padEnd(15)} ${card.title}`).join("\n")}
 
-说明：组之间无依赖；选中 sidebar 后宿主、额度后台与共享会话统计一并安装，
-勾选上下文／子代理再自动补隐藏共享库。版本检查只提示、不阻塞安装。
-已有配置会自动合并：只补充缺失的插件条目与键，保留你已有的设置和注释；
-写前备份为 .bak.<时间戳>。减少卡片或组时不会自动删除已有配置条目。`)
+说明：除 ssh 依赖 workshop 外，其余组可任意组合；选中 sidebar 后宿主、额度后台
+与共享会话统计一并安装，勾选上下文／子代理再自动补隐藏共享库。普通组件版本检查
+只提示；SSH 组严格要求 OpenCode 2.0.31+。已有配置会自动合并：只补充缺失的插件
+条目与键，保留你已有的设置和注释；写前备份为 .bak.<时间戳>。减少卡片或组时不会
+自动删除已有配置条目。`)
 }
 
 function parseArgs(argv) {
@@ -213,6 +224,7 @@ const GROUP_LOOK = {
   workshop: { icon: "✦", label: "工作流", note: "Matt Workshop", color: "boldCyan" },
   sidebar: { icon: "▤", label: "侧栏", note: "含宿主依赖", color: "boldMagenta" },
   alone: { icon: "◇", label: "独立", note: "gpt-reset-credits", color: "boldYellow" },
+  ssh: { icon: "⌁", label: "SSH", note: "依赖工作流", color: "boldCyan" },
 }
 
 function buildRows() {
@@ -479,6 +491,22 @@ function warnOpenCodeVersion(ids, versionText) {
   }
 }
 
+// SSH 使用 permission.assert；版本不足不能像普通组件一样继续安装。
+function assertSshVersion(ids, versionText) {
+  if (!ids.includes("ssh")) return
+  const version = parseSemver(versionText)
+  const minimum = parseSemver("2.0.31")
+  if (!version) {
+    throw new UserError(
+      `无法确认 OpenCode 版本（opencode --version 输出：${versionText ? `"${versionText}"` : "空"}）；SSH 组需要 >=2.0.31。`,
+    )
+  }
+  const order = compareSemver(version, minimum)
+  if (order < 0 || (order === 0 && version.prerelease)) {
+    throw new UserError(`OpenCode ${versionText} 过旧；SSH 组需要 >=2.0.31。`)
+  }
+}
+
 function resolvePython() {
   const candidates = []
   if (process.env.OPENCODE_PYTHON) candidates.push({ cmd: process.env.OPENCODE_PYTHON, args: [] })
@@ -630,11 +658,28 @@ function copyStaged(plugins) {
   const staged = join(ROOT, "runtime-stage")
   mkdirSync(BUNDLE_DIR, { recursive: true })
   for (const name of ["scripts", "config", "docs"]) copyTree(join(staged, name), join(BUNDLE_DIR, name))
-  for (const name of ["package.json", "package-lock.json", ".npmrc", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "install.sh", "install.ps1"]) {
+  for (const name of ["package.json", "package-lock.json", ".npmrc", "README.md", "ssh_use.md", "ssh_usage.md", "ssh_first_time_setup.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "install.sh", "install.ps1"]) {
     cpSync(join(staged, name), join(BUNDLE_DIR, name), { force: true })
   }
   // 并集保留：只覆盖本次选中插件，未选插件与卡片的旧目录不动。
   for (const plugin of plugins) copyTree(join(staged, "plugins", plugin), join(BUNDLE_DIR, "plugins", plugin))
+}
+
+// 安装完成后从目标 bundle 实际加载 SSH parser/grammar，而不是只检查文件存在。
+async function verifySshRuntime(groups) {
+  if (!groups.includes("ssh")) return
+  const parser = join(BUNDLE_DIR, "plugins", "opencode-ssh-workshop", "dist", "src", "shell-parser.js")
+  try {
+    const { scanBashCommand } = await import(pathToFileURL(resolve(parser)).href)
+    const scan = await scanBashCommand("env git 'push' origin main")
+    if (!scan.resources.includes("git push origin main")) {
+      throw new Error("解析器没有产出预期的 git push 资源")
+    }
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    throw new UserError(`SSH 运行时验证失败（安装未完成）：${detail}`)
+  }
+  console.log("SSH 运行时检查通过：目标布局可加载 Bash 解析器与 grammar")
 }
 
 function run(cmd, args, cwd, shell = process.platform === "win32") {
@@ -694,6 +739,7 @@ async function main() {
         : canonical(GROUP_IDS.filter((id) => !opts.without.includes(id)))
     if (opts.cards !== null && !groups.includes("sidebar")) groups = canonical([...groups, "sidebar"])
     if (!groups.length) throw new UserError("至少选择一组。")
+    ensureGroupDependencies(groups)
     const cards = opts.cards !== null ? canonicalCards(opts.cards) : groups.includes("sidebar") ? SIDEBAR_CARD_IDS : []
     const selection = resolveSelection({ groups, cards })
     const out = resolve(opts.render)
@@ -750,6 +796,7 @@ async function main() {
     }
   }
   if (!groups.length) throw new UserError("至少选择一组。")
+  ensureGroupDependencies(groups)
 
   const selection = resolveSelection({ groups, cards })
   groups = selection.groups
@@ -761,6 +808,7 @@ async function main() {
 
   const opencodeVersion = capture("opencode", ["--version"])
   info(`OpenCode：${opencodeVersion || "未知版本"}`)
+  assertSshVersion(groups, opencodeVersion)
   warnOpenCodeVersion(groups, opencodeVersion)
   info(`Node.js：${process.version}`)
   if (python) info(`Python：${capture(python.cmd, [...python.args, "--version"], false) || "未知版本"}`)
@@ -773,7 +821,7 @@ async function main() {
   const removedCards = groups.includes("sidebar") ? canonicalCards(previousCards).filter((id) => !cards.includes(id)) : []
 
   if (!updateMode) {
-    const built = await runStep("构建发行文件", process.execPath, [join(ROOT, "scripts", "stage-runtime.mjs")], ROOT, false)
+    const built = await runStep("构建发行文件", process.execPath, [join(ROOT, "scripts", "stage-runtime.mjs"), "--defer-runtime-check"], ROOT, false)
     if (built.status !== 0) {
       if (built.output) console.error(built.output)
       throw new UserError("运行时发行包构建失败。")
@@ -786,9 +834,11 @@ async function main() {
     if (npmStep.output) console.error(npmStep.output)
     throw new UserError("npm ci 失败。")
   }
+  await verifySshRuntime(groups)
 
   try {
-    jsonc = await import("jsonc-parser")
+    // 从目标 bundle 的 node_modules 加载，避免源码检出没有 node_modules 时失败。
+    jsonc = createRequire(join(BUNDLE_DIR, "package.json"))("jsonc-parser")
   } catch (error) {
     throw new UserError(`无法加载配置合并依赖 jsonc-parser：${error.message}`)
   }

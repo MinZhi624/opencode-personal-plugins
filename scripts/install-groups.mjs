@@ -3,6 +3,33 @@
 // config/opencode.jsonc 与 config/cli.json 是全选组合的生成结果（参考样例），
 // 修改片段后用 `node scripts/install-main.mjs --all --render config` 重新生成并核对。
 
+/** SSH 组要并入同一个 `agents` 对象的七条声明（JSON 不能有两个 `agents` 键）。 */
+const SSH_AGENT_DECLARATIONS = `    "ssh-drafter": { "mode": "primary" },
+    "ssh-tinker": { "mode": "primary" },
+    "ssh-foreman": { "mode": "primary" },
+    "ssh-maker": { "mode": "subagent"},
+    "ssh-inspector": { "mode": "subagent"},
+    "ssh-archivist": { "mode": "subagent"},
+    "ssh-surveyor": { "mode": "subagent" }`
+
+/** workshop 组的附加键；选中 SSH 时把七条声明并入同一个 agents 对象。 */
+function workshopExtras(sshDeclarations = "") {
+  return `  "default_agent": "tinker",
+  "agents": {
+    "drafter": { "mode": "primary" },
+    "tinker": { "mode": "primary" },
+    "foreman": { "mode": "primary" },
+    "maker": { "mode": "subagent"},
+    "inspector": { "mode": "subagent"},
+    "archivist": { "mode": "subagent" },
+    "surveyor": { "mode": "subagent" }${sshDeclarations ? `,\n${sshDeclarations}` : ""},
+    "build": { "disabled": true },
+    "plan": { "disabled": true },
+    "general": { "disabled": true },
+    "explore": { "disabled": true }
+  }`
+}
+
 // 侧栏基础：选中 sidebar 组时始终安装。额度后台与会话统计由所有卡片共用，
 // 放在基础里，避免每张卡重复声明，也让 /quota 在只装基础时仍可用。
 export const SIDEBAR_BASE_PLUGINS = ["opencode-quota-zh", "opencode-session-data", "opencode-sidebar-host-zh"]
@@ -86,6 +113,7 @@ const PLUGIN_ORDER = [
   "opencode-skill-panel",
   "opencode-enhanced-sidebar-zh",
   "opencode-matt-workshop",
+  "opencode-ssh-workshop",
   "gpt-reset-credits",
 ]
 
@@ -93,7 +121,7 @@ const PLUGIN_ORDER = [
 const SIDEBAR_CLI_ENTRY_ORDER = ["quota", "sessionOverview", "timeline", "subagents", "skill"]
 
 // 配置生成顺序固定，保证全选组合与参考样例逐字节一致。
-const OPENCODE_ENTRY_ORDER = ["sidebar", "alone", "workshop"]
+const OPENCODE_ENTRY_ORDER = ["sidebar", "alone", "workshop", "ssh"]
 const OPENCODE_EXTRAS_ORDER = ["workshop", "alone"]
 
 export const GROUPS = [
@@ -117,20 +145,7 @@ export const GROUPS = [
         }
       }
     }`,
-    opencodeExtras: `  "default_agent": "tinker",
-  "agents": {
-    "drafter": { "mode": "primary" },
-    "tinker": { "mode": "primary" },
-    "foreman": { "mode": "primary" },
-    "maker": { "mode": "subagent"},
-    "inspector": { "mode": "subagent"},
-    "archivist": { "mode": "subagent" },
-    "surveyor": { "mode": "subagent" },
-    "build": { "disabled": true },
-    "plan": { "disabled": true },
-    "general": { "disabled": true },
-    "explore": { "disabled": true }
-  }`,
+    opencodeExtras: workshopExtras(""),
     cliEntries: "",
   },
   {
@@ -159,12 +174,43 @@ export const GROUPS = [
   ]`,
     cliEntries: "",
   },
+  {
+    id: "ssh",
+    title: "SSH 远程（opencode-ssh-workshop）",
+    summary: "七个 SSH 角色、设备档案与 /ssh-devices 界面；依赖 Workshop 组",
+    requiresPython: false,
+    minOpenCode: ">=2.0.31",
+    dependsOn: ["workshop"],
+    plugins: ["opencode-ssh-workshop"],
+    opencodeEntries: `    "./opencode-zh-bundle/plugins/opencode-ssh-workshop"`,
+    opencodeExtras: "",
+    cliEntries: `    "./opencode-zh-bundle/plugins/opencode-ssh-workshop"`,
+    configNotes: [
+      "opencode.jsonc：plugins 中的 opencode-ssh-workshop 条目（Server 入口）",
+      "opencode.jsonc：agents 块中的 ssh-drafter / ssh-tinker / ssh-foreman / ssh-maker / ssh-inspector / ssh-archivist / ssh-surveyor 七条",
+      "cli.json：opencode-ssh-workshop 条目（TUI /ssh-devices 入口）",
+    ],
+  },
 ]
 
 export const GROUP_IDS = GROUPS.map((group) => group.id)
 
 export function groupById(id) {
   return GROUPS.find((group) => group.id === id)
+}
+
+/** 组依赖校验；SSH 的七个角色声明必须并入 workshop 的 agents 对象。 */
+export function validateGroupDependencies(ids) {
+  const selected = new Set(ids)
+  for (const group of GROUPS) {
+    if (!selected.has(group.id)) continue
+    for (const dependency of group.dependsOn ?? []) {
+      if (!selected.has(dependency)) {
+        throw new Error(`组件组 ${group.id} 依赖 ${dependency}，请一并选择。`)
+      }
+    }
+  }
+  return ids
 }
 
 export function cardById(id) {
@@ -237,9 +283,11 @@ export function resolveSelection({ groups, cards = [] }) {
     if (group.id !== "sidebar" && groupSet.has(group.id) && group.cliEntries) cliEntries.push(group.cliEntries)
   }
 
-  const extras = OPENCODE_EXTRAS_ORDER.filter((id) => groupSet.has(id))
-    .map((id) => groupById(id).opencodeExtras)
-    .filter(Boolean)
+  const extras = []
+  if (groupSet.has("workshop")) {
+    extras.push(workshopExtras(groupSet.has("ssh") ? SSH_AGENT_DECLARATIONS : ""))
+  }
+  if (groupSet.has("alone")) extras.push(groupById("alone").opencodeExtras)
 
   return {
     groups: GROUPS.map((group) => group.id).filter((id) => groupSet.has(id)),
