@@ -186,9 +186,8 @@ sha512-RYbqR/HzKTH9OSh98VOt78bgQ8sgidUCCCKR9CABSc06AFxZdycezIg8dUmh+uBdp2mf4ckWV
 - **大文件／并发写入未验证**：小文件写入、覆盖读、上传下载已验证；大文件／并发传输、
   Worker 继承设备与目录仍需要专门验收。
 - **TUI 未验证**：`/ssh-devices` 的选择、编辑、连接流程没有在终端里实际操作过。
-- **角色隔离部署后未复验**：当前活动 bundle 尚未换成这份新代码，因此本轮没有把
-  活动会话里的 Code Mode 调用当作新 guard 的运行验收；部署后需要重新验证
-  `execute.before` 对真实工具调用的拦截。
+- **角色隔离部署后未复验**：整合版本尚未在共享服务重启后完成实际工具调用验收；
+  重启后需要重新验证 `execute.before` 对真实工具调用的拦截。
 - **每终端设备确认未实现**：`sessionID` 不能区分同一会话的多个终端，TUI 本地内存
   也不能被服务端工具上下文读取；不使用弱标记冒充硬限制。
 - **存储作用域未验证**：设备档案用 `ctx.storage`；官方文档只说明按插件 ID 作用域，
@@ -223,12 +222,10 @@ sha512-RYbqR/HzKTH9OSh98VOt78bgQ8sgidUCCCKR9CABSc06AFxZdycezIg8dUmh+uBdp2mf4ckWV
 - **“已实现”不等于“验收完成”。** 类型检查与构建通过，不证明权限职责、远端操作和
   设备管理满足全部需求。
 
-本轮修改限于 SSH 安装接入、解析器／连接／grep／角色隔离源码、对应编译产物、
-`scripts/verify-permissions.mjs` 与相关说明文档；没有修改 `opencode-matt-workshop`、
-默认 Agent、其他插件或 quota-zh，也没有暂存、提交、推送或改写 Git 历史。
-本次源码修改未自动部署到当前活动 bundle；当前运行配置仍使用已部署的旧版本，
-角色隔离需要重新安装或切换 bundle 后才生效。以下功能介绍和配置示例应结合上述
-交付状态阅读。
+本次整合分支的改动限于 SSH 安装接入、解析器／连接／grep／角色隔离源码、对应编译产物、
+`scripts/verify-permissions.mjs` 与相关说明文档；没有把个人 quota 修改带入本分支。
+本地整合提交尚未推送；共享服务未重启，活动会话中的 Code Mode 拦截仍需重启后复验。
+以下功能介绍和配置示例应结合上述交付状态阅读。
 
 ## 能力
 
