@@ -129,7 +129,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 安装后手动切换到 `ssh-drafter`、`ssh-tinker` 或 `ssh-foreman` 主角色；四个 Worker 为 `ssh-maker`、`ssh-inspector`、`ssh-archivist`、`ssh-surveyor`。可用自然语言请求连接目标，或打开 `/ssh-devices` 管理设备并发起连接。原有本机角色保留，不自动切换角色；安装器会自动补齐配置，手工合并时 Workshop 插件须先于 SSH 插件加载，并合并七条 `ssh-*` 角色声明，不要添加第二个 `agents` 对象。
 
-远端命令先做 Bash 静态分析，再走 V2 原生权限检查，全部资源通过后才发送原文；无法可靠分析的语法直接拒绝，不降级放行。本机角色不能调用 SSH 工具，也不能通过本机 shell 执行可识别的 `ssh`／`scp`／`sftp` 命令，需手动切换 SSH 角色。这不代表支持全部 Bash，也不是系统沙箱，不分析任意程序或外部脚本的内部副作用。安装、agent 准备、设备档案和故障排查见 [SSH 从零使用指南](ssh_use.md)、[SSH 连接使用指南](ssh_usage.md) 与 [新机器密钥配置](ssh_first_time_setup.md)。
+远端命令先做 Bash 静态分析，再走 V2 原生权限检查，全部资源通过后才发送原文；无法可靠分析的语法直接拒绝，不降级放行。本机角色不能调用 SSH 工具，也不能通过本机 shell 执行可识别的 `ssh`／`scp`／`sftp` 命令，需手动切换 SSH 角色。这不代表支持全部 Bash，也不是系统沙箱，不分析任意程序或外部脚本的内部副作用。安装、agent 准备、设备档案和故障排查见 [SSH 插件说明](plugins/opencode-ssh-workshop/README.md)。
 
 > [!IMPORTANT]
 > SSH 权限专项和当前目录标记通过源码级检查；真实设备只读传输、小文件上传下载和现有自动权限检查有历史验证记录，但不是整套 SSH 功能验收。严格的“每个终端独立确认设备”未实现，大文件／并发传输、`/ssh-devices` 部分 TUI、设备档案跨项目共享与重启恢复仍未验收；初始目录边界也尚未完整验收。引用／复合命令保存审批后可能再次询问，详见 [SSH 插件交付说明](plugins/opencode-ssh-workshop/README.md#交付说明当前状态)。安装器会在选择 `ssh` 组时严格要求 OpenCode 2.0.31+，插件启动时仍会检查权限接口。
@@ -206,7 +206,6 @@ Workshop（`workshop` 组）把上游 Matt Pocock Skills `v1.2.3` 的 25 个 Pro
 
 - 公开文档只覆盖用法与核心设计原则；内部设计与讨论记录不随安装包分发，安装后可用的文档见 bundle 的 `docs/`。
 - 新增可选 `ssh` 组，依赖 `workshop`，通过独立插件提供七个 SSH 角色与远端工具；原有默认 Agent 仍为 `tinker`。
-- 新增 [SSH 从零使用指南](ssh_use.md)、[SSH 连接使用指南](ssh_usage.md) 与 [新机器密钥配置](ssh_first_time_setup.md)，随源码目录、运行包和安装 bundle 分发。
 - OpenCode 兼容性以实际运行结果为准；升级 OpenCode 后如遇异常，先查排障文档。
 
 ## 许可证与声明

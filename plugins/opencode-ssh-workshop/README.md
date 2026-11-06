@@ -175,8 +175,6 @@ sha512-RYbqR/HzKTH9OSh98VOt78bgQ8sgidUCCCKR9CABSc06AFxZdycezIg8dUmh+uBdp2mf4ckWV
 - 当前目录标记用真实 Bash 命令载荷验证：`pwd` 的 Base64 值被正确解析并去掉行尾；
   这只证明标记解析，不替代初始目录与真实目录边界的完整验收。断连下载测试确认不会
   调用本地写入。
-- `ssh_use.md` 已实际出现在源码根目录、`runtime-stage` 和隔离安装 bundle；stage 的
-  必需文件断言包含它，安装器顶层复制缺失会中止安装。
 - 最终上述指定环境检查无失败；大文件／并发传输、`/ssh-devices` TUI 及其他已列出的
   功能仍未验收。
 - 本轮未修改其他插件、配置模板、默认 Agent 或安装组合。

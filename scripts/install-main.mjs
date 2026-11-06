@@ -658,7 +658,7 @@ function copyStaged(plugins) {
   const staged = join(ROOT, "runtime-stage")
   mkdirSync(BUNDLE_DIR, { recursive: true })
   for (const name of ["scripts", "config", "docs"]) copyTree(join(staged, name), join(BUNDLE_DIR, name))
-  for (const name of ["package.json", "package-lock.json", ".npmrc", "README.md", "ssh_use.md", "ssh_usage.md", "ssh_first_time_setup.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "install.sh", "install.ps1"]) {
+  for (const name of ["package.json", "package-lock.json", ".npmrc", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "install.sh", "install.ps1"]) {
     cpSync(join(staged, name), join(BUNDLE_DIR, name), { force: true })
   }
   // 并集保留：只覆盖本次选中插件，未选插件与卡片的旧目录不动。

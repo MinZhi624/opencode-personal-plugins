@@ -35,7 +35,7 @@ await Promise.all([
   copy("plugins/opencode-ssh-workshop/tui.ts", "plugins/opencode-ssh-workshop/tui.ts"),
   copy("plugins/opencode-ssh-workshop/LICENSE", "plugins/opencode-ssh-workshop/LICENSE"),
   copy("plugins/opencode-ssh-workshop/README.md", "plugins/opencode-ssh-workshop/README.md"),
-  copy("package.json"), copy("package-lock.json"), copy(".npmrc"), copy("README.md"), copy("ssh_use.md"), copy("ssh_usage.md"), copy("ssh_first_time_setup.md"), copy("LICENSE"), copy("THIRD_PARTY_NOTICES.md"), copy("install.sh"), copy("install.ps1"),
+  copy("package.json"), copy("package-lock.json"), copy(".npmrc"), copy("README.md"), copy("LICENSE"), copy("THIRD_PARTY_NOTICES.md"), copy("install.sh"), copy("install.ps1"),
   copy("scripts/install-main.mjs", "scripts/install-main.mjs"),
   copy("scripts/install-groups.mjs", "scripts/install-groups.mjs"),
   copy("docs/TROUBLESHOOTING.md", "docs/TROUBLESHOOTING.md"),
@@ -91,9 +91,6 @@ required.push(
   "plugins/opencode-ssh-workshop/dist/grammar/LICENSE",
   "plugins/opencode-ssh-workshop/LICENSE",
   "plugins/opencode-ssh-workshop/README.md",
-  "ssh_use.md",
-  "ssh_usage.md",
-  "ssh_first_time_setup.md",
 )
 for (const path of required) if (!staged.includes(path)) forbidden.push(`missing required runtime file: ${path}`)
 if (forbidden.length) throw new Error(`Runtime distribution isolation failed:\n${forbidden.join("\n")}`)
