@@ -68,7 +68,8 @@ ${SIDEBAR_CARDS.map((card) => `  ${card.id.padEnd(15)} ${card.title}`).join("\n"
 
 说明：除 ssh 依赖 workshop 外，其余组可任意组合；选中 sidebar 后宿主、额度后台
 与共享会话统计一并安装，勾选上下文／子代理再自动补隐藏共享库。普通组件版本检查
-只提示；SSH 组严格要求 OpenCode 2.0.31+。已有配置会自动合并：只补充缺失的插件
+只提示；显式选择 SSH 组要求 OpenCode 2.0.31+，--all／--without 隐式包含时版本
+不足会跳过 SSH 并继续其余组。已有配置会自动合并：只补充缺失的插件
 条目与键，保留你已有的设置和注释；写前备份为 .bak.<时间戳>。减少卡片或组时不会
 自动删除已有配置条目。`)
 }
@@ -491,20 +492,22 @@ function warnOpenCodeVersion(ids, versionText) {
   }
 }
 
-// SSH 使用 permission.assert；版本不足不能像普通组件一样继续安装。
-function assertSshVersion(ids, versionText) {
-  if (!ids.includes("ssh")) return
+// SSH 使用 permission.assert。显式选择时版本不足必须失败；--all/--without
+// 只是隐式包含 SSH，跳过它即可，不能让版本门槛扩散到其他组件。
+function checkSshVersion(ids, versionText, explicit) {
+  if (!ids.includes("ssh")) return true
   const version = parseSemver(versionText)
   const minimum = parseSemver("2.0.31")
-  if (!version) {
-    throw new UserError(
-      `无法确认 OpenCode 版本（opencode --version 输出：${versionText ? `"${versionText}"` : "空"}）；SSH 组需要 >=2.0.31。`,
-    )
+  const reason = !version
+    ? `无法确认 OpenCode 版本（opencode --version 输出：${versionText ? `"${versionText}"` : "空"}）`
+    : `OpenCode ${versionText} 过旧`
+  const order = version ? compareSemver(version, minimum) : -1
+  if (!version || order < 0 || (order === 0 && version.prerelease)) {
+    if (explicit) throw new UserError(`${reason}；SSH 组需要 >=2.0.31。`)
+    warn(`提示：${reason}；SSH 需要 2.0.31+，已跳过 SSH，其余组继续。已有 ssh 配置条目保留，旧运行时会由插件启动门槛拒绝加载。`)
+    return false
   }
-  const order = compareSemver(version, minimum)
-  if (order < 0 || (order === 0 && version.prerelease)) {
-    throw new UserError(`OpenCode ${versionText} 过旧；SSH 组需要 >=2.0.31。`)
-  }
+  return true
 }
 
 function resolvePython() {
@@ -688,7 +691,9 @@ function run(cmd, args, cwd, shell = process.platform === "win32") {
 }
 
 function capture(cmd, args, shell = process.platform === "win32") {
-  return (spawnSync(cmd, args, { encoding: "utf8", shell }).stdout || "").trim()
+  const result = spawnSync(cmd, args, { encoding: "utf8", shell })
+  if (result.error || result.status !== 0) return ""
+  return (result.stdout || "").trim()
 }
 
 // 异步 spawn 让 spinner 在命令运行期间继续动画；spawnSync 会阻塞事件循环。
@@ -798,7 +803,7 @@ async function main() {
   if (!groups.length) throw new UserError("至少选择一组。")
   ensureGroupDependencies(groups)
 
-  const selection = resolveSelection({ groups, cards })
+  let selection = resolveSelection({ groups, cards })
   groups = selection.groups
   cards = selection.cards
 
@@ -808,7 +813,13 @@ async function main() {
 
   const opencodeVersion = capture("opencode", ["--version"])
   info(`OpenCode：${opencodeVersion || "未知版本"}`)
-  assertSshVersion(groups, opencodeVersion)
+  const sshExplicit = Boolean(opts.only) || (!opts.all && !opts.without)
+  let sshSkipped = false
+  if (!checkSshVersion(groups, opencodeVersion, sshExplicit)) {
+    sshSkipped = true
+    groups = canonical(groups.filter((id) => id !== "ssh"))
+    selection = resolveSelection({ groups, cards })
+  }
   warnOpenCodeVersion(groups, opencodeVersion)
   info(`Node.js：${process.version}`)
   if (python) info(`Python：${capture(python.cmd, [...python.args, "--version"], false) || "未知版本"}`)
@@ -816,7 +827,9 @@ async function main() {
   if (groups.includes("sidebar")) info(`侧栏卡片：${cards.length ? cards.join("、") : "无（仅侧栏基础）"}`)
   info(`插件：${selection.plugins.join("、")}`)
 
-  const removedGroups = previous?.groups ? canonical(previous.groups).filter((id) => !groups.includes(id)) : []
+  const removedGroups = previous?.groups
+    ? canonical(previous.groups).filter((id) => !groups.includes(id) && !(sshSkipped && id === "ssh"))
+    : []
   const previousCards = previous?.groups?.includes("sidebar") ? previous.cards ?? SIDEBAR_CARD_IDS : []
   const removedCards = groups.includes("sidebar") ? canonicalCards(previousCards).filter((id) => !cards.includes(id)) : []
 

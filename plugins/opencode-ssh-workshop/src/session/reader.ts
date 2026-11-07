@@ -9,10 +9,15 @@ export function checkBuffer(state: SessionState): void {
   const match = state.buffer.match(pattern)
   if (match) {
     const markerIndex = state.buffer.indexOf(match[0])
+    const end = markerIndex + match[0].length
+    // Wait for a complete protocol line even when the marker/newline arrive in
+    // separate chunks. Removing a newline only if already present races the reader.
+    const newline = state.buffer.slice(end).match(/^\r?\n/)
+    if (!newline) return
     // 不再 trim：标记由 `echo` 单独输出，缓冲区里标记之前就是命令的原始 stdout。
     // 先前的 trim 会吃掉文件首行缩进与末尾换行，让远端文件读取无法忠实返回内容。
     const output = state.buffer.substring(0, markerIndex)
-    state.buffer = state.buffer.substring(markerIndex + match[0].length)
+    state.buffer = state.buffer.substring(end + newline[0].length)
     const exitCode = parseInt(match[1], 10)
     if (match[2]) {
       // pwd 输出带一个行尾换行；它属于命令输出，不属于目录名。

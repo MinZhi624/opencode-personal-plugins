@@ -4,6 +4,7 @@ import { assertPermission } from "../permission.js"
 import { scanBashCommand, UnscannableCommandError } from "../shell-parser.js"
 import type { SshRuntime } from "../workspace.js"
 import type { ToolContext, ToolOutput } from "../types.js"
+import { resolveRemotePath, remoteResource } from "../remote-path.js"
 
 const DEFAULT_TIMEOUT = 120_000
 
@@ -48,8 +49,11 @@ export function createExecuteTool(runtime: SshRuntime) {
       const command = args.command ?? ""
 
       let resources: readonly string[]
+      let writePaths: readonly string[]
       try {
-        resources = (await scanBashCommand(command)).resources
+        const scan = await scanBashCommand(command)
+        resources = scan.resources
+        writePaths = scan.writePaths
       } catch (error) {
         // 无法可靠分析：直接拒绝，不退回按原文授权，也不发送到远端。
         if (error instanceof UnscannableCommandError) return { content: error.message }
@@ -63,6 +67,15 @@ export function createExecuteTool(runtime: SshRuntime) {
         save: [command],
         metadata: { host: state.host },
       })
+
+      if (writePaths.length) {
+        await assertPermission(runtime.ctx, tool, {
+          action: "edit",
+          resources: writePaths.map((path) => remoteResource(state.host!, resolveRemotePath(state, path))),
+          save: [],
+          metadata: { host: state.host, paths: writePaths, command },
+        })
+      }
 
       try {
         return {

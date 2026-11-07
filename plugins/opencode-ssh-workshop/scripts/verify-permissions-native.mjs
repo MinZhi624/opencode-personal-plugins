@@ -10,6 +10,8 @@ import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { randomBytes } from "node:crypto"
 import { DENIED, REFUSED, ALLOWED, runCommand } from "./verify-permissions.mjs"
+import { authorizeTransfer } from "../dist/src/permission.js"
+import { buildSshAgents } from "../dist/src/agents.js"
 
 const rule = (resource, effect) => ({ action: "shell", resource, effect })
 // Installed 2.0.28 and the 2.0.31 development API use different response envelopes.
@@ -156,6 +158,42 @@ export async function verifyNative(ctx) {
     }
     for (const command of ["git status --porcelain", "pwd"]) {
       assert.equal((await replyToAsk(command, "reject")).writes.length, 0, "whole-command approval must not separately allow a child")
+      cases++
+    }
+    // PR regressions: exercise native rule matching, not just scanner strings.
+    await ctx.session.update({ sessionID, permissions: [rule("*", "allow"), rule("git commit*", "deny"), rule("rm -rf*", "deny")] })
+    for (const command of ["git -C repo commit -m x", "git -c foo=bar commit -m x", "git --git-dir=repo commit -m x", "rm -fr /tmp/inert", "rm --force --recursive /tmp/inert"]) {
+      const result = await complete(command)
+      assert.equal(result.writes.length, 0, command)
+      assert(result.error && result.error !== result.reached, command)
+      cases++
+    }
+    await ctx.session.update({ sessionID, permissions: [rule("*", "allow"), { action: "edit", resource: "*", effect: "deny" }] })
+    for (const command of ["echo x > /tmp/inert", "echo x | tee /tmp/inert", "bash -c 'echo x >> /tmp/inert'"]) {
+      const result = await complete(command)
+      assert.equal(result.writes.length, 0, command)
+      assert.equal(result.calls.at(-1).action, "edit")
+      assert(result.error && result.error !== result.reached, command)
+      cases++
+    }
+    const definition = buildSshAgents({})["ssh-tinker"].permissions
+    await ctx.session.update({ sessionID, permissions: [...definition.policy, ...definition.hard] })
+    for (const [localPath, expected] of [["new-local-file", "ssh_local_read"], [resolve(ctx.location.directory, "..", "outside-file"), "external_directory"]]) {
+      let finished = false
+      const operation = authorizeTransfer(ctx, { sessionID, agent: "build", messageID: "msg_test", id: "call_test" }, {
+        host: "test@invalid", localPath, localAction: "read", remotePath: "/tmp/inert", remoteAction: "edit",
+      }).then(() => ({ allowed: true }), (error) => ({ error })).finally(() => { finished = true })
+      let pending
+      for (let tries = 0; tries < 200; tries++) {
+        pending = data(await ctx.permission.list({ sessionID }))[0]
+        if (pending) break
+        assert(!finished, "local transfer unexpectedly settled without approval")
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      }
+      assert(pending, `missing native ${expected} prompt`)
+      assert.equal(pending.action, expected)
+      await ctx.permission.reply({ sessionID, requestID: pending.id, decision: "reject" })
+      assert((await operation).error, "local transfer must stop on rejection")
       cases++
     }
     return { cases, limitations }

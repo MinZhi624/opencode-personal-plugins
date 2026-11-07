@@ -40,6 +40,8 @@ export const DENIED = [
   "command -- git push origin main", "builtin eval 'git push origin main'",
   "exec -a display git push origin main", "nohup git push origin main",
   "time git push origin main", "nice -n 5 git push origin main",
+  "git -C repo push origin main", "git -c foo=bar push origin main",
+  "git --git-dir=repo/.git --work-tree=repo push origin main",
   "timeout -s TERM 5s git push origin main", "setsid -f git push origin main",
   "env bash -lc 'git push origin main'", "command env bash -c 'git push origin main'",
 ]
@@ -297,7 +299,7 @@ export async function verifyLocal() {
   const markerState = createState()
   const markerCwd = "/home/wukong/project"
   markerState.currentMarkerId = "cwdtest"
-  markerState.buffer = `before\n<<__OC_SSH_DONE__cwdtest_0_${Buffer.from(`${markerCwd}\n`).toString("base64")}>>`
+  markerState.buffer = `before\n<<__OC_SSH_DONE__cwdtest_0_${Buffer.from(`${markerCwd}\n`).toString("base64")}>>\n`
   let markerResult
   markerState.pendingResolve = (result) => { markerResult = result }
   checkBuffer(markerState)
@@ -429,13 +431,16 @@ export async function verifyLocal() {
         const state={host:'test',readerDone:false,proc:{stdin:{write(){writes++}}}};
         const runtime={ctx:{permission:{async assert(){calls++}}},async peekFor(){return {state}}};
         const output=await createExecuteTool(runtime).execute({command:'git status'},{});
-        assert.match(output.content,/解析器初始化失败/); assert.equal(writes,0); assert.equal(calls,0);
+         assert.match(output.content,/解析器初始化失败/); assert.equal(writes,0); assert.equal(calls,0);
+         ${corrupt ? "assert.match(output.content,/SHA-256/);" : ""}
       `
       const process = spawnSync(globalThis.process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8", timeout: 15_000 })
       assert.equal(process.status, 0, process.stderr)
       cases++
     }
   } finally { await rm(base, { recursive: true, force: true }) }
+  const { verifyReviewFixes } = await import("./verify-review-fixes.mjs")
+  cases += await verifyReviewFixes(runCommand)
   console.log(`PASS local SSH authorization checks: ${cases} cases (injected permission boundary; NOT native rule evaluation)`)
 }
 

@@ -70,11 +70,10 @@ export async function connectSession(
       spawnSSH(state, request.target, request.options, request.signal, requestedDirectory ?? undefined),
     )
     state.deviceID = request.deviceID
-    state.remoteDirectory = requestedDirectory
     runtime.workspaces.set(rootID, {
       deviceID: request.deviceID,
       host: request.target,
-      remoteDirectory: requestedDirectory,
+      remoteDirectory: state.remoteDirectory,
     })
 
     const now = Date.now()

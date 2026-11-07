@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="#版本记录"><img alt="版本" src="https://img.shields.io/badge/版本-v1.0.0-blue?style=flat-square" /></a>
-  <a href="https://opencode.ai/v2/docs/"><img alt="OpenCode" src="https://img.shields.io/badge/OpenCode-2.0.18-blue?style=flat-square" /></a>
+  <a href="https://opencode.ai/v2/docs/"><img alt="OpenCode" src="https://img.shields.io/badge/OpenCode-2.0.31%2B-blue?style=flat-square" /></a>
   <a href="https://nodejs.org/"><img alt="Node.js" src="https://img.shields.io/badge/Node.js-%E6%8E%A8%E8%8D%9026.4%2B-339933?style=flat-square" /></a>
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" /></a>
 </p>
@@ -64,14 +64,14 @@
 
 - Node.js 与 npm（推荐 26.4+）
 - Python 3.10+（仅安装 `alone` 组的 `gpt-reset-credits` 时需要）
-- OpenCode（侧栏组建议 2.0.26+，`opencode-quota-zh` 固定上游 v6；SSH 组要求 **2.0.31+**，2.0.28 不兼容，且启动时检查 `permission.assert`）
+- OpenCode（侧栏组建议 2.0.26+，`opencode-quota-zh` 固定上游 v6；显式选择 SSH 组要求 **2.0.31+**，2.0.28 不兼容，且启动时检查 `permission.assert`；`--all`／`--without` 隐式包含时版本不足会跳过 SSH）
 - SSH（可选）：需要本机 `ssh`／`scp`；远端面向可运行 Bash 的 Linux；只支持密钥或 SSH agent，不支持密码交互
 
 Linux / macOS / WSL：
 
 ```bash
 bash install.sh                 # ↑↓ 移动、空格勾选、Enter 确认（预选上次安装的组合）
-bash install.sh --all           # 安装全部组与全部侧栏卡片；包含 SSH，要求 OpenCode 2.0.31+
+bash install.sh --all           # 安装全部组与全部侧栏卡片；SSH 在版本不足时自动跳过
 bash install.sh --only workshop,sidebar
 bash install.sh --only workshop,ssh   # 工作流与 SSH 远程功能（2.0.31+）
 bash install.sh --only sidebar --cards timeline,skill   # 只装宿主与时间线／技能卡片
@@ -91,7 +91,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 | `workshop` | `opencode-matt-workshop` | 工作流：Drafter / Tinker / Foreman、四个 Worker、25 个 Workflow Skill、模型预设与网页编排台 |
 | `sidebar` | 宿主、额度后台、共享会话统计与可选五张卡片 | 侧栏与额度：一屏内分组勾选卡片 |
 | `alone` | `gpt-reset-credits` | 独立插件；需要 Python 3.10+ |
-| `ssh` | `opencode-ssh-workshop` | SSH 远程工作：七个角色、设备管理与远端工具；依赖 `workshop` 组，要求 OpenCode 2.0.31+ |
+| `ssh` | `opencode-ssh-workshop` | SSH 远程工作：七个角色、设备管理与远端工具；依赖 `workshop` 组，显式选择要求 OpenCode 2.0.31+ |
 
 侧栏卡片与组件组在同一个彩色分组列表里选择：`↑↓` 移动、空格勾选、`Enter` 确认。勾选任意卡片会自动点亮「侧栏」并带上宿主 `opencode-sidebar-host-zh`、额度后台 `opencode-quota-zh` 与共享会话统计 `opencode-session-data`；`sessionOverview` 与 `subagents` 另带隐藏共享库 `opencode-enhanced-sidebar-zh`。取消「侧栏」会同时清空卡片。非交互安装用 `--cards timeline,skill` 指定（`--cards none` 只装侧栏基础），省略时默认全部卡片。
 
@@ -132,7 +132,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 远端命令先做 Bash 静态分析，再走 V2 原生权限检查，全部资源通过后才发送原文；无法可靠分析的语法直接拒绝，不降级放行。本机角色不能调用 SSH 工具，也不能通过本机 shell 执行可识别的 `ssh`／`scp`／`sftp` 命令，需手动切换 SSH 角色。这不代表支持全部 Bash，也不是系统沙箱，不分析任意程序或外部脚本的内部副作用。安装、agent 准备、设备档案和故障排查见 [SSH 插件说明](plugins/opencode-ssh-workshop/README.md)。
 
 > [!IMPORTANT]
-> SSH 权限专项和当前目录标记通过源码级检查；真实设备只读传输、小文件上传下载和现有自动权限检查有历史验证记录，但不是整套 SSH 功能验收。严格的“每个终端独立确认设备”未实现，大文件／并发传输、`/ssh-devices` 部分 TUI、设备档案跨项目共享与重启恢复仍未验收；初始目录边界也尚未完整验收。引用／复合命令保存审批后可能再次询问，详见 [SSH 插件交付说明](plugins/opencode-ssh-workshop/README.md#交付说明当前状态)。安装器会在选择 `ssh` 组时严格要求 OpenCode 2.0.31+，插件启动时仍会检查权限接口。
+> SSH 权限专项和当前目录标记通过源码级检查；真实设备只读传输、小文件上传下载和现有自动权限检查有历史验证记录，但不是整套 SSH 功能验收。严格的“每个终端独立确认设备”未实现，大文件／并发传输、`/ssh-devices` 部分 TUI、设备档案跨项目共享与重启恢复仍未验收；初始目录边界也尚未完整验收。引用／复合命令保存审批后可能再次询问，详见 [SSH 插件交付说明](plugins/opencode-ssh-workshop/README.md#交付说明当前状态)。显式选择 `ssh` 组时严格要求 OpenCode 2.0.31+；`--all`／`--without` 隐式包含时版本不足会跳过 SSH 并继续其余组。插件启动时仍会检查权限接口。
 
 ## 更新
 
@@ -204,7 +204,7 @@ Workshop（`workshop` 组）把上游 Matt Pocock Skills `v1.2.3` 的 25 个 Pro
 
 当前版本 **1.0.0**，与 `package.json` 及各插件 `package.json` 的 `version` 字段一致；root README 徽章随该版本号更新。
 
-- 公开文档只覆盖用法与核心设计原则；内部设计与讨论记录不随安装包分发，安装后可用的文档见 bundle 的 `docs/`。
+- 公开文档只覆盖用法与核心设计原则；内部设计与讨论记录不随安装包分发，安装后可用的文档见 bundle 的 `docs/TROUBLESHOOTING.md`。按已选组件组，对应的插件目录与说明文档才会出现在 bundle 中。
 - 新增可选 `ssh` 组，依赖 `workshop`，通过独立插件提供七个 SSH 角色与远端工具；原有默认 Agent 仍为 `tinker`。
 - OpenCode 兼容性以实际运行结果为准；升级 OpenCode 后如遇异常，先查排障文档。
 

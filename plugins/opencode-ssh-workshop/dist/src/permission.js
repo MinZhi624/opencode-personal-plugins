@@ -39,9 +39,36 @@ export async function assertPermission(ctx, tool, request) {
  * 这两项，因此本地一侧统一以插件加载位置为根做「是否越出工作区」判断。
  */
 export async function authorizeTransfer(ctx, tool, input) {
-    const { isAbsolute, relative, resolve, sep } = await import("node:path");
-    const location = ctx.location.directory;
-    const localPath = resolve(location, input.localPath);
+    const { dirname, isAbsolute, join, relative, resolve, sep, basename } = await import("node:path");
+    const { lstat, readlink, realpath } = await import("node:fs/promises");
+    // Resolve existing symlinks, including a symlinked parent of a new download.
+    // Authorize and use the same canonical path, not the workspace-looking alias.
+    async function canonical(path, depth = 0) {
+        if (depth > 64)
+            throw new Error("本地传输路径包含过多符号链接或父目录。");
+        try {
+            return await realpath(path);
+        }
+        catch (error) {
+            if (error.code !== "ENOENT")
+                throw error;
+            // realpath fails for dangling symlinks, but writing through one would still
+            // create its outside target. Resolve that target before asking permission.
+            const entry = await lstat(path).catch((cause) => {
+                if (cause.code !== "ENOENT")
+                    throw cause;
+                return undefined;
+            });
+            if (entry?.isSymbolicLink())
+                return canonical(resolve(dirname(path), await readlink(path)), depth + 1);
+            const parent = dirname(path);
+            if (parent === path)
+                throw error;
+            return join(await canonical(parent, depth + 1), basename(path));
+        }
+    }
+    const location = await realpath(ctx.location.directory);
+    const localPath = await canonical(resolve(location, input.localPath));
     const rel = relative(location, localPath);
     const outsideLocation = rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel);
     const remoteResource = `${input.host}:${input.remotePath}`;
@@ -55,10 +82,11 @@ export async function authorizeTransfer(ctx, tool, input) {
             });
         }
         await assertPermission(ctx, tool, {
-            action: input.localAction,
+            // Remote read/edit allow rules must never grant local file access.
+            action: input.localAction === "read" ? "ssh_local_read" : "ssh_local_edit",
             resources: [localPath],
             save: [localPath],
-            metadata: { path: localPath },
+            metadata: { path: localPath, host: input.host, remotePath: input.remotePath, direction: input.localAction === "read" ? "upload" : "download" },
         });
     };
     const askRemote = () => assertPermission(ctx, tool, {

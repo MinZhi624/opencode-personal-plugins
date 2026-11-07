@@ -97,6 +97,8 @@ if (forbidden.length) throw new Error(`Runtime distribution isolation failed:\n$
 // 安装器会先暂存、再在目标 bundle 安装依赖；因此这里不能默认加载需要
 // web-tree-sitter 的解析器。直接运行本脚本时仍做真实解析，安装器必须显式
 // 传入 --defer-runtime-check，并在 npm ci 后从目标布局补做同一检查。
+// 解析器在首次加载时校验固定 grammar SHA-256，因此上面的真实解析和安装后的
+// verifySshRuntime() 都会覆盖哈希，而不只是检查文件存在。
 if (!process.argv.includes("--defer-runtime-check")) {
   const { pathToFileURL } = await import("node:url")
   const { scanBashCommand } = await import(pathToFileURL(join(destination, "plugins/opencode-ssh-workshop/dist/src/shell-parser.js")).href)

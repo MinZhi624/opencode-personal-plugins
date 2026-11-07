@@ -3,6 +3,7 @@ import { executeCommand, sendMarkerCommand, waitForMarker } from "./commands.js"
 import { startErrorReader, startReader } from "./reader.js"
 import { shellQuote } from "./shell.js"
 import type { SessionState } from "./state.js"
+import { buildSshArgs } from "../connection-options.js"
 
 /**
  * 启动一条 SSH 进程并完成初始握手。
@@ -16,7 +17,7 @@ import type { SessionState } from "./state.js"
  * - `remoteDirectory` 非空时先 `cd` 过去，让后续命令与远端文件工具都落在
  *   设备档案指定的远端工作目录上。
  *
- * 连接参数、握手标记与超时逻辑保持上游原样。
+ * 连接参数经过共享 allowlist，禁止隐式本机配置；握手标记与超时沿用上游。
  */
 export async function spawnSSH(
   state: SessionState,
@@ -25,31 +26,13 @@ export async function spawnSSH(
   signal?: AbortSignal,
   remoteDirectory?: string,
 ): Promise<string> {
-  const sshArgs = [
-    "ssh",
-    "-T",
-    "-o",
-    "BatchMode=yes",
-    "-o",
-    "StrictHostKeyChecking=accept-new",
-    "-o",
-    "ServerAliveInterval=60",
-    "-o",
-    "ServerAliveCountMax=3",
-  ]
-
-  if (options) {
-    const extra = options.trim().split(/\s+/)
-    sshArgs.push(...extra)
-  }
-
-  sshArgs.push(host, "bash", "-l")
+  const sshArgs = buildSshArgs(host, options)
 
   if (signal?.aborted) {
     throw signal.reason instanceof Error ? signal.reason : new Error("SSH operation aborted.")
   }
 
-  const proc = spawn(sshArgs[0]!, sshArgs.slice(1))
+  const proc = spawn("ssh", sshArgs)
   state.proc = proc
   state.host = host
   state.options = options?.trim() || null

@@ -5,8 +5,8 @@ import type { PluginContext, ToolContext } from "./types.js"
 
 /**
  * 「远端工作区」：某个主会话当前绑定的设备与远端目录。
- * 与 ADR-0001 一致——它归主会话所有，同一主会话内的 SSH 主角色与 SSH Worker
- * 共用，不同主会话各自独立。
+ * 与 CONTEXT.md「远端工作区」一致——它归主会话所有，同一主会话内的 SSH 主角色
+ * 与 SSH Worker 共用，不同主会话各自独立。
  */
 export interface Workspace {
   deviceID: string | null

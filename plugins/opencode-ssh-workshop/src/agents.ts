@@ -65,9 +65,9 @@ const highRiskCommands = [
 /**
  * SSH 角色的共享策略。
  *
- * 关键点：远端命令走 `shell`（资源是命令原文），远端文件走 `read`/`edit`/`glob`/`grep`
+ * 关键点：远端命令走 `shell`（资源是规范化命令及子命令），远端文件走 `read`/`edit`/`glob`/`grep`
  * （资源带 `host:` 前缀），连接走 `ssh_connect`。因此用户可以按设备或按命令细分规则，
- * 例如 `{ action: "ssh_connect", resource: "axiang@10.0.0.5", effect: "allow" }`。
+ * 本地传输另用默认 ask 的 ssh_local_read / ssh_local_edit，避免远端规则放行本机文件。
  *
  * `ssh_connect` 默认 `ask`：这是在恢复上游「连接需确认」的既有默认，V2 的原生
  * `* * allow` 会把它放行掉，所以显式写一条放回 policy 层（用户规则仍可覆盖）。
@@ -81,7 +81,9 @@ const sshSharedPolicy = [
   ...highRiskCommands.map((resource) => rule("shell", resource, ask)),
   rule("ssh_connect", "*", ask),
   rule("ssh_devices", "*", allow),
-  rule("external_directory", "*", allow),
+  rule("ssh_local_read", "*", ask),
+  rule("ssh_local_edit", "*", ask),
+  rule("external_directory", "*", ask),
   rule("skill", "*", allow),
   rule("question", "*", allow),
   rule("webfetch", "*", allow),
@@ -113,7 +115,7 @@ const sshWorkerHardRules = [
   rule("shell", "git revert*", deny),
 ]
 
-const sshReadOnlyHardRules = [rule("edit", "*", deny)]
+const sshReadOnlyHardRules = [rule("edit", "*", deny), rule("ssh_local_edit", "*", deny)]
 
 /**
  * 规划角色不执行远端命令。

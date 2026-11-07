@@ -15,6 +15,7 @@ import { createDownloadTool, createUploadTool } from "./tools/transfer.js"
 import { createRemoteFileTools } from "./tools/remote-files.js"
 import { createDevicesTool } from "./tools/devices-tool.js"
 import { assertPermissionApi } from "./permission.js"
+import { connectionPermission } from "./connection-options.js"
 import type { AgentDraft, PluginContext } from "./types.js"
 
 interface DeviceRecord {
@@ -89,14 +90,17 @@ export default Plugin.define({
           const model = definition.model as string | undefined
           if (model) {
             const [providerID, ...rest] = model.split("/")
-            const variant = definition.variant as string | undefined
             draft.model = {
               providerID,
               id: rest.join("/"),
-              ...(variant ? { variant } : {}),
             } as unknown
           } else if (inheritedModel) {
             draft.model = inheritedModel
+          }
+          const variant = definition.variant as string | undefined
+          if (variant) {
+            if (!draft.model) throw new Error(`${id}: variant 需要显式 model 或可继承的角色模型。`)
+            draft.model = { ...(draft.model as Record<string, unknown>), variant }
           }
         })
       }
@@ -107,6 +111,8 @@ export default Plugin.define({
     await context.session.hook("context", (event) => {
       if (!isSshAgent(event.agent)) return
       for (const name of LOCAL_TOOLS_TO_HIDE) delete event.tools[name]
+      const temperature = options.agents[event.agent as keyof typeof options.agents]?.temperature
+      if (temperature !== undefined) event.options.temperature = temperature
     })
 
     // 兜底：本地工具不能被 SSH 角色触达；非 SSH 角色也不能进入 SSH 工具或
@@ -117,10 +123,22 @@ export default Plugin.define({
 
     // 设备档案的 RPC：`/ssh-devices` 界面通过它读写与连接，
     // 与 ssh_devices 工具操作同一份数据。
+    async function authorizeDeviceRpc(sessionID: string, operation: string): Promise<void> {
+      const session = await context.session.get({ sessionID })
+      assertSshSessionAgent(session?.agent)
+      await context.permission.assert({
+        sessionID, agent: session.agent, action: "ssh_devices", resources: ["*"],
+        save: ["*"], metadata: { operation, source: "rpc" },
+      })
+    }
     const rpc = await context.rpc.register(SshDevicesRpc, {
-      list: async () => ({ devices: await devices.list() }),
+      list: async (input) => {
+        await authorizeDeviceRpc((input as { sessionID: string }).sessionID, "list")
+        return { devices: await devices.list() }
+      },
       save: async (input, callContext) => {
-        const args = input as Partial<DeviceRecord>
+        const args = input as Partial<DeviceRecord> & { sessionID: string }
+        await authorizeDeviceRpc(args.sessionID, "save")
         try {
           const device = await devices.save({
             id: args.id,
@@ -139,7 +157,8 @@ export default Plugin.define({
         }
       },
       remove: async (input, callContext) => {
-        const { id } = input as { id: string }
+        const { id, sessionID } = input as { id: string; sessionID: string }
+        await authorizeDeviceRpc(sessionID, "remove")
         const removed = await devices.remove(id)
         if (!removed) {
           const message = `未找到设备 ${id}`
@@ -149,6 +168,7 @@ export default Plugin.define({
       },
       connect: async (input, callContext) => {
         const { sessionID, deviceID } = input as { sessionID: string; deviceID: string }
+        await authorizeDeviceRpc(sessionID, "connect")
         const profile = await devices.get(deviceID)
         if (!profile) {
           const message = `未找到设备 ${deviceID}`
@@ -170,12 +190,11 @@ export default Plugin.define({
         // 界面只是「发起者」，不是跳过授权的理由：这里仍走 V2 原生权限检查，
         // 因此配置里针对该设备的 deny 规则照样生效。
         try {
+          const permission = connectionPermission(target, deviceOptions(profile), profile.remoteDirectory)
           await context.permission.assert({
             sessionID,
-            action: "ssh_connect",
-            resources: [target],
-            save: [target],
-            metadata: { host: target, device: profile.name, source: "tui" },
+            ...permission,
+            metadata: { ...permission.metadata, device: profile.name, source: "tui" },
           })
         } catch (error) {
           const message = String(error instanceof Error ? error.message : error)
@@ -201,6 +220,7 @@ export default Plugin.define({
       },
       status: async (input) => {
         const { sessionID } = input as { sessionID: string }
+        await authorizeDeviceRpc(sessionID, "status")
         const rootID = await workspaces.resolveRoot(sessionID)
         const state = sessions.peek(rootID)
         const workspace = workspaces.get(rootID)
@@ -214,19 +234,19 @@ export default Plugin.define({
       },
     })
 
-    // 会话清理：主会话被删除时关掉它的连接；子会话删除只清解析缓存，
+    // 会话清理：主会话被删除／执行失败时关掉它的连接；子会话只清解析缓存，
     // 不牵连主会话的共享连接（上游按单会话清理，这里对应改成按主会话）。
     const controller = new AbortController()
     void (async () => {
       for await (const event of context.event.subscribe({ signal: controller.signal })) {
         const type = (event as { type?: string }).type
-        if (type !== "session.deleted" && type !== "session.error") continue
+        if (type !== "session.deleted" && type !== "session.execution.failed") continue
         const sessionID = (event as { data?: { sessionID?: string } }).data?.sessionID
         if (!sessionID) continue
 
         const rootID = await workspaces.resolveRoot(sessionID).catch(() => sessionID)
         workspaces.forgetSession(sessionID)
-        if (type === "session.deleted" && rootID === sessionID) {
+        if (rootID === sessionID) {
           workspaces.clear(rootID)
           sessions.remove(rootID)
         }

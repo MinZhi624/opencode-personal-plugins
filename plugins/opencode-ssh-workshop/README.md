@@ -12,9 +12,13 @@ v0.3.0 的 V2 兼容扩展。上游是 V1 插件，不能直接在 V2 加载（�
 适配 V2 与 Node 进程接口，并补上七个 SSH 角色与设备档案。原仓库快照保留在
 `vendor/opencode-ssh-session/`，来源见 `upstream-provenance.json`。
 
+> 文档范围：本文在源码仓库中编写。安装包只分发 `dist/`、`README.md`、`LICENSE` 等运行文件；
+> 文中 `src/`、`vendor/`、`scripts/`、`grammar/` 与 `upstream-provenance.json` 属于源码溯源路径，
+> 不随运行包提供，也不是运行依赖。安装包内的 grammar 位于 `dist/grammar/`。
+
 ## 交付说明（当前状态）
 
-**状态：角色隔离、当前目录标记和断连失败语义通过源码级检查；本地198个案例、隔离2.0.31原生155个案例通过。
+**状态：角色隔离、当前目录标记和断连失败语义通过源码级检查；本地274个案例、隔离2.0.31原生168个案例通过。
 仍有已确认的保存审批匹配限制；这不是整套 SSH 插件的真实远端／TUI 验收。**
 
 本轮处理安装依赖顺序、运行时权限门槛、连接身份、grep 退出持久 shell、当前目录标记
@@ -26,8 +30,9 @@ v0.3.0 的 V2 兼容扩展。上游是 V1 插件，不能直接在 V2 加载（�
 1. **干净环境安装**：安装器先暂存文件，等目标 bundle 的 `npm ci` 完成后再从目标布局
    加载 Bash 解析器与 grammar 校验。暂存脚本支持显式延迟检查，安装器不会跳过最终验证。
    已用一个不含 `node_modules` 的临时源码副本完成 `workshop,ssh` 安装。
-2. **运行时门槛**：`ssh` 组要求 OpenCode `>=2.0.31`；插件 `setup` 还会检查
-   `ctx.permission.assert`，缺失时拒绝加载。2.0.28 选择 SSH 会在安装阶段被拒绝，
+2. **运行时门槛**：显式选择 `ssh` 组要求 OpenCode `>=2.0.31`；`--all`／`--without`
+   隐式包含时版本不足会跳过 SSH 并继续其余组。插件 `setup` 还会检查
+   `ctx.permission.assert`，缺失时拒绝加载。2.0.28 显式选择 SSH 会在安装阶段被拒绝，
    但 `workshop` 单独安装仍可在 2.0.28 完成。
 3. **连接身份**：连接复用现在比较目标、附加 `ssh` 参数（端口、密钥、跳板机等）和
    规范化远端目录；参数变化会重建连接，并同步复用连接的设备身份。
@@ -101,7 +106,7 @@ grammar 随插件分发（来源、SHA-256 与完整许可证见 `grammar/`）�
 再从运行包布局加载解析，避免干净环境在依赖安装前失败。构建同时删除被替换的旧
 `dist/src/shell-split.js`，不再随包残留。
 
-**可复跑的验证入口**（不新增测试框架／依赖，不连接远端）：
+**可复跑的验证入口**（仅源码仓库；安装包不含 `scripts/`；不新增测试框架／依赖，不连接远端）：
 
 ```bash
 npm run verify:ssh-permissions
@@ -129,7 +134,7 @@ sha512-RYbqR/HzKTH9OSh98VOt78bgQ8sgidUCCCKR9CABSc06AFxZdycezIg8dUmh+uBdp2mf4ckWV
 未修改全局安装、PATH、仓库依赖或用户已有服务。运行脚本会清理临时服务、配置、数据库和会话。
 不指定 `SSH_VERIFY_OPENCODE` 时仍使用全局 CLI：本机2.0.28缺少所需 API，
 该运行方式仍会明确报阻塞，不能把隔离验收通过理解为旧环境已兼容。安装器现在也会在
-选择 `ssh` 组时拒绝低于 2.0.31 的版本；插件 `setup` 还会再次检查实际能力。
+显式选择 `ssh` 组时拒绝低于 2.0.31 的版本（`--all`／`--without` 隐式包含时跳过 SSH）；插件 `setup` 还会再次检查实际能力。
 
 ### 已确认且未扩大授权处理的保存限制
 
@@ -141,31 +146,43 @@ sha512-RYbqR/HzKTH9OSh98VOt78bgQ8sgidUCCCKR9CABSc06AFxZdycezIg8dUmh+uBdp2mf4ckWV
 
 后两项作为已确认兼容限制由专项脚本明确输出，而不是宣称所有形式的“始终允许”均已修复。
 
-### 其他遗留（本轮未处理）
+### 本轮复审修复
 
-上一轮宣称「12 项全部修复」，但其 57 项检查只验证了源码字符串与纯逻辑，
-不足以证明修复成立。随后的全量复查发现仍有问题，其中前两项是上一轮引入的：
-
-| 问题 | 位置 |
-| --- | --- |
-| 去掉 `trim()` 后未消费结束标记自身的换行，下一次命令输出多出开头空行 | `src/session/reader.ts` |
-| 会话失败仍匹配旧事件名 `session.error`，当前 SDK 用 `session.execution.failed` | `src/index.ts` |
-| 设备编辑需要 `id`，但列表与保存结果都不返回 `id`，自然语言更新走不通 | `src/tools/devices-tool.ts` |
-| `temperature` 被选项接受但未应用；单独覆盖 `variant` 也可能被忽略 | `src/options.ts`、`src/index.ts` |
+- **SSH 连接参数改为 allowlist**：只接受 `-p`／`-i`／`-J` 与有界的安全 `-o`；拒绝
+  `ProxyCommand`、`LocalCommand`、`PKCS11Provider`、`KnownHostsCommand`、`-F`、`-E` 等
+  本机执行／配置入口。连接强制 `-F none`、`PermitLocalCommand=no` 与固定的
+  `KnownHostsCommand`／`PKCS11Provider`／`SecurityKeyProvider`，最终 argv 在
+  `ssh_connect` 权限 metadata 中展示。依赖 `~/.ssh/config` 的别名／HostName 映射会被禁用，
+  需改用直接地址，并显式提供 `-i`／`-J`。
+- **本地传输使用独立 action**：`ssh_upload`／`ssh_download` 的本地一侧改用
+  `ssh_local_read`／`ssh_local_edit`，默认 `ask`，只读 Worker 对 `ssh_local_edit` 硬拒绝；
+  `external_directory` 不再全局放行。路径先解析符号链接（含悬空链接）再做范围判断。
+- **重定向与 `tee` 产生 `edit` 资源**：`scanBashCommand` 返回写入目标，`ssh` 工具在
+  `shell` 授权后逐个目标执行 `edit` 授权；`2>&1`、fd 关闭与 `<` 输入不算写入。
+- **Git 全局选项规范化**：`git -C`／`-c`／`--git-dir` 等会额外产出
+  `git <subcommand>` 资源，使 `git commit*`／`git push*` 规则继续生效；`rm -fr` 也产出
+  `rm -rf` 资源。
+- **本机 SSH 守卫覆盖间接入口**：识别 `GIT_SSH_COMMAND`／`GIT_SSH` 赋值、
+  `git -c core.sshCommand`、`git config core.sshCommand` 与 `rsync -e`。
+- **功能修复**：结束标记换行只在完整到达后消费；设备列表返回 `id` 且更新不存在的 id
+  直接失败；监听 `session.execution.failed`；应用 `temperature`，单独 `variant` 不再被静默忽略；
+  `/ssh-devices` RPC 的 list／save／remove／connect／status 都校验会话角色和
+  `ssh_devices` 权限。
 
 ### 检查结果
 
-- `typecheck:ssh-workshop`、`build:ssh-workshop`、`stage:runtime`（402 文件）通过；
-  grammar 在源码、编译产物与暂存布局均实际加载解析成功。
-- `verify:ssh-permissions`：198个本地案例通过，覆盖 PS4 标记行为、分析拒绝、取消、
-  解析故障、权限 API 门槛、连接身份、grep 生命周期、角色隔离、当前目录标记与断连
-  零写入；本地注入权限边界不冒充原生规则求值。角色隔离测试还通过真实 `setup`
-  验证了 `execute.before` 的注册和委托。
-- `verify:ssh-permissions:native`：指定临时2.0.31后155个原生案例通过，使用真实
+- `typecheck:ssh-workshop`、`build:ssh-workshop`、`stage:runtime`（400 文件）通过；
+  grammar 在源码、编译产物与暂存布局均实际加载解析成功，运行期也会校验固定 SHA-256。
+- `verify:ssh-permissions`：274个本地案例通过，覆盖 PS4 标记行为、分析拒绝、取消、
+  解析故障、权限 API 门槛、连接身份、grep 生命周期、角色隔离、当前目录标记、
+  本地传输越界、重定向写入、Git 全局选项、间接 SSH 入口与断连零写入；本地注入
+  权限边界不冒充原生规则求值。角色隔离测试还通过真实 `setup` 验证了
+  `execute.before` 的注册和委托；其中包含 `verify-review-fixes.mjs` 的 73 项复审回归。
+- `verify:ssh-permissions:native`：指定临时2.0.31后168个原生案例通过，使用真实
   `permission.assert` 和记录型 SSH stdin；保存匹配限制如上，未改宽模式来消除提示。
 - 干净源码副本（无 `node_modules`）的隔离 `workshop,ssh` 安装通过：目标目录完成
-  `npm ci` 后，从 bundle 布局实际加载解析器并输出预期资源；2.0.28 选择 SSH 被拒绝，
-  单独安装 `workshop` 仍成功。
+  `npm ci` 后，从 bundle 布局实际加载解析器并输出预期资源；2.0.28 显式选择 SSH 被拒绝，
+  单独安装 `workshop` 仍成功；`--all`／`--without` 隐式包含时跳过 SSH 并继续其余组。
 - 真实设备只读传输层通过（直接调用编译产物连接层，未经过 OpenCode 工具权限）：
   连接后执行 `hostname`／`whoami`／`pwd`；grep 读取 `/etc/hostname` 后继续执行同一会话
   命令成功。未创建、修改或删除远端文件。
@@ -195,6 +212,9 @@ sha512-RYbqR/HzKTH9OSh98VOt78bgQ8sgidUCCCKR9CABSc06AFxZdycezIg8dUmh+uBdp2mf4ckWV
 - **不是沙箱**：只覆盖受支持的 Bash 命令结构和已知调度入口，不解释任意程序内部行为，
   也不读取外部脚本、shell 启动配置或远端预置函数／别名。`npm run`、任意程序的参数语义
   与内部副作用不在静态保障内；不能把危险命令 deny 清单视为任意远端副作用的防护。
+- **只读 Worker 不是完整写沙箱**：`edit` deny 覆盖远端文件工具、重定向／`tee` 目标与
+  本地传输，但 `cp`／`mv`／`rm`／`sed -i` 等程序内部写行为不在当前写入目标分类内；
+  需要强隔离时应限制 Worker 可用的 shell 命令或改用只读工具。
 - **受支持的包装选项有界**：仅处理明确列出的 `env`、`sudo`、`command`、`builtin`、
   `exec`、`nohup`、`setsid`、`time`、`nice`、`timeout` 选项；其他形式拒绝，不再猜测。
 - **不支持本次调用启用 shell 跟踪或写入 PS4**。这不等于检查或清理远端预置的 shell 状态，
@@ -212,7 +232,7 @@ sha512-RYbqR/HzKTH9OSh98VOt78bgQ8sgidUCCCKR9CABSc06AFxZdycezIg8dUmh+uBdp2mf4ckWV
 
 ### 对此前交付表述的更正
 
-- **远端命令使用 `shell` action 符合 ADR-0002，不属于偏离设计。** 本地与远端使用
+- **远端命令使用 `shell` action 符合既定设计，不属于偏离。** 本地与远端使用
   同名 action 本身不是缺陷；不能因此推断当前授权实现已完成运行验收。
 - **仓库 `config/opencode.jsonc` 与 `config/cli.json` 是生成的参考模板。**
   `--all --render config` 只导出这些模板，不能据此声称用户当前生效的 OpenCode 配置
@@ -221,9 +241,9 @@ sha512-RYbqR/HzKTH9OSh98VOt78bgQ8sgidUCCCKR9CABSc06AFxZdycezIg8dUmh+uBdp2mf4ckWV
   设备管理满足全部需求。
 
 本次整合分支的改动限于 SSH 安装接入、解析器／连接／grep／角色隔离源码、对应编译产物、
-`scripts/verify-permissions.mjs` 与相关说明文档；没有把个人 quota 修改带入本分支。
-本地整合提交尚未推送；共享服务未重启，活动会话中的 Code Mode 拦截仍需重启后复验。
-以下功能介绍和配置示例应结合上述交付状态阅读。
+`scripts/verify-permissions.mjs`、`scripts/verify-review-fixes.mjs` 与相关说明文档；
+没有把个人 quota 修改带入本分支。分支已推送到个人 Fork，尚未合并到上游；共享服务未重启，
+活动会话中的 Code Mode 拦截仍需重启后复验。以下功能介绍和配置示例应结合上述交付状态阅读。
 
 ## 能力
 
@@ -270,17 +290,19 @@ sha512-RYbqR/HzKTH9OSh98VOt78bgQ8sgidUCCCKR9CABSc06AFxZdycezIg8dUmh+uBdp2mf4ckWV
 
 | 操作 | action | 资源 |
 | --- | --- | --- |
-| 连接 | `ssh_connect` | 最终目标，例如 `axiang@192.168.1.20` |
+| 连接 | `ssh_connect` | 最终目标；metadata 列出完整 argv、目标与远端目录 |
 | 远端命令 | `shell` | AST 还原的规范化命令及支持的内部命令；保存审批建议仍是整条原文 |
 | 读远端文件 | `read` | `host:远端路径` |
-| 写远端文件 | `edit` | `host:远端路径` |
+| 写远端文件 | `edit` | `host:远端路径`；重定向／`tee` 目标也逐个检查 |
 | 远端 glob | `glob` | 请求的模式 |
 | 远端 grep | `grep` | 请求的正则 |
-| 上传 | `read`（本地）→ `edit`（远端） | 本地路径，`host:远端路径` |
-| 下载 | `read`（远端）→ `edit`（本地） | `host:远端路径`，本地路径 |
+| 上传 | `ssh_local_read`（本地）→ `edit`（远端） | 本地路径，`host:远端路径` |
+| 下载 | `read`（远端）→ `ssh_local_edit`（本地） | `host:远端路径`，本地路径 |
 
-SSH 角色策略将 `ssh_connect` 设为默认 `ask`，用户规则可以覆盖它。
-以下是显式放行的配置示例，并非启用插件的必要条件，也不能修复上述权限缺陷：
+`ssh_local_read`／`ssh_local_edit` 在 SSH 角色策略中默认 `ask`；只读 Worker 对
+`ssh_local_edit` 硬拒绝。`external_directory` 也改为 `ask`，越出工作区的本地传输
+必须显式授权。SSH 角色策略将 `ssh_connect` 设为默认 `ask`，用户规则可以覆盖它。
+以下是显式放行的配置示例，并非启用插件的必要条件；放宽 `ssh_local_*` 或 `ssh_connect` 会扩大信任范围，应自行确认目标与参数。
 
 ```jsonc
 {

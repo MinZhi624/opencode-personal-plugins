@@ -3,6 +3,7 @@ import { connectSession } from "../connect-core.js"
 import { deviceOptions, deviceTarget } from "../devices/types.js"
 import type { SshRuntime } from "../workspace.js"
 import type { ToolContext, ToolOutput } from "../types.js"
+import { connectionPermission } from "../connection-options.js"
 
 interface ConnectInput {
   host?: string
@@ -26,7 +27,7 @@ export function createConnectTool(runtime: SshRuntime) {
     description:
       "Open a persistent SSH session to a remote host. " +
       "Pass `device` with a saved device name to reuse a remembered host, " +
-      "or pass `host` directly (e.g. 'user@server', 'myalias', 'user@192.168.1.10'). " +
+      "or pass `host` directly (e.g. 'user@server', 'user@192.168.1.10'). Local SSH config aliases are not loaded. " +
       "The whole session, including its SSH subagents, shares this one connection and " +
       "remote working directory. Use `ssh_disconnect` to close it.",
     input: {
@@ -42,7 +43,7 @@ export function createConnectTool(runtime: SshRuntime) {
         },
         options: {
           type: "string",
-          description: "Extra SSH flags (e.g. '-p 2222', '-i ~/.ssh/mykey'). Ignored for saved devices.",
+          description: "Allowlisted SSH flags: -p, -i, -J and safe -o settings only. Local SSH config is disabled. Ignored for saved devices.",
         },
       },
       additionalProperties: false,
@@ -80,11 +81,10 @@ export function createConnectTool(runtime: SshRuntime) {
         }
       }
 
+      const permission = connectionPermission(target, options, remoteDirectory)
       await assertPermission(runtime.ctx, tool, {
-        action: "ssh_connect",
-        resources: [target],
-        save: [target],
-        metadata: { host: target, device: deviceName },
+        ...permission,
+        metadata: { ...permission.metadata, device: deviceName },
       })
 
       const rootID = await runtime.workspaces.resolveRoot(tool.sessionID)

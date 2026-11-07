@@ -5,7 +5,7 @@ import type { ToolContext, ToolOutput } from "../types.js"
 
 /** 设备档案的展示文本；刻意不列出任何认证材料（本来也不保存）。 */
 function formatDevice(device: DeviceProfile): string {
-  const parts = [`${device.name}（${deviceTarget(device)}）`]
+  const parts = [`${device.name}（${deviceTarget(device)}）`, `id=${device.id}`]
   if (device.port) parts.push(`端口 ${device.port}`)
   if (device.identityFile) parts.push(`密钥 ${device.identityFile}`)
   if (device.remoteDirectory) parts.push(`远端目录 ${device.remoteDirectory}`)
@@ -40,7 +40,7 @@ export function createDevicesTool(runtime: SshRuntime) {
         user: { type: "string", description: "SSH user" },
         port: { type: "number", description: "SSH port" },
         identityFile: { type: "string", description: "Path to the private key file (path only, never key contents)" },
-        options: { type: "string", description: "Extra raw ssh flags, e.g. '-J jump.example.com'" },
+        options: { type: "string", description: "Allowlisted SSH flags (-p/-i/-J and safe -o settings only)" },
         remoteDirectory: { type: "string", description: "Default remote working directory" },
       },
       additionalProperties: false,

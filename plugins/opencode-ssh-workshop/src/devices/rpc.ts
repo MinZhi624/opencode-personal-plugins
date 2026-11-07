@@ -24,23 +24,24 @@ export const SshDevicesRpc = Rpc.define({
   id: "opencode-ssh-workshop.devices",
   methods: {
     list: {
-      input: { type: "object", additionalProperties: false } as const,
+      input: { type: "object", properties: { sessionID: { type: "string" } }, required: ["sessionID"], additionalProperties: false } as const,
       output: looseObject,
     },
     save: {
       input: {
         type: "object",
         properties: {
+          sessionID: { type: "string" },
           id: { type: "string" },
           name: { type: "string" },
           host: { type: "string" },
-          user: { type: "string" },
-          port: { type: "number" },
-          identityFile: { type: "string" },
-          options: { type: "string" },
-          remoteDirectory: { type: "string" },
+          user: { type: ["string", "null"] },
+          port: { type: ["number", "null"] },
+          identityFile: { type: ["string", "null"] },
+          options: { type: ["string", "null"] },
+          remoteDirectory: { type: ["string", "null"] },
         },
-        required: ["name", "host"],
+        required: ["sessionID", "name", "host"],
         additionalProperties: false,
       } as const,
       output: looseObject,
@@ -49,8 +50,8 @@ export const SshDevicesRpc = Rpc.define({
     remove: {
       input: {
         type: "object",
-        properties: { id: { type: "string" } },
-        required: ["id"],
+        properties: { id: { type: "string" }, sessionID: { type: "string" } },
+        required: ["sessionID", "id"],
         additionalProperties: false,
       } as const,
       output: looseObject,

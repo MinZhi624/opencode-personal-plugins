@@ -80,6 +80,7 @@ export default Plugin.define({
       const trimmedPort = port.trim()
       try {
         await devices.save({
+          sessionID: requireSessionID(),
           id: device.id,
           name: name.trim() || device.name,
           host: host.trim() || device.host,
@@ -118,6 +119,7 @@ export default Plugin.define({
       const trimmedPort = port.trim()
       try {
         await devices.save({
+          sessionID: requireSessionID(),
           name: name.trim(),
           host: host.trim(),
           user: user.trim() || undefined,
@@ -163,7 +165,7 @@ export default Plugin.define({
       })
       if (!confirmed) return
       try {
-        await devices.remove({ id: device.id })
+        await devices.remove({ id: device.id, sessionID: requireSessionID() })
         context.ui.toast.show({ title: "SSH 设备", message: "已删除设备。", variant: "success" })
       } catch (error) {
         context.ui.toast.show({ title: "SSH 设备", message: errorMessage(error), variant: "error" })
@@ -175,10 +177,16 @@ export default Plugin.define({
       return route?.type === "session" ? route.sessionID : undefined
     }
 
+    function requireSessionID(): string {
+      const id = currentSessionID()
+      if (!id) throw new Error("请先打开会话并切换到 SSH 角色，再管理设备。")
+      return id
+    }
+
     async function openDeviceManager(): Promise<void> {
       let list: DeviceRecord[] = []
       try {
-        const result = await devices.list({})
+        const result = await devices.list({ sessionID: requireSessionID() })
         list = ((result as { devices?: DeviceRecord[] }).devices ?? []) as DeviceRecord[]
       } catch (error) {
         context.ui.toast.show({ title: "SSH 设备", message: errorMessage(error), variant: "error" })

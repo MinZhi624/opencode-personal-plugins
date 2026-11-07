@@ -5,6 +5,8 @@
  * 远端工作目录。不保存密码、私钥内容或任何认证材料——沿用上游
  * 「仅密钥／SSH agent 认证」的既有边界。
  */
+import { parseConnectionOptions, serializeConnectionOptions, validateTarget } from "../connection-options.js"
+
 export interface DeviceProfile {
   id: string
   /** 显示名兼别名，例如「开发服务器」。 */
@@ -15,7 +17,7 @@ export interface DeviceProfile {
   port: number | null
   /** 私钥文件路径，只存路径不存内容。 */
   identityFile: string | null
-  /** 追加的原始 ssh 参数，例如 `-J jump.example.com`。 */
+  /** allowlist 内的 ssh 参数，例如 `-J jump.example.com`。 */
   options: string | null
   /** 可选的远端工作目录。 */
   remoteDirectory: string | null
@@ -75,6 +77,15 @@ export function normalizeDeviceInput(input: Partial<DeviceInput>): NormalizedDev
 
   const host = clean(input.host)
   if (!host) throw new DeviceError("设备地址不能为空。")
+  const user = clean(input.user)
+  const options = clean(input.options)
+  try {
+    if (host.includes("@")) throw new Error("设备地址不含用户名；请使用 user 字段。")
+    validateTarget(user ? `${user}@${host}` : host)
+    parseConnectionOptions(options)
+  } catch (error) {
+    throw new DeviceError(error instanceof Error ? error.message : String(error))
+  }
 
   const port = input.port === undefined || input.port === null ? null : cleanNumber(input.port)
   if (input.port !== undefined && input.port !== null && port === null) {
@@ -84,15 +95,18 @@ export function normalizeDeviceInput(input: Partial<DeviceInput>): NormalizedDev
     throw new DeviceError("端口必须在 1–65535 之间。")
   }
 
-  return {
+  const normalized: NormalizedDevice = {
     name,
     host,
-    user: clean(input.user),
+    user,
     port,
     identityFile: clean(input.identityFile),
-    options: clean(input.options),
+    options,
     remoteDirectory: clean(input.remoteDirectory),
   }
+  try { deviceOptions(normalized) }
+  catch (error) { throw new DeviceError(error instanceof Error ? error.message : String(error)) }
+  return normalized
 }
 
 /** 组装 `ssh` 的目标参数，例如 `axiang@192.168.1.20`。 */
@@ -107,8 +121,10 @@ export function deviceOptions(
   const parts: string[] = []
   if (device.port) parts.push("-p", String(device.port))
   if (device.identityFile) parts.push("-i", device.identityFile)
-  if (device.options) parts.push(device.options)
-  return parts.length ? parts.join(" ") : undefined
+  parts.push(...parseConnectionOptions(device.options))
+  const result = serializeConnectionOptions(parts)
+  parseConnectionOptions(result)
+  return result
 }
 
 /**
@@ -131,7 +147,7 @@ export function profileFromTarget(
   let port: number | null = null
   let identityFile: string | null = null
   const rest: string[] = []
-  const tokens = options?.trim() ? options.trim().split(/\s+/) : []
+  const tokens = parseConnectionOptions(options)
   for (let i = 0; i < tokens.length; i += 1) {
     const token = tokens[i]!
     if (token === "-p" && tokens[i + 1]) {
@@ -152,6 +168,6 @@ export function profileFromTarget(
     user,
     port,
     identityFile,
-    options: rest.length ? rest.join(" ") : null,
+    options: serializeConnectionOptions(rest) ?? null,
   }
 }

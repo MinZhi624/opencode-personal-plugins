@@ -35,6 +35,8 @@ export function createDeviceStore(ctx) {
             const devices = await list();
             const now = Date.now();
             const existing = input.id ? devices.find((device) => device.id === input.id) : undefined;
+            if (input.id && !existing)
+                throw new DeviceError(`未找到设备 ${input.id}，不能更新。`);
             const clash = devices.find((device) => device.id !== existing?.id && device.name.toLowerCase() === normalized.name.toLowerCase());
             if (clash)
                 throw new DeviceError(`已存在同名设备「${clash.name}」，请换一个名称。`);

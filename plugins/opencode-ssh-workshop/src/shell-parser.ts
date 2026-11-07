@@ -1,4 +1,6 @@
 import { createRequire } from "node:module"
+import { createHash } from "node:crypto"
+import { readFile } from "node:fs/promises"
 import { basename, dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { Language, Parser, type Node } from "web-tree-sitter"
@@ -7,6 +9,7 @@ const MAX_COMMAND_LENGTH = 100_000
 const MAX_DEPTH = 32
 const MAX_NODES = 20_000
 const MAX_RESOURCES = 512
+export const BASH_GRAMMAR_SHA256 = "8292919c88a0f7d3fb31d0cd0253ca5a9531bc1ede82b0537f2c63dd8abe6a7a"
 
 export class UnscannableCommandError extends Error {
   constructor(message: string) {
@@ -17,6 +20,7 @@ export class UnscannableCommandError extends Error {
 
 export interface ScanResult {
   readonly resources: readonly string[]
+  readonly writePaths: readonly string[]
 }
 
 function refuse(message: string): never {
@@ -28,9 +32,11 @@ function getParser(): Promise<Parser> {
   return parserPromise ??= (async () => {
     const require = createRequire(import.meta.url)
     await Parser.init({ locateFile: () => require.resolve("web-tree-sitter/tree-sitter.wasm") })
-    const language = await Language.load(
-      join(dirname(fileURLToPath(import.meta.url)), "..", "grammar", "tree-sitter-bash.wasm"),
-    )
+    const grammar = join(dirname(fileURLToPath(import.meta.url)), "..", "grammar", "tree-sitter-bash.wasm")
+    if (createHash("sha256").update(await readFile(grammar)).digest("hex") !== BASH_GRAMMAR_SHA256) {
+      throw new Error("Bash grammar SHA-256 does not match pinned tree-sitter-bash@0.25.1")
+    }
+    const language = await Language.load(grammar)
     const parser = new Parser()
     parser.setLanguage(language)
     return parser
@@ -146,6 +152,7 @@ function wrapperCommand(name: string, args: string[]): string[] {
 interface Analysis {
   parser: Parser
   resources: Set<string>
+  writePaths: Set<string>
   nodes: number
   characters: number
 }
@@ -153,6 +160,30 @@ interface Analysis {
 function resource(analysis: Analysis, argv: string[]): void {
   analysis.resources.add(argv.join(" "))
   if (analysis.resources.size > MAX_RESOURCES) refuse("权限资源超过分析上限")
+}
+
+/** Git's documented global options precede the subcommand; never guess unknown ones. */
+function gitCommand(args: string[]): string[] {
+  let index = 0
+  const values = ["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--config-env"]
+  const flags = ["--bare", "--no-pager", "--paginate", "-P", "-p", "--no-replace-objects", "--literal-pathspecs", "--glob-pathspecs", "--noglob-pathspecs", "--icase-pathspecs", "--no-optional-locks", "--no-lazy-fetch", "--no-advice"]
+  while (index < args.length && args[index]!.startsWith("-")) {
+    const arg = args[index++]!
+    if (arg === "--") break
+    if (flags.includes(arg)) continue
+    const option = values.find((value) => arg === value || (value.startsWith("--") ? arg.startsWith(`${value}=`) : arg.startsWith(value)))
+    if (!option) {
+      if (["--version", "-v", "--help", "-h", "--exec-path", "--html-path", "--man-path", "--info-path", "--list-cmds"].includes(arg)) return []
+      refuse(`不支持 Git 全局选项：${arg}`)
+    }
+    if (arg === option && index++ >= args.length) refuse("Git 全局选项缺少参数")
+  }
+  return args.slice(index)
+}
+
+function writePath(analysis: Analysis, path: string): void {
+  analysis.writePaths.add(path)
+  if (analysis.writePaths.size > MAX_RESOURCES) refuse("写入目标超过分析上限")
 }
 
 /** Analyze actual decoded argv, recursively through supported dispatchers. */
@@ -166,6 +197,27 @@ function executable(analysis: Analysis, argv: string[], depth: number): void {
   resource(analysis, argv)
   // Keep path-specific checks AND the lexical command policy (e.g. git push*).
   if (name !== path) resource(analysis, [name, ...args])
+  if (name === "git") {
+    const command = gitCommand(args)
+    if (command.length) resource(analysis, ["git", ...command])
+  }
+  if (name === "rm") {
+    const options = args.slice(0, args.indexOf("--") < 0 ? args.length : args.indexOf("--"))
+    const recursive = options.some((arg) => arg === "--recursive" || /^-[^-]*[rR]/.test(arg))
+    const force = options.some((arg) => arg === "--force" || /^-[^-]*f/.test(arg))
+    if (recursive && force) resource(analysis, ["rm", "-rf", ...args])
+  }
+  if (name === "tee") {
+    let operands = false
+    for (const arg of args) {
+      if (!operands && arg === "--") { operands = true; continue }
+      if (!operands && arg.startsWith("-")) {
+        if (/^-[ai]+$/.test(arg) || ["--append", "--ignore-interrupts", "--output-error", "-p"].includes(arg) || arg.startsWith("--output-error=")) continue
+        refuse(`不支持 tee 选项：${arg}`)
+      }
+      writePath(analysis, arg)
+    }
+  }
 
   if (UNSUPPORTED_DISPATCHERS.has(name)) refuse(`不支持静态分析此 shell／包装入口：${name}`)
   if (name === "printf" && (args.some((arg) => arg.startsWith("-v")) || args.some((arg) => /%[-+ #0]*(?:\d+|\*)?(?:\.(?:\d+|\*))?n/.test(arg.replace(/%%/g, ""))))) {
@@ -222,11 +274,18 @@ function visit(analysis: Analysis, node: Node, depth: number): void {
       assignment(node.text)
       return
     }
-    case "file_redirect":
-      for (const child of children(node)) {
-        if (child.type !== "file_descriptor") literal(child)
-      }
+    case "file_redirect": {
+      if (/^\d*[<>]&-$/.test(node.text)) return
+      const destination = node.childForFieldName("destination")
+      if (!destination) refuse("重定向缺少明确目标")
+      const path = literal(destination)
+      const operator = node.children.find((child) => child && [">", ">>", ">|", "&>", "&>>", "<>", ">&", "<&", "<"].includes(child.type))?.type
+      if (!operator) refuse("不支持的文件重定向")
+      // Numeric fd duplication (2>&1), fd closure, and input-only < are not edits.
+      if ([">&", "<&"].includes(operator) && /^(?:\d+-?|-)$/.test(path)) return
+      if (operator !== "<") writePath(analysis, path)
       return
+    }
     case "for_statement": {
       const variable = node.childForFieldName("variable")
       if (variable?.type !== "variable_name") refuse("for 循环没有确定的赋值目标")
@@ -295,10 +354,10 @@ export async function scanBashCommand(command: string): Promise<ScanResult> {
   } catch (error) {
     return refuse(`Bash 解析器初始化失败：${error instanceof Error ? error.message : String(error)}`)
   }
-  const analysis: Analysis = { parser, resources: new Set(), nodes: 0, characters: 0 }
+  const analysis: Analysis = { parser, resources: new Set(), writePaths: new Set(), nodes: 0, characters: 0 }
   scanSource(analysis, command, 0)
   if (!analysis.resources.size) refuse("没有可识别的可执行命令")
-  return { resources: [...analysis.resources] }
+  return { resources: [...analysis.resources], writePaths: [...analysis.writePaths] }
 }
 
 /**
@@ -400,6 +459,17 @@ function argvHasSsh(scan: LooseScan, argv: readonly string[], depth: number): bo
   if (!name) return false
   const base = basename(name)
   if (isSshExecutable(name)) return true
+  // These are executable transport overrides, not ordinary data arguments.
+  if (args.some((arg) => /^(?:GIT_SSH_COMMAND|GIT_SSH)=/.test(arg))) return true
+  if (base === "git" && args.some((arg) => /^(?:core\.sshcommand(?:=|$)|--config-env=core\.sshcommand=)/i.test(arg))) return true
+  if (base === "git" && args.some((arg) => /^-ccore\.sshcommand=/i.test(arg))) return true
+  if (base === "rsync") {
+    for (let index = 0; index < args.length; index++) {
+      const arg = args[index]!
+      if (arg === "-e" || arg === "--rsh") return true
+      if (arg.startsWith("--rsh=") || /^-e.+/.test(arg)) return true
+    }
+  }
 
   // `command -v ssh` queries a path; it does not execute ssh.
   if (base === "command" && (args[0] === "-v" || args[0] === "-V")) return false
@@ -438,6 +508,7 @@ function argvHasSsh(scan: LooseScan, argv: readonly string[], depth: number): bo
 
 function walkLoose(scan: LooseScan, node: Node, depth: number): boolean {
   if (++scan.nodes > MAX_NODES) return true
+  if (node.type === "variable_assignment" && ["GIT_SSH_COMMAND", "GIT_SSH", "RSYNC_RSH"].includes(node.childForFieldName("name")?.text ?? "")) return true
   if (node.type === "command") {
     const name = commandName(node)
     if (name) {

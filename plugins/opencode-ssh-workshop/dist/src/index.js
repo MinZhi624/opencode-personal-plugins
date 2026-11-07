@@ -15,6 +15,7 @@ import { createDownloadTool, createUploadTool } from "./tools/transfer.js";
 import { createRemoteFileTools } from "./tools/remote-files.js";
 import { createDevicesTool } from "./tools/devices-tool.js";
 import { assertPermissionApi } from "./permission.js";
+import { connectionPermission } from "./connection-options.js";
 export default Plugin.define({
     id: "opencode-ssh-workshop",
     async setup(context) {
@@ -64,15 +65,19 @@ export default Plugin.define({
                     const model = definition.model;
                     if (model) {
                         const [providerID, ...rest] = model.split("/");
-                        const variant = definition.variant;
                         draft.model = {
                             providerID,
                             id: rest.join("/"),
-                            ...(variant ? { variant } : {}),
                         };
                     }
                     else if (inheritedModel) {
                         draft.model = inheritedModel;
+                    }
+                    const variant = definition.variant;
+                    if (variant) {
+                        if (!draft.model)
+                            throw new Error(`${id}: variant 需要显式 model 或可继承的角色模型。`);
+                        draft.model = { ...draft.model, variant };
                     }
                 });
             }
@@ -84,16 +89,31 @@ export default Plugin.define({
                 return;
             for (const name of LOCAL_TOOLS_TO_HIDE)
                 delete event.tools[name];
+            const temperature = options.agents[event.agent]?.temperature;
+            if (temperature !== undefined)
+                event.options.temperature = temperature;
         });
         // 兜底：本地工具不能被 SSH 角色触达；非 SSH 角色也不能进入 SSH 工具或
         // 通过本机 shell 执行 ssh／scp／sftp。使用事件里的真实角色，不信任工具参数。
         await context.tool.hook("execute.before", (event) => guardToolCall(event.agent, event.tool, event.input));
         // 设备档案的 RPC：`/ssh-devices` 界面通过它读写与连接，
         // 与 ssh_devices 工具操作同一份数据。
+        async function authorizeDeviceRpc(sessionID, operation) {
+            const session = await context.session.get({ sessionID });
+            assertSshSessionAgent(session?.agent);
+            await context.permission.assert({
+                sessionID, agent: session.agent, action: "ssh_devices", resources: ["*"],
+                save: ["*"], metadata: { operation, source: "rpc" },
+            });
+        }
         const rpc = await context.rpc.register(SshDevicesRpc, {
-            list: async () => ({ devices: await devices.list() }),
+            list: async (input) => {
+                await authorizeDeviceRpc(input.sessionID, "list");
+                return { devices: await devices.list() };
+            },
             save: async (input, callContext) => {
                 const args = input;
+                await authorizeDeviceRpc(args.sessionID, "save");
                 try {
                     const device = await devices.save({
                         id: args.id,
@@ -113,7 +133,8 @@ export default Plugin.define({
                 }
             },
             remove: async (input, callContext) => {
-                const { id } = input;
+                const { id, sessionID } = input;
+                await authorizeDeviceRpc(sessionID, "remove");
                 const removed = await devices.remove(id);
                 if (!removed) {
                     const message = `未找到设备 ${id}`;
@@ -123,6 +144,7 @@ export default Plugin.define({
             },
             connect: async (input, callContext) => {
                 const { sessionID, deviceID } = input;
+                await authorizeDeviceRpc(sessionID, "connect");
                 const profile = await devices.get(deviceID);
                 if (!profile) {
                     const message = `未找到设备 ${deviceID}`;
@@ -142,12 +164,11 @@ export default Plugin.define({
                 // 界面只是「发起者」，不是跳过授权的理由：这里仍走 V2 原生权限检查，
                 // 因此配置里针对该设备的 deny 规则照样生效。
                 try {
+                    const permission = connectionPermission(target, deviceOptions(profile), profile.remoteDirectory);
                     await context.permission.assert({
                         sessionID,
-                        action: "ssh_connect",
-                        resources: [target],
-                        save: [target],
-                        metadata: { host: target, device: profile.name, source: "tui" },
+                        ...permission,
+                        metadata: { ...permission.metadata, device: profile.name, source: "tui" },
                     });
                 }
                 catch (error) {
@@ -174,6 +195,7 @@ export default Plugin.define({
             },
             status: async (input) => {
                 const { sessionID } = input;
+                await authorizeDeviceRpc(sessionID, "status");
                 const rootID = await workspaces.resolveRoot(sessionID);
                 const state = sessions.peek(rootID);
                 const workspace = workspaces.get(rootID);
@@ -186,20 +208,20 @@ export default Plugin.define({
                 };
             },
         });
-        // 会话清理：主会话被删除时关掉它的连接；子会话删除只清解析缓存，
+        // 会话清理：主会话被删除／执行失败时关掉它的连接；子会话只清解析缓存，
         // 不牵连主会话的共享连接（上游按单会话清理，这里对应改成按主会话）。
         const controller = new AbortController();
         void (async () => {
             for await (const event of context.event.subscribe({ signal: controller.signal })) {
                 const type = event.type;
-                if (type !== "session.deleted" && type !== "session.error")
+                if (type !== "session.deleted" && type !== "session.execution.failed")
                     continue;
                 const sessionID = event.data?.sessionID;
                 if (!sessionID)
                     continue;
                 const rootID = await workspaces.resolveRoot(sessionID).catch(() => sessionID);
                 workspaces.forgetSession(sessionID);
-                if (type === "session.deleted" && rootID === sessionID) {
+                if (rootID === sessionID) {
                     workspaces.clear(rootID);
                     sessions.remove(rootID);
                 }

@@ -122,8 +122,6 @@ const SIDEBAR_CLI_ENTRY_ORDER = ["quota", "sessionOverview", "timeline", "subage
 
 // 配置生成顺序固定，保证全选组合与参考样例逐字节一致。
 const OPENCODE_ENTRY_ORDER = ["sidebar", "alone", "workshop", "ssh"]
-const OPENCODE_EXTRAS_ORDER = ["workshop", "alone"]
-
 export const GROUPS = [
   {
     id: "workshop",
