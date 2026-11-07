@@ -29,6 +29,12 @@ await Promise.all([
   copy("plugins/opencode-quota-card-zh"),
   copy("plugins/opencode-skill-panel"),
   copy("plugins/gpt-reset-credits"),
+  copy("plugins/opencode-ssh-workshop/dist"),
+  copy("plugins/opencode-ssh-workshop/package.json", "plugins/opencode-ssh-workshop/package.json"),
+  copy("plugins/opencode-ssh-workshop/index.ts", "plugins/opencode-ssh-workshop/index.ts"),
+  copy("plugins/opencode-ssh-workshop/tui.ts", "plugins/opencode-ssh-workshop/tui.ts"),
+  copy("plugins/opencode-ssh-workshop/LICENSE", "plugins/opencode-ssh-workshop/LICENSE"),
+  copy("plugins/opencode-ssh-workshop/README.md", "plugins/opencode-ssh-workshop/README.md"),
   copy("package.json"), copy("package-lock.json"), copy(".npmrc"), copy("README.md"), copy("LICENSE"), copy("THIRD_PARTY_NOTICES.md"), copy("install.sh"), copy("install.ps1"),
   copy("scripts/install-main.mjs", "scripts/install-main.mjs"),
   copy("scripts/install-groups.mjs", "scripts/install-groups.mjs"),
@@ -54,7 +60,7 @@ const staged = (await list(destination)).map((path) => relative(destination, pat
 // matt-workshop 的源码资产只允许出现在源码仓库：vendor / src / 内部 docs / 本地技能源目录
 // 一律不得进入运行包。local-skills 是手写本地技能（当前为 ask-matt）的唯一来源，
 // 日常同步会优先读取它覆盖同名上游技能后生成 skills/，但 local-skills 本身不参与发行。
-const forbidden = staged.filter((path) => /plugins\/opencode-matt-workshop\/(vendor|src|docs\/adr|docs\/implementation|local-skills)(\/|$)|(^|\/)\.agents(\/|$)|(^|\/)CONTEXT\.md$|sync-matt-skills|skill-policy|upstream-provenance/.test(path))
+const forbidden = staged.filter((path) => /plugins\/opencode-matt-workshop\/(vendor|src|docs\/adr|docs\/implementation|local-skills)(\/|$)|plugins\/opencode-ssh-workshop\/(vendor|src)(\/|$)|(^|\/)\.agents(\/|$)|(^|\/)CONTEXT\.md$|sync-matt-skills|skill-policy|upstream-provenance/.test(path))
 const quotaZhAllowed = /^plugins\/opencode-quota-zh\/(dist\/|index\.ts$|tui\.ts$|package\.json$|LICENSE$|README\.zh\.md$)/
 for (const path of staged) {
   if (path.startsWith("plugins/opencode-quota-zh/") && !quotaZhAllowed.test(path)) {
@@ -78,7 +84,27 @@ required.push(
   "plugins/opencode-session-overview-zh/src/card-controls.ts",
   "plugins/opencode-subagent-card-zh/src/card-controls.ts",
   "plugins/opencode-skill-panel/src/card-controls.ts",
+  "plugins/opencode-ssh-workshop/dist/src/index.js",
+  "plugins/opencode-ssh-workshop/dist/src/tui.js",
+  "plugins/opencode-ssh-workshop/dist/grammar/tree-sitter-bash.wasm",
+  "plugins/opencode-ssh-workshop/dist/grammar/README.md",
+  "plugins/opencode-ssh-workshop/dist/grammar/LICENSE",
+  "plugins/opencode-ssh-workshop/LICENSE",
+  "plugins/opencode-ssh-workshop/README.md",
 )
 for (const path of required) if (!staged.includes(path)) forbidden.push(`missing required runtime file: ${path}`)
 if (forbidden.length) throw new Error(`Runtime distribution isolation failed:\n${forbidden.join("\n")}`)
+// 安装器会先暂存、再在目标 bundle 安装依赖；因此这里不能默认加载需要
+// web-tree-sitter 的解析器。直接运行本脚本时仍做真实解析，安装器必须显式
+// 传入 --defer-runtime-check，并在 npm ci 后从目标布局补做同一检查。
+// 解析器在首次加载时校验固定 grammar SHA-256，因此上面的真实解析和安装后的
+// verifySshRuntime() 都会覆盖哈希，而不只是检查文件存在。
+if (!process.argv.includes("--defer-runtime-check")) {
+  const { pathToFileURL } = await import("node:url")
+  const { scanBashCommand } = await import(pathToFileURL(join(destination, "plugins/opencode-ssh-workshop/dist/src/shell-parser.js")).href)
+  const sshScan = await scanBashCommand("env git 'push' origin main")
+  if (!sshScan.resources.includes("git push origin main")) throw new Error("Staged SSH Bash parser check failed")
+} else {
+  console.log("SSH parser runtime check deferred until bundle dependencies are installed")
+}
 console.log(`Runtime staging passed (${staged.length} files): ${destination}`)

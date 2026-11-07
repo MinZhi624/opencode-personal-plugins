@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="#版本记录"><img alt="版本" src="https://img.shields.io/badge/版本-v1.0.0-blue?style=flat-square" /></a>
-  <a href="https://opencode.ai/v2/docs/"><img alt="OpenCode" src="https://img.shields.io/badge/OpenCode-2.0.18-blue?style=flat-square" /></a>
+  <a href="https://opencode.ai/v2/docs/"><img alt="OpenCode" src="https://img.shields.io/badge/OpenCode-2.0.31%2B-blue?style=flat-square" /></a>
   <a href="https://nodejs.org/"><img alt="Node.js" src="https://img.shields.io/badge/Node.js-%E6%8E%A8%E8%8D%9026.4%2B-339933?style=flat-square" /></a>
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" /></a>
 </p>
@@ -13,7 +13,7 @@
 
 ## 简介
 
-本包不重写 OpenCode，而是在若干开源项目基础上做 OpenCode 适配、中文化与本地整合。侧栏功能由独立宿主、共享会话统计和五张可分别启停的卡片组成：
+本包不重写 OpenCode，而是在若干开源项目基础上做 OpenCode 适配、中文化与本地整合。侧栏功能由独立宿主、共享会话统计和五张可分别启停的卡片组成；SSH 远程工作由独立插件和可选 `ssh` 组提供：
 
 | 插件 | 加载面 | 用途 | 独立说明 |
 | --- | --- | --- | --- |
@@ -23,10 +23,11 @@
 | `opencode-user-timeline-zh` | TUI | 用户消息节点时间线，支持滚轮浏览与点击定位 | [README.zh.md](plugins/opencode-user-timeline-zh/README.zh.md) |
 | `opencode-matt-workshop` | Server + TUI | Drafter、Foreman、Tinker、Workflow Skill 与模型预设（`/preset`、`/web-preset`） | [README.md](plugins/opencode-matt-workshop/README.md) |
 | `gpt-reset-credits` | Server | ChatGPT 重置卡查询与确认兑换 | [README.md](plugins/gpt-reset-credits/README.md) |
+| `opencode-ssh-workshop` | Server + TUI | 七个 SSH 角色、远端文件与命令工具、设备档案和 `/ssh-devices` | [README.md](plugins/opencode-ssh-workshop/README.md) |
 
 ## 核心设计原则
 
-侧栏、额度与工作流三部分共享同一组取舍，改动前先对照：
+侧栏、额度、工作流与 SSH 远程功能共享同一组取舍，改动前先对照：
 
 - **上游核心少改。** Provider 支持、额度查询、缓存与核心计算沿用上游；不为中文样式、卡片位置或显示开关深入修改上游核心。必要的 OpenCode v2 兼容补丁集中管理并记录原因和适用版本。
 - **适配层隔离上游变化。** 上游结果先转换为本地稳定的数据契约，卡片不直接依赖上游内部文件；上游接口变化优先在适配层解决。
@@ -36,6 +37,7 @@
 - **三种操作互相独立。** 隐藏卡片（显示偏好）、禁用卡片插件（撤销注册并清理）、停用额度后台（停止数据能力）不是同一件事，不互相暗中控制。
 - **估算不是账单。** Token 费用是按 models.dev 公开单价的估算，不等于 Provider 实际账单，也不等于 ChatGPT 订阅额度；无价格的模型显示“未定价”，不伪装成 `$0`。
 - **手动控制优先于自动判断。** Workshop 的角色切换、委派范围、TDD、验证范围都由用户显式选择，插件不自动切档、不默认扩张任务、不默认重审查。
+- **SSH 独立扩展。** 远程能力放在独立插件与 `ssh-*` 角色中，通过可选安装组和打包入口接入；不替换原有角色，默认 Agent 仍为 `tinker`，SSH 角色的本地工具限制不全局应用。
 
 各插件的详细边界见上文表格中的独立说明；本包的取舍记录以代码注释和上述原则为准。
 
@@ -51,6 +53,7 @@
 | opencode-plugins（`opencode-quota-extended`） | <https://github.com/arandevcode/opencode-plugins> | `opencode-quota-zh` 的额度卡片与 CLI 部分 |
 | opencode-user-timeline | <https://github.com/huahai0202/opencode-user-timeline> | `opencode-user-timeline-zh` 的用户消息节点面板 |
 | Matt Pocock Skills | <https://github.com/mattpocock/skills> | Workshop 的 Workflow Skill 来源 |
+| opencode-ssh-session | <https://github.com/PedroKlein/opencode-ssh-session> | `opencode-ssh-workshop` 的 SSH 会话实现来源；固定 v0.3.0，新增 V2 适配层 |
 | models.dev | <https://models.dev/> | API 标价估算的公开价格目录 |
 
 模型价格来自 models.dev 的公开 API 单价。估算金额不是 Provider 实际账单，也不是 ChatGPT 订阅余额。
@@ -61,14 +64,16 @@
 
 - Node.js 与 npm（推荐 26.4+）
 - Python 3.10+（仅安装 `alone` 组的 `gpt-reset-credits` 时需要）
-- OpenCode（侧栏组建议 2.0.26+，`opencode-quota-zh` 固定上游 v6）
+- OpenCode（侧栏组建议 2.0.26+，`opencode-quota-zh` 固定上游 v6；显式选择 SSH 组要求 **2.0.31+**，2.0.28 不兼容，且启动时检查 `permission.assert`；`--all`／`--without` 隐式包含时版本不足会跳过 SSH）
+- SSH（可选）：需要本机 `ssh`／`scp`；远端面向可运行 Bash 的 Linux；只支持密钥或 SSH agent，不支持密码交互
 
 Linux / macOS / WSL：
 
 ```bash
 bash install.sh                 # ↑↓ 移动、空格勾选、Enter 确认（预选上次安装的组合）
-bash install.sh --all           # 安装全部组与全部侧栏卡片，跳过提问
+bash install.sh --all           # 安装全部组与全部侧栏卡片；SSH 在版本不足时自动跳过
 bash install.sh --only workshop,sidebar
+bash install.sh --only workshop,ssh   # 工作流与 SSH 远程功能（2.0.31+）
 bash install.sh --only sidebar --cards timeline,skill   # 只装宿主与时间线／技能卡片
 ```
 
@@ -86,10 +91,11 @@ Set-ExecutionPolicy -Scope Process Bypass
 | `workshop` | `opencode-matt-workshop` | 工作流：Drafter / Tinker / Foreman、四个 Worker、25 个 Workflow Skill、模型预设与网页编排台 |
 | `sidebar` | 宿主、额度后台、共享会话统计与可选五张卡片 | 侧栏与额度：一屏内分组勾选卡片 |
 | `alone` | `gpt-reset-credits` | 独立插件；需要 Python 3.10+ |
+| `ssh` | `opencode-ssh-workshop` | SSH 远程工作：七个角色、设备管理与远端工具；依赖 `workshop` 组，显式选择要求 OpenCode 2.0.31+ |
 
 侧栏卡片与组件组在同一个彩色分组列表里选择：`↑↓` 移动、空格勾选、`Enter` 确认。勾选任意卡片会自动点亮「侧栏」并带上宿主 `opencode-sidebar-host-zh`、额度后台 `opencode-quota-zh` 与共享会话统计 `opencode-session-data`；`sessionOverview` 与 `subagents` 另带隐藏共享库 `opencode-enhanced-sidebar-zh`。取消「侧栏」会同时清空卡片。非交互安装用 `--cards timeline,skill` 指定（`--cards none` 只装侧栏基础），省略时默认全部卡片。
 
-组之间无依赖，可任意组合；侧栏基础随 `sidebar` 组安装，勾选卡片只额外补对应插件。
+`workshop`、`sidebar`、`alone` 三组可任意组合；`ssh` 组依赖 `workshop`，需同时选择，单独选择 `ssh` 会报错。侧栏基础随 `sidebar` 组安装，勾选卡片只额外补对应插件。
 `/quota` 命令随侧栏基础安装，不勾选任何卡片也可用。
 非交互环境（CI／重定向）请显式使用 `--all` 或 `--only` / `--without`，
 不带参数会报错退出而不静默全装。
@@ -117,6 +123,17 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 侧栏额度是 Quota 原生展示经本地 Adapter 接入宿主的唯一一份（稳定身份 `quota`），遵循宿主顺序与显隐，采用原生行布局，不再以旧固定 20 格、多行结构和已用／剩余双百分比为准；原生数据、重置、刷新与错误状态按原规则呈现，未知不显示为零。额度设置仍由 `~/.config/opencode/opencode-quota/settings.jsonc` 单一所有者管理，`/quota`、`/quota_settings` 等原生入口保留；隐藏卡片、禁用卡片插件、停用额度后台是三种互相独立的操作。
 
+## SSH 远程工作
+
+`ssh` 组通过独立插件增加远端能力：OpenCode 与模型调用留在本机，文件读写和命令执行通过 SSH 落到远端，远端不需要安装 OpenCode。基础工具包含连接、执行、断开、状态、上传与下载，另有 `ssh_read`、`ssh_write`、`ssh_glob`、`ssh_grep` 和设备档案工具；不支持 `vim`、`top` 等交互／TUI 命令。
+
+安装后手动切换到 `ssh-drafter`、`ssh-tinker` 或 `ssh-foreman` 主角色；四个 Worker 为 `ssh-maker`、`ssh-inspector`、`ssh-archivist`、`ssh-surveyor`。可用自然语言请求连接目标，或打开 `/ssh-devices` 管理设备并发起连接。原有本机角色保留，不自动切换角色；安装器会自动补齐配置，手工合并时 Workshop 插件须先于 SSH 插件加载，并合并七条 `ssh-*` 角色声明，不要添加第二个 `agents` 对象。
+
+远端命令先做 Bash 静态分析，再走 V2 原生权限检查，全部资源通过后才发送原文；无法可靠分析的语法直接拒绝，不降级放行。本机角色不能调用 SSH 工具，也不能通过本机 shell 执行可识别的 `ssh`／`scp`／`sftp` 命令，需手动切换 SSH 角色。这不代表支持全部 Bash，也不是系统沙箱，不分析任意程序或外部脚本的内部副作用。安装、agent 准备、设备档案和故障排查见 [SSH 插件说明](plugins/opencode-ssh-workshop/README.md)。
+
+> [!IMPORTANT]
+> SSH 权限专项和当前目录标记通过源码级检查；真实设备只读传输、小文件上传下载和现有自动权限检查有历史验证记录，但不是整套 SSH 功能验收。严格的“每个终端独立确认设备”未实现，大文件／并发传输、`/ssh-devices` 部分 TUI、设备档案跨项目共享与重启恢复仍未验收；初始目录边界也尚未完整验收。引用／复合命令保存审批后可能再次询问，详见 [SSH 插件交付说明](plugins/opencode-ssh-workshop/README.md#交付说明当前状态)。显式选择 `ssh` 组时严格要求 OpenCode 2.0.31+；`--all`／`--without` 隐式包含时版本不足会跳过 SSH 并继续其余组。插件启动时仍会检查权限接口。
+
 ## 更新
 
 1. 关闭 OpenCode。
@@ -138,6 +155,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 | `/sidebar-host-import` `/sidebar-host-status` | 显式导入旧设置／查看文件配置与注册诊断 |
 | `/tokens_today` `/tokens_weekly` `/tokens_monthly` `/tokens_all` `/tokens_session` | 上游遗留别名，默认不列出，映射到 `/quota_usage` 对应范围；可在 `/quota_status` 开启 |
 | `/gpt-reset-credits` | 查询 ChatGPT 重置卡；带“兑换”参数表示确认兑换 |
+| `/ssh-devices` | SSH 设备档案管理与连接入口；需安装 `ssh` 组并加载其 TUI 插件 |
 
 `/quota_settings` 的形状设置作用于 Quota 各展示位置；本套侧栏专属的整体进度条样式与单卡覆盖只在 `/sidebar-cards` 调整，两者互不改写。
 
@@ -158,6 +176,7 @@ Workshop（`workshop` 组）把上游 Matt Pocock Skills `v1.2.3` 的 25 个 Pro
 - 会话数据库（只读）：`${XDG_DATA_HOME:-~/.local/share}/opencode/opencode.db`
 - 模型价格快照：由额度服务端统一选择与刷新，侧栏统计经 RPC 镜像；价格缓存只保留模型 ID 与价格字段，不保存消息正文或凭证
 - 额度凭证：`opencode-quota-zh` 仅由上游 v6 服务端处理（v2 `integration.connection`），不再读取 Codex CLI 登录文件回退；`gpt-reset-credits` 的重置卡查询仍保留其 `CODEX_AUTH_PATH` 兼容回退
+- SSH 设备档案：由 OpenCode 插件存储保存地址、用户名、端口、密钥文件路径与可选远端目录，不写入项目 Git，不保存密码或私钥内容；跨项目共享与重启恢复仍需实际验收
 
 本包不包含、不提交 API key、OAuth token、cookie、会话数据库与账户数据；不要分享 auth 文件或未经检查的 `opencode debug config` 输出。
 
@@ -167,6 +186,7 @@ Workshop（`workshop` 组）把上游 Matt Pocock Skills `v1.2.3` 的 25 个 Pro
 2. 运行 `/quota_status` 检查 Provider、价格快照来源与未定价模型。
 3. Token 报告为空时，先启动 OpenCode 生成 `opencode.db`，再运行一个有模型用量的会话。
 4. 常见症状与解决方案见 [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md)。
+5. SSH 提示权限接口缺失时，确认运行时提供 `permission.assert`；SSH 要求 OpenCode 2.0.31+，不为 2.0.28 降级授权。其他已知问题见 [SSH 插件说明](plugins/opencode-ssh-workshop/README.md)。
 
 ## 卸载
 
@@ -184,7 +204,8 @@ Workshop（`workshop` 组）把上游 Matt Pocock Skills `v1.2.3` 的 25 个 Pro
 
 当前版本 **1.0.0**，与 `package.json` 及各插件 `package.json` 的 `version` 字段一致；root README 徽章随该版本号更新。
 
-- 公开文档只覆盖用法与核心设计原则；内部设计与讨论记录不随安装包分发，安装后可用的文档见 bundle 的 `docs/`。
+- 公开文档只覆盖用法与核心设计原则；内部设计与讨论记录不随安装包分发，安装后可用的文档见 bundle 的 `docs/TROUBLESHOOTING.md`。按已选组件组，对应的插件目录与说明文档才会出现在 bundle 中。
+- 新增可选 `ssh` 组，依赖 `workshop`，通过独立插件提供七个 SSH 角色与远端工具；原有默认 Agent 仍为 `tinker`。
 - OpenCode 兼容性以实际运行结果为准；升级 OpenCode 后如遇异常，先查排障文档。
 
 ## 许可证与声明
